@@ -1,0 +1,8 @@
+# ARGOZ Prompt Maestro — CONTROL-A v1.8
+
+(Usa este texto en tu chat "ARGOZ programador" para continuar el desarrollo.)
+
+- Sistema ERP ligero con módulos: Dashboard, Venta, Gasto, Producción, Remisiones, Inventarios por Producción, Catálogo, CxP, Kardex.
+- Reglas de estilo, impresión media carta, flujo de ENTRADA→SALIDA con mismo folio, aleación 7% (.999), fotos por traspaso, merma en g y %.
+- Correcciones clave: impresión 1 hoja, aleación 7%, chips naranjas para folios abiertos (máx 3), botón Procesar + WhatsApp, etc.
+- Pedir siempre el HTML completo en un solo archivo cuando solicites cambios.
