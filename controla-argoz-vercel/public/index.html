@@ -1,229 +1,462 @@
 <!DOCTYPE html>
 <html lang="es-MX">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CONTROL-A v1.8 — argozmx · Guadalajara, Jalisco</title>
-  <style>
-    body {
-      margin: 0;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
-      background: #f7fafc;
-      color: #111;
-    }
-    header {
-      background: #0a2c4c;
-      color: #fff;
-      padding: 10px 20px;
-      font-weight: bold;
-    }
-    .app { display: flex; height: 100vh; }
-    aside.side {
-      width: 200px;
-      background: #0a2c4c;
-      color: #fff;
-      display: flex;
-      flex-direction: column;
-    }
-    .side-item {
-      background: transparent;
-      border: none;
-      color: #fff;
-      text-align: left;
-      padding: 12px 16px;
-      cursor: pointer;
-    }
-    .side-item.active, .side-item:hover {
-      background: #153d66;
-    }
-    .mid { width: 0; }
-    main.content {
-      flex: 1;
-      padding: 16px;
-      overflow-y: auto;
-    }
-    h2 { color: #0a2c4c; margin-top: 0; }
-    .card {
-      background: #fff;
-      border-radius: 12px;
-      padding: 16px;
-      margin-bottom: 16px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-    }
-    .actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 12px;
-    }
-    .btn-primary { background: #0a2c4c; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
-    .btn-outline { border: 1px solid #0a2c4c; background: #fff; color: #0a2c4c; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
-    .btn-warn { background: orange; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
-    .btn-danger { background: red; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 12px; margin: 12px 0; }
-    .grid label { font-size: 13px; display: block; margin-bottom: 4px; }
-    .grid input, .grid textarea, .grid select {
-      width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 6px;
-    }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
-    th { background: #0a2c4c; color: #fff; }
-    .nota-table tfoot td { text-align: right; }
-    .hint { font-size: 13px; color: #444; }
-    .bar-gray { background: #ddd; padding: 6px; margin-top: 8px; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CONTROL-A v1.9 — argozmx · Guadalajara, Jalisco</title>
+<style>
+:root{--azul:#0a2c4c;--azul2:#153d66;--beige:#edcdb7;--cafe:#5b3b27;--ok:#16a34a;--warn:#f59e0b;--rojo:#b91c1c}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif;background:#f7fafc;color:#0f172a}
+header{background:var(--azul);color:#fff;padding:10px 16px;font-weight:700;display:flex;gap:8px;align-items:center;justify-content:space-between}
+header .mini{font-weight:400;opacity:.9}
+.app{display:grid;grid-template-columns:240px 260px 1fr;gap:0;min-height:calc(100vh - 52px)}
+/* Paneles */
+.left{background:var(--azul);color:#fff;padding:8px;overflow:auto}
+.mid{background:#eef2f7;border-right:1px solid #e5e7eb;padding:8px;overflow:auto}
+.right{padding:10px;overflow:auto}
+h2{color:var(--azul);margin:0 0 8px}
+.card{background:#fff;border-radius:12px;padding:12px;box-shadow:0 6px 20px rgba(2,6,23,.06);margin-bottom:10px}
+ul.tree{list-style:none;margin:0;padding:0}
+ul.tree li{margin:2px 0}
+.tree-btn{all:unset;display:block;width:100%;padding:8px 10px;border-radius:8px;cursor:pointer}
+.tree-btn:hover{background:var(--azul2)}
+.tree-btn.active{background:var(--azul2);box-shadow:inset 0 0 0 1px #214e80}
+.subitem{all:unset;display:block;width:100%;padding:6px 8px;border-radius:8px;cursor:pointer;color:#0a2c4c;border:1px solid transparent}
+.subitem:hover{background:#e8eef6;border-color:#cbd5e1}
+.badge{font-size:12px;padding:2px 6px;border-radius:999px;border:1px solid #e5e7eb;background:#fff;margin-left:6px}
+/* Tabs */
+.tabs{display:flex;gap:6px;border-bottom:1px solid #e5e7eb;margin-bottom:8px;flex-wrap:wrap}
+.tab{background:#fff;border:1px solid #e5e7eb;border-bottom:none;border-radius:10px 10px 0 0;padding:6px 10px;cursor:pointer}
+.tab.active{background:#fefefe;font-weight:600;box-shadow:0 -1px 0 #0a2c4c inset}
+.tab .x{margin-left:8px;color:#64748b;cursor:pointer}
+.view{display:none}.view.active{display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin:8px 0}
+label{font-size:12px;color:#334155;display:block;margin-bottom:4px}
+input,select,textarea{width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:8px}
+textarea{min-height:80px}
+table{width:100%;border-collapse:collapse;margin-top:6px}
+th,td{border:1px solid #e5e7eb;padding:6px;text-align:center}
+th{background:#e2e8f0;color:#334155}
+.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.btn{padding:8px 12px;border-radius:10px;border:1px solid transparent;cursor:pointer}
+.btn-primary{background:var(--azul);color:#fff}
+.btn-outline{background:#fff;color:var(--azul);border-color:var(--azul)}
+.btn-warn{background:var(--warn);color:#111}
+.btn-danger{background:#dc2626;color:#fff}
+.hint{font-size:12px;color:#475569}
+.kpi{background:#fff;padding:12px;border-radius:12px;border:1px solid #e5e7eb}
+.preview{display:flex;gap:6px;flex-wrap:wrap}
+.preview img{max-width:120px;border:1px solid #e5e7eb;border-radius:8px;padding:2px;background:#fff}
+.toast{position:fixed;right:10px;bottom:10px;background:#111827;color:#fff;padding:8px 12px;border-radius:10px;opacity:.95;display:none;z-index:9}
+@media print{
+  @page{ size:5.5in 8.5in; margin:10mm }
+  header,.left,.mid,.tabs,.no-print{display:none!important}
+  body{background:#fff}.card{box-shadow:none;margin:0;padding:0}
+}
+@media(max-width:1100px){
+  .app{grid-template-columns:200px 1fr}
+  .mid{display:none}
+}
+</style>
 </head>
 <body>
 <header>
-  CONTROL-A · argozmx — Guadalajara, Jalisco
+  <div>CONTROL-A · argozmx — Guadalajara, Jalisco <span class="mini">| provisional v1.9</span></div>
+  <div class="actions no-print">
+    <button id="btn-backup" class="btn btn-outline">⬇️ Respaldo</button>
+    <button id="btn-restore" class="btn btn-outline">⬆️ Restaurar</button>
+  </div>
 </header>
 
 <div class="app">
-  <!-- Menú lateral -->
-  <aside class="side" id="sidebar">
-    <button class="side-item active" data-sec="inicio">🏠 Inicio</button>
-    <button class="side-item" data-sec="venta">🧾 Venta</button>
-    <button class="side-item" data-sec="gasto">💸 Gasto</button>
-    <button class="side-item" data-sec="produccion">⚙️ Producción</button>
-    <button class="side-item" data-sec="remisiones">📚 Remisiones</button>
-    <button class="side-item" data-sec="mermas">🏷️ Inventarios producción</button>
-    <button class="side-item" data-sec="catalogo">📇 Catálogo</button>
-    <button class="side-item" data-sec="cxp">📅 CxP</button>
-    <button class="side-item" data-sec="kardex">📈 Kardex</button>
-  </aside>
+  <!-- ULTRA IZQUIERDA: MENÚ MAESTRO -->
+  <div class="left">
+    <div class="card" style="background:#0a2c4c1a;border:1px solid #ffffff33;color:#fff">
+      <h2 style="color:#fff;margin:0 0 8px">Menú</h2>
+      <ul class="tree">
+        <li><button class="tree-btn active" data-root="inicio">🏠 Inicio</button></li>
+        <li><button class="tree-btn" data-root="ventas">🧾 Ventas</button></li>
+        <li><button class="tree-btn" data-root="inventarios">🏷️ Inventarios producción</button></li>
+        <li><button class="tree-btn" data-root="pedidos">📦 Pedidos</button></li>
+        <li><button class="tree-btn" data-root="catalogo">📇 Catálogo</button></li>
+      </ul>
+    </div>
+  </div>
 
-  <main class="content" id="content">
-    <!-- Dashboard -->
-    <section id="screen-inicio">
-      <div class="card">
-        <h2>Dashboard semanal</h2>
-        <div class="grid">
-          <div><b>Ventas:</b> $0.00</div>
-          <div><b>Gastos:</b> $0.00</div>
-          <div><b>CxP:</b> $0.00</div>
-          <div><b>Meta prod.:</b> 0 g</div>
-          <div><b>Mermas:</b> 0 g</div>
-        </div>
-      </div>
-    </section>
+  <!-- SUBMENÚ (CENTRO) -->
+  <div class="mid" id="subpanel">
+    <!-- se llena dinámicamente -->
+  </div>
 
-    <!-- INVENTARIOS POR PRODUCCIÓN -->
-    <section id="screen-mermas" style="display:none">
-      <div class="card">
-        <h2>Inventarios por producción</h2>
-        <div class="hint">Política: máx 3 folios abiertos</div>
-        <div class="actions">
-          <button class="btn-primary" id="btn-merma-nuevo">+ Nuevo traspaso de ENTRADA</button>
-          <button class="btn-outline" id="btn-merma-procesar">Procesar traspasos abiertos</button>
-          <button class="btn-outline" id="btn-ver-pendientes">Ver folios pendientes</button>
-        </div>
-        <div style="margin-top:8px">
-          <label>Folios pendientes</label>
-          <div id="mf-pendientes" style="display:flex;gap:6px;flex-wrap:wrap"></div>
-        </div>
-      </div>
-
-      <div id="mf-form" class="card" style="display:none">
-        <div class="actions" style="justify-content:space-between">
-          <div class="hint" id="mf-breadcrumb">ENTRADA a línea de producción</div>
-          <div class="actions">
-            <button class="btn-warn" id="btn-procesar" style="display:none">Procesar</button>
-            <button class="btn-outline" id="btn-share" style="display:none">📲 WhatsApp</button>
-          </div>
-        </div>
-        <div class="grid">
-          <div><label>Tipo</label><input readonly value="ENTRADA"/></div>
-          <div><label>Folio</label><input id="mf-folio" readonly/></div>
-          <div><label>Fecha</label><input id="mf-fecha"/></div>
-          <div><label>Hora (auto)</label><input id="mf-hora" readonly/></div>
-        </div>
-
-        <table class="nota-table" id="mf-tabla">
-          <thead>
-            <tr>
-              <th>Material</th><th>Gramos bruto</th><th>Aleación</th><th>Peso bote</th><th>Peso neto</th><th>Foto</th><th></th>
-            </tr>
-          </thead>
-          <tbody id="mf-body"></tbody>
-          <tfoot>
-            <tr><td colspan="7"><button class="btn-outline" id="mf-add">+ Agregar línea</button></td></tr>
-          </tfoot>
-        </table>
-
-        <div class="grid">
-          <div>
-            <label>Fotos del traspaso (mín 1)</label>
-            <input type="file" id="mf-fotos" accept="image/*" multiple capture="environment"/>
-          </div>
-          <div>
-            <label>Observaciones</label>
-            <textarea id="mf-obs"></textarea>
-          </div>
-        </div>
-
-        <div class="actions">
-          <button class="btn-primary" id="mf-guardar">Guardar</button>
-          <button class="btn-outline" id="mf-imprimir">Vista previa</button>
-          <button class="btn-danger" id="mf-cancel">Cancelar</button>
-        </div>
-
-        <div id="mf-fotos-preview" class="actions" style="gap:6px;flex-wrap:wrap"></div>
-
-        <div id="mf-salida" style="display:none;margin-top:10px">
-          <div class="bar-gray"><b>SALIDA DE LÍNEA DE PRODUCCIÓN</b></div>
-          <table class="nota-table" id="mf-tabla-s">
-            <thead>
-              <tr>
-                <th>Material</th><th>Gramos bruto</th><th>Aleación</th><th>Peso bote</th><th>Peso neto</th><th>Foto</th><th></th>
-              </tr>
-            </thead>
-            <tbody id="mf-body-s"></tbody>
-            <tfoot>
-              <tr><td colspan="7"><button class="btn-outline" id="mf-add-s">+ Agregar línea</button></td></tr>
-            </tfoot>
-          </table>
-          <div class="grid">
-            <div><label>Fotos de salida (máx 3)</label><input id="mf-fotos-s" type="file" accept="image/*" multiple capture="environment"/></div>
-          </div>
-          <div id="mf-fotos-preview-s" class="actions" style="gap:6px;flex-wrap:wrap"></div>
-          <div class="actions">
-            <button class="btn-outline" id="mf-salida-parcial">Guardar salida parcial</button>
-            <button class="btn-warn" id="mf-salida-final">Cerrar con salida final</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- CATÁLOGO -->
-    <section id="screen-catalogo" style="display:none">
-      <div class="card">
-        <h2>Catálogo</h2>
-        <p>Aquí se gestionan Clientes, Materiales y Productos terminados.</p>
-      </div>
-    </section>
-  </main>
+  <!-- HOJA DE TRABAJO CON PESTAÑAS (DERECHA) -->
+  <div class="right">
+    <div class="tabs no-print" id="tabs"></div>
+    <div id="views"></div>
+  </div>
 </div>
 
+<div id="toast" class="toast"></div>
+
 <script>
-/* ======================
-   LÓGICA JS RESUMIDA
-   ======================
-   - Manejo de navegación (mostrar/ocultar secciones).
-   - Inventarios producción: crear entrada con folio, luego salida.
-   - Aleación automática: 7% si material es .999.
-   - Fotos: preview debajo de cada traspaso.
-   - Guardado en localStorage.
-   - Impresión: solo 1 hoja.
-   - Compartir (simulado WhatsApp).
-*/
-document.querySelectorAll(".side-item").forEach(btn=>{
-  btn.addEventListener("click",()=>{
-    document.querySelectorAll(".side-item").forEach(b=>b.classList.remove("active"));
-    btn.classList.add("active");
-    document.querySelectorAll("main section").forEach(sec=>sec.style.display="none");
-    document.querySelector("#screen-"+btn.dataset.sec).style.display="block";
-  });
+/* ========= UTILIDADES ========= */
+const $=s=>document.querySelector(s);
+const el=(t,a={})=>Object.assign(document.createElement(t),a);
+const toast=msg=>{const t=$("#toast"); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none',1800);}
+const fmt2=n=>(Number(n)||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+const today=()=>new Date().toLocaleDateString('es-MX');
+const now=()=>new Date().toLocaleTimeString('es-MX',{hour12:false,hour:'2-digit',minute:'2-digit'});
+
+/* ========= PERSISTENCIA (localStorage JSON) ========= */
+const DB={
+  get(k,def){return JSON.parse(localStorage.getItem(k)||JSON.stringify(def))},
+  set(k,v){localStorage.setItem(k,JSON.stringify(v))}
+}
+// claves
+const K_PED='argoz.pedidos';
+const K_INV='argoz.inventarios';
+
+// respaldo/restore
+$("#btn-backup").onclick=()=>{
+  const data={
+    pedidos:DB.get(K_PED,[]),
+    inventarios:DB.get(K_INV,[])
+  };
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=el('a',{href:URL.createObjectURL(blob),download:`argoz_backup_${Date.now()}.json`});
+  document.body.appendChild(a); a.click(); a.remove();
+};
+$("#btn-restore").onclick=()=>{
+  const inp=el('input',{type:'file',accept:'application/json'});
+  inp.onchange=()=>{ const f=inp.files[0]; 
+    if(!f) return;
+    const fr=new FileReader(); fr.onload=()=>{ 
+      try{ const obj=JSON.parse(fr.result);
+        if(obj.pedidos) DB.set(K_PED,obj.pedidos);
+        if(obj.inventarios) DB.set(K_INV,obj.inventarios);
+        toast('Datos restaurados'); renderSubpanel(); 
+      }catch(e){ toast('Archivo inválido'); }
+    }; fr.readAsText(f);
+  }; inp.click();
+};
+
+/* ========= TABS ========= */
+const tabs=$("#tabs"), views=$("#views");
+let openTabs=[]; // {id,title,elTab,elView}
+function openTab(id,title,contentBuilder){
+  // focus si ya está
+  const ex=openTabs.find(t=>t.id===id);
+  if(ex){activeTab(id); return;}
+  // crear
+  const t=el('div',{className:'tab',innerHTML:`${title} <span class="x">×</span>`});
+  const v=el('div',{className:'view'});
+  tabs.appendChild(t); views.appendChild(v);
+  openTabs.push({id,title,elTab:t,elView:v});
+  t.onclick=(e)=>{ if(e.target.classList.contains('x')) closeTab(id); else activeTab(id); };
+  contentBuilder(v); // pinta contenido
+  activeTab(id);
+}
+function activeTab(id){
+  openTabs.forEach(o=>{o.elTab.classList.toggle('active',o.id===id); o.elView.classList.toggle('active',o.id===id);});
+}
+function closeTab(id){
+  const i=openTabs.findIndex(o=>o.id===id);
+  if(i<0) return;
+  const wasActive=openTabs[i].elTab.classList.contains('active');
+  openTabs[i].elTab.remove(); openTabs[i].elView.remove();
+  openTabs.splice(i,1);
+  if(wasActive && openTabs.length) activeTab(openTabs[openTabs.length-1].id);
+}
+
+/* ========= SUBMENÚS ========= */
+const subpanel=$("#subpanel");
+function renderSubpanel(root='inicio'){
+  subpanel.innerHTML='';
+  const box=el('div',{className:'card'});
+  const h=el('h2'); h.textContent=({inicio:'Inicio',ventas:'Ventas',inventarios:'Inventarios por producción',pedidos:'Pedidos',catalogo:'Catálogo'})[root]||root;
+  box.appendChild(h);
+
+  // helpers para crear subitems
+  const add=(txt,fn)=>{ const b=el('button',{className:'subitem',textContent:txt}); b.onclick=fn; box.appendChild(b); };
+
+  if(root==='inicio'){
+    box.appendChild(el('div',{className:'kpi',innerHTML:'<b>Panel inicial</b>: usa el menú para abrir módulos y se crearán <u>pestañas</u> a la derecha.'}));
+  }
+
+  if(root==='inventarios'){
+    add('Folios pendientes',()=> openTab('inv-pend','Pendientes',viewPendientes));
+    add('+ Nuevo traspaso de ENTRADA',()=> openTab('inv-nuevo','Nuevo traspaso',viewInvNuevo));
+    add('Buscar folio…',()=> openTab('inv-buscar','Buscar folio',viewInvBuscar));
+  }
+
+  if(root==='pedidos'){
+    add('Lista de pedidos',()=> openTab('ped-lista','Pedidos',viewPedLista));
+    add('+ Nuevo pedido',()=> openTab('ped-nuevo','Nuevo pedido',viewPedNuevo));
+  }
+
+  if(root==='ventas'){
+    add('Remisiones (lista)',()=> openTab('ven-lista','Remisiones',v=>v.innerHTML='<div class="card">Próximamente…</div>'));
+    add('+ Nueva remisión',()=> openTab('ven-nueva','Nueva remisión',v=>v.innerHTML='<div class="card">Próximamente…</div>'));
+  }
+
+  if(root==='catalogo'){
+    add('Clientes',v=> openTab('cat-cli','Clientes',v=>v.innerHTML='<div class="card">Catálogo básico — pendiente.</div>'));
+    add('Materiales',v=> openTab('cat-mat','Materiales',v=>v.innerHTML='<div class="card">Catálogo básico — pendiente.</div>'));
+    add('Productos terminados',v=> openTab('cat-prod','Productos',v=>v.innerHTML='<div class="card">Catálogo básico — pendiente.</div>'));
+  }
+
+  subpanel.appendChild(box);
+}
+// activar ítem del menú maestro
+document.querySelectorAll('.tree-btn').forEach(b=>{
+  b.onclick=()=>{ document.querySelectorAll('.tree-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderSubpanel(b.dataset.root); }
 });
+renderSubpanel('inicio');
+
+/* ========= INVENTARIOS POR PRODUCCIÓN ========= */
+const MATS=["Plata .999","Plata .925 sólida","Limalla sólida","Limalla negra","Tierras .925","Otros .925","Mercancía terminada"];
+const ALLOY=0.07; // 7%
+
+function viewPendientes(v){
+  const data=DB.get(K_INV,[]).filter(x=>!x.cerrado);
+  v.innerHTML='';
+  const card=el('div',{className:'card'});
+  card.innerHTML=`<div class="actions"><b>Pendientes</b><span class="badge">${data.length}</span></div>`;
+  const wrap=el('div',{className:'actions'}); card.appendChild(wrap);
+  data.forEach(f=>{
+    const btn=el('button',{className:'btn btn-warn',textContent:`Folio ${f.folio}`});
+    btn.onclick=()=> openTab(`inv-folio-${f.folio}`,`Folio ${f.folio}`,vv=>viewInvFolio(vv,f.folio));
+    wrap.appendChild(btn);
+  });
+  v.appendChild(card);
+}
+
+function lineRow(tipo){
+  const roAle = (tipo==='E')?'':'readonly';
+  return `<tr>
+    <td><select class="mat">${MATS.map(m=>`<option>${m}</option>`)}</select></td>
+    <td><input type="number" step="0.01" class="bruto"></td>
+    <td><input type="number" step="0.01" class="alea" ${roAle}></td>
+    <td><input type="number" step="0.01" class="bote"></td>
+    <td><input type="number" step="0.01" class="neto"><div class="hint warn" style="display:none;color:#b91c1c">Bruto - Bote ≠ Neto</div></td>
+    <td><input type="file" class="foto" accept="image/*" capture="environment"></td>
+    <td><button class="btn btn-outline del">✕</button></td>
+  </tr>`;
+}
+
+function bindLine(tr,tipo,prevId){
+  const mat=tr.querySelector('.mat'), bruto=tr.querySelector('.bruto'), alea=tr.querySelector('.alea'),
+        bote=tr.querySelector('.bote'), neto=tr.querySelector('.neto'), warn=tr.querySelector('.warn'), del=tr.querySelector('.del'),
+        foto=tr.querySelector('.foto');
+  const refresh=()=>{
+    const is999=(mat.value==='Plata .999');
+    if(tipo==='E' && is999 && !alea.dataset.edited){
+      const v=Number(bruto.value||0)*ALLOY;
+      alea.value=v? v.toFixed(2):'';
+    }
+    alea.readOnly=!(tipo==='E' && is999);
+    const calc=(Number(bruto.value||0)-Number(bote.value||0));
+    if(neto.value==='') neto.value = calc? calc.toFixed(2):'';
+    warn.style.display=(Math.abs(Number(neto.value||0)-calc)>0.009)?'block':'none';
+  };
+  [mat,bruto,bote,neto].forEach(el=>el.addEventListener('input',refresh));
+  alea.addEventListener('input',()=>alea.dataset.edited='1');
+  del.onclick=()=>tr.remove();
+  foto.onchange=async(e)=>{
+    const f=e.target.files[0]; if(!f) return;
+    const url=await fileToDataURLCompressed(f);
+    const img=el('img',{src:url}); $("#"+prevId).appendChild(img);
+  };
+  refresh();
+}
+async function fileToDataURLCompressed(file,maxW=1200,quality=.75){
+  const img=await new Promise(r=>{const i=new Image(); i.onload=()=>r(i); i.src=URL.createObjectURL(file);});
+  const ratio=Math.min(1,maxW/img.width), w=Math.round(img.width*ratio), h=Math.round(img.height*ratio);
+  const c=document.createElement('canvas'); c.width=w; c.height=h; const ctx=c.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+  return c.toDataURL('image/jpeg',quality);
+}
+const nextFolio=()=> String((DB.get(K_INV,[]).map(x=>+x.folio).reduce((a,b)=>Math.max(a,b),0))+1).padStart(3,'0');
+
+function viewInvNuevo(v){
+  v.innerHTML=`<div class="card">
+    <div class="actions" style="justify-content:space-between">
+      <div class="hint">ENTRADA a línea de producción</div>
+    </div>
+    <div class="grid">
+      <div><label>Tipo</label><input value="ENTRADA" readonly></div>
+      <div><label>Folio</label><input id="inv-folio" value="${nextFolio()}" readonly></div>
+      <div><label>Fecha</label><input id="inv-fecha" value="${today()}"></div>
+      <div><label>Hora</label><input id="inv-hora" value="${now()}" readonly></div>
+    </div>
+    <table class="nota-table" id="inv-tabla">
+      <thead><tr><th>Material</th><th>Gramos bruto</th><th>Aleación</th><th>Peso bote</th><th>Peso neto</th><th>Foto</th><th></th></tr></thead>
+      <tbody id="inv-body"></tbody>
+      <tfoot><tr><td colspan="7"><button class="btn btn-outline" id="inv-add">+ Agregar línea</button></td></tr></tfoot>
+    </table>
+    <div class="grid">
+      <div><label>Fotos del traspaso (mín 1)</label><input id="inv-fotos" type="file" accept="image/*" multiple capture="environment"></div>
+      <div><label>Observaciones</label><textarea id="inv-obs"></textarea></div>
+    </div>
+    <div id="inv-prev" class="preview"></div>
+    <div class="actions">
+      <button class="btn btn-primary" id="inv-guardar">Guardar</button>
+      <button class="btn btn-outline" id="inv-print">Vista previa</button>
+    </div>
+  </div>`;
+  const add=()=>{ const tr=el('tr'); tr.innerHTML=lineRow('E'); $("#inv-body",v).appendChild(tr); bindLine(tr,'E','inv-prev'); };
+  $("#inv-add",v).onclick=add; add();
+  $("#inv-fotos",v).onchange=async(e)=>{const c=$("#inv-prev",v); c.innerHTML=''; const files=[...e.target.files].slice(0,3); for(const f of files){const u=await fileToDataURLCompressed(f); c.appendChild(el('img',{src:u}));}}
+  $("#inv-guardar",v).onclick=()=>invGuardarEntrada(v);
+  $("#inv-print",v).onclick=()=>invImprimir($("#inv-folio",v).value);
+}
+function invGuardarEntrada(v){
+  const fotos=[...$("#inv-prev",v).querySelectorAll('img')].map(i=>i.src);
+  if(!fotos.length){toast('Adjunta al menos 1 foto');return;}
+  const lines=[...$("#inv-body",v).querySelectorAll('tr')].map(tr=>({
+    mat:tr.querySelector('.mat').value,
+    bruto:+tr.querySelector('.bruto').value||0,
+    alea:+tr.querySelector('.alea').value||0,
+    bote:+tr.querySelector('.bote').value||0,
+    neto:+tr.querySelector('.neto').value||0
+  })).filter(l=>l.bruto||l.neto||l.bote);
+  if(!lines.length){toast('Agrega líneas');return;}
+  const folio=$("#inv-folio",v).value;
+  const rec={folio,fecha:$("#inv-fecha",v).value,hora:$("#inv-hora",v).value,entrada:{lineas:lines,fotos,obs:$("#inv-obs",v).value},salida:{lineas:[],fotos:[],parciales:[]},cerrado:false};
+  const arr=DB.get(K_INV,[]); if(arr.filter(x=>!x.cerrado).length>=3){toast('Máximo 3 folios abiertos');return;}
+  arr.push(rec); DB.set(K_INV,arr); toast(`Entrada guardada folio ${folio}`);
+  // bloquear y mostrar procesar
+  openTab(`inv-folio-${folio}`,`Folio ${folio}`,vv=>viewInvFolio(vv,folio));
+}
+function viewInvFolio(v,folio){
+  const arr=DB.get(K_INV,[]); const it=arr.find(x=>x.folio==folio);
+  if(!it){v.innerHTML='<div class="card">No encontrado</div>';return;}
+  v.innerHTML='';
+  const c=el('div',{className:'card'});
+  c.innerHTML=`<div class="actions" style="justify-content:space-between">
+    <div class="hint">Folio <b style="color:${'var(--rojo)'}">${it.folio}</b> — ${it.fecha} ${it.hora}</div>
+    <div class="actions">
+      <button class="btn btn-warn" id="btn-proc">Procesar</button>
+      <button class="btn btn-outline" id="btn-share">📲 WhatsApp</button>
+    </div>
+  </div>`;
+  // ENTRADA (solo lectura)
+  const tb=el('table'); tb.innerHTML=`<thead><tr><th>Material</th><th>Bruto</th><th>Aleación</th><th>Bote</th><th>Neto</th></tr></thead><tbody>${
+    it.entrada.lineas.map(l=>`<tr><td>${l.mat}</td><td>${fmt2(l.bruto)}</td><td>${fmt2(l.alea)}</td><td>${fmt2(l.bote)}</td><td>${fmt2(l.neto)}</td></tr>`).join('')
+  }</tbody>`; c.appendChild(tb);
+  const prev=el('div',{className:'preview'}); it.entrada.fotos.forEach(src=>prev.appendChild(el('img',{src}))); c.appendChild(prev);
+
+  // SALIDA
+  const sWrap=el('div',{style:'margin-top:10px'});
+  sWrap.innerHTML=`<div style="padding:8px;background:#e5e7eb;border-radius:8px"><b>SALIDA DE LÍNEA DE PRODUCCIÓN</b></div>
+  <table class="nota-table" id="s-tab"><thead><tr><th>Material</th><th>Bruto</th><th>Aleación</th><th>Bote</th><th>Neto</th><th>Foto</th><th></th></tr></thead><tbody id="s-body"></tbody>
+  <tfoot><tr><td colspan="7"><button class="btn btn-outline" id="s-add">+ Agregar línea</button></td></tr></tfoot></table>
+  <div class="grid"><div><label>Fotos salida</label><input id="s-fotos" type="file" accept="image/*" multiple capture="environment"></div></div>
+  <div id="s-prev" class="preview"></div>
+  <div class="actions"><button class="btn btn-outline" id="s-parcial">Guardar SALIDA PARCIAL</button><button class="btn btn-warn" id="s-final">Cerrar con SALIDA FINAL</button></div>`;
+  c.appendChild(sWrap);
+  v.appendChild(c);
+
+  const add=()=>{const tr=el('tr'); tr.innerHTML=lineRow('S'); $("#s-body",v).appendChild(tr); bindLine(tr,'S','s-prev');};
+  $("#s-add",v).onclick=add; if(!it.salida.lineas.length) add(); else {
+    it.salida.lineas.forEach(l=>{add(); const tr=$("#s-body tr:last-child",v); tr.querySelector('.mat').value=l.mat; tr.querySelector('.bruto').value=l.bruto; tr.querySelector('.alea').value=l.alea; tr.querySelector('.bote').value=l.bote; tr.querySelector('.neto').value=l.neto;});
+    it.salida.fotos.forEach(src=>$("#s-prev",v).appendChild(el('img',{src})));
+  }
+  $("#s-fotos",v).onchange=async(e)=>{const c=$("#s-prev",v); c.innerHTML=''; const files=[...e.target.files].slice(0,3); for(const f of files){const u=await fileToDataURLCompressed(f); c.appendChild(el('img',{src:u}));}}
+  $("#s-parcial",v).onclick=()=>{ it.salida.parciales.push({fecha:today(),hora:now(),lineas:grabS(v),fotos:[...$("#s-prev",v).querySelectorAll('img')].map(i=>i.src)}); DB.set(K_INV,arr); toast('Salida PARCIAL guardada'); };
+  $("#s-final",v).onclick=()=>{ it.salida.lineas=grabS(v); it.salida.fotos=[...$("#s-prev",v).querySelectorAll('img')].map(i=>i.src); it.cerrado=true; it.resumen=calcMerma(it); DB.set(K_INV,arr); toast('Salida FINAL guardada'); invImprimir(it.folio); };
+  $("#btn-proc",v).onclick=()=>toast('Edita las líneas de SALIDA y guarda parcial/final');
+  $("#btn-share",v).onclick=()=>{ const r=it.resumen||calcMerma(it); const txt=encodeURIComponent(`ARGOZ · Folio ${it.folio}\nEntrada: ${fmt2(r.entTotal)} g\nSalida: ${fmt2(r.salTotal)} g\nMerma: ${fmt2(r.merma)} g (${r.mermaPct.toFixed(2)}%)`); window.open(`https://wa.me/?text=${txt}`,'_blank'); };
+
+  function grabS(vv){ return [...$("#s-body",vv).querySelectorAll('tr')].map(tr=>({mat:tr.querySelector('.mat').value,bruto:+tr.querySelector('.bruto').value||0,alea:0,bote:+tr.querySelector('.bote').value||0,neto:+tr.querySelector('.neto').value||0})).filter(l=>l.bruto||l.neto||l.bote); }
+  function calcMerma(it){
+    const sum=a=>a.reduce((x,y)=>x+Number(y||0),0);
+    const ent=sum(it.entrada.lineas.map(l=>l.neto))+sum(it.entrada.lineas.map(l=>l.alea));
+    const sal=sum((it.salida.lineas||[]).map(l=>l.neto));
+    const mer=sal-ent, pct=ent? (mer/ent*100):0;
+    return {entTotal:ent,salTotal:sal,merma:mer,mermaPct:pct};
+  }
+}
+
+function viewInvBuscar(v){
+  v.innerHTML=`<div class="card">
+    <div class="grid"><div><label>Folio</label><input id="q-folio" placeholder="001"></div></div>
+    <div class="actions"><button class="btn btn-primary" id="q-ver">Abrir</button></div>
+  </div>`;
+  $("#q-ver",v).onclick=()=>{ const f=$("#q-folio",v).value.trim(); if(!f) return toast('Escribe folio'); openTab(`inv-folio-${f}`,`Folio ${f}`,vv=>viewInvFolio(vv,f)); };
+}
+
+function invImprimir(folio){
+  const arr=DB.get(K_INV,[]), it=arr.find(x=>x.folio==folio); if(!it) return toast('Folio no encontrado');
+  const sum=a=>a.reduce((x,y)=>x+Number(y||0),0);
+  const ent=sum(it.entrada.lineas.map(l=>l.neto))+sum(it.entrada.lineas.map(l=>l.alea));
+  const sal=sum((it.salida.lineas||[]).map(l=>l.neto));
+  const mer=sal-ent, pct=ent? (mer/ent*100):0;
+  const col=mer>=0?'green':'#b91c1c', sig=mer>=0?'+':'-';
+  const rrow=l=>`<tr><td>${l.mat}</td><td>${fmt2(l.bruto)}</td><td>${fmt2(l.alea)}</td><td>${fmt2(l.bote)}</td><td>${fmt2(l.neto)}</td></tr>`;
+  const fotosE=(it.entrada.fotos||[]).map(s=>`<img src="${s}" style="max-width:110px;border:1px solid #ddd;border-radius:8px;margin:2px">`).join('');
+  const fotosS=(it.salida.fotos||[]).map(s=>`<img src="${s}" style="max-width:110px;border:1px solid #ddd;border-radius:8px;margin:2px">`).join('');
+  const html=`
+  <div style="font-family:system-ui">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div><div style="font-weight:700;color:#0a2c4c">TRASPASO DE ENTRADA A: LÍNEA DE PRODUCCIÓN</div>
+      <div class="hint">Folio <b style="color:#b91c1c">${it.folio}</b> · Fecha ${it.fecha} · Hora ${it.hora}</div></div>
+      <div style="font-weight:800;color:${col};font-size:18px">MERMA: ${sig}${fmt2(Math.abs(mer))} g (${sig}${Math.abs(pct).toFixed(2)}%)</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="4">
+      <thead style="background:#e2e8f0"><tr><th>Material</th><th>Gramos bruto</th><th>Aleación</th><th>Peso bote</th><th>Peso neto</th></tr></thead>
+      <tbody>${it.entrada.lineas.map(rrow).join('')}</tbody>
+    </table>
+    <div class="hint" style="margin:6px 0"><b>ENTREGÓ:</b> ____________________ &nbsp; <b>RECIBIÓ:</b> ____________________</div>
+    <div style="margin:4px 0">${fotosE}</div>
+
+    <div style="font-weight:700;color:#0a2c4c;margin-top:8px">SALIDA DE LÍNEA DE PRODUCCIÓN</div>
+    <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="4">
+      <thead style="background:#e2e8f0"><tr><th>Material</th><th>Gramos bruto</th><th>Aleación</th><th>Peso bote</th><th>Peso neto</th></tr></thead>
+      <tbody>${(it.salida.lineas||[]).map(rrow).join('')}</tbody>
+    </table>
+    <div class="hint" style="margin:6px 0"><b>ENTREGÓ:</b> ____________________ &nbsp; <b>RECIBIÓ:</b> ____________________</div>
+    <div style="margin:4px 0">${fotosS}</div>
+  </div>`;
+  const w=window.open('','_blank'); w.document.write(`<html><head><title>Folio ${it.folio}</title><style>@page{size:5.5in 8.5in;margin:10mm}</style></head><body>${html}<script>setTimeout(()=>window.print(),200)</script></body></html>`);
+}
+
+/* ========= PEDIDOS ========= */
+function viewPedLista(v){
+  const lst=DB.get(K_PED,[]);
+  const card=el('div',{className:'card'});
+  card.innerHTML=`<div class="actions" style="justify-content:space-between">
+    <b>Pedidos</b><button class="btn btn-primary" id="p-new">+ Nuevo</button>
+  </div>`;
+  const tbl=el('table'); tbl.innerHTML=`<thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Partidas</th><th>Gramos plan</th></tr></thead><tbody>${
+    lst.map(p=>`<tr><td>${p.folio}</td><td>${p.fecha}</td><td>${p.cliente||'-'}</td><td>${p.partidas.length}</td><td>${fmt2(p.partidas.reduce((a,b)=>a+Number(b.gramos||0),0))}</td></tr>`).join('')
+  }</tbody>`; card.appendChild(tbl); v.innerHTML=''; v.appendChild(card);
+  $("#p-new",card).onclick=()=> openTab('ped-nuevo','Nuevo pedido',viewPedNuevo);
+}
+function viewPedNuevo(v){
+  const fol=String(DB.get(K_PED,[]).length+1).padStart(4,'0');
+  v.innerHTML=`<div class="card">
+    <div class="grid">
+      <div><label>Folio</label><input id="pd-folio" value="${fol}" readonly></div>
+      <div><label>Fecha</label><input id="pd-fecha" value="${today()}"></div>
+      <div><label>Cliente</label><input id="pd-cliente" placeholder="Nombre cliente"></div>
+      <div><label>Promesa</label><input id="pd-prom" placeholder="dd/mm/aaaa"></div>
+    </div>
+    <table><thead><tr><th>Producto</th><th>Cantidad</th><th>Gramos estimados</th><th></th></tr></thead>
+      <tbody id="pd-body"></tbody>
+      <tfoot><tr><td colspan="4"><button class="btn btn-outline" id="pd-add">+ Agregar partida</button></td></tr></tfoot>
+    </table>
+    <div class="actions">
+      <button class="btn btn-primary" id="pd-save">Guardar pedido</button>
+      <button class="btn btn-outline" id="pd-to-prod">Crear meta producción</button>
+    </div>
+  </div>`;
+  const add=()=>{ const tr=el('tr'); tr.innerHTML=`<td><input class="prod" placeholder="Anillo X"></td><td><input type="number" step="1" class="cant"></td><td><input type="number" step="0.01" class="gram"></td><td><button class="btn btn-outline del">✕</button></td>`; $("#pd-body",v).appendChild(tr); tr.querySelector('.del').onclick=()=>tr.remove(); };
+  $("#pd-add",v).onclick=add; add();
+  $("#pd-save",v).onclick=()=>{ const ped={folio:$("#pd-folio",v).value,fecha:$("#pd-fecha",v).value,cliente:$("#pd-cliente",v).value,promesa:$("#pd-prom",v).value,partidas:[...$("#pd-body",v).querySelectorAll('tr')].map(tr=>({prod:tr.querySelector('.prod').value,cant:+tr.querySelector('.cant').value||0,gramos:+tr.querySelector('.gram').value||0})).filter(p=>p.prod)}; const arr=DB.get(K_PED,[]); arr.push(ped); DB.set(K_PED,arr); toast('Pedido guardado'); openTab('ped-lista','Pedidos',viewPedLista); };
+  $("#pd-to-prod",v).onclick=()=>{ const total=[...$("#pd-body",v).querySelectorAll('tr')].reduce((s,tr)=>s+(+tr.querySelector('.gram').value||0),0); toast(`Meta de producción creada: ${fmt2(total)} g (informativa)`); };
+}
+
+/* ========= INICIAL ========= */
 </script>
 </body>
 </html>
