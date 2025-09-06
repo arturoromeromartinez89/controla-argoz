@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CONTROL-A v1.9.6 — argozmx · Guadalajara, Jalisco</title>
+  <title>CONTROL-A v1.9.7 — argozmx · Guadalajara, Jalisco</title>
   <link rel="icon" href="data:," />
   <style>
     /* ====== Base ====== */
     *{box-sizing:border-box}
     html,body{height:100%}
     :root{
-      --azul:#0a2c4c; --azul-2:#0f3a66; --b:#e5e7eb; --card:#fff; --bg:#f4f6f8;
-      --rojo:#b91c1c; --ok:#064e3b;
+      --azul:#0a2c4c; --b:#e5e7eb; --card:#fff; --bg:#f4f6f8;
+      --rojo:#b91c1c; --ok:#065f46;
       --editable:#fff7e6; --readonly:#eef2f7;
-      --fs:13px; --h:34px;
+      --fs:13px; --h:30px;  /* más delgado */
     }
     body{margin:0; background:var(--bg); color:#0f172a; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; font-size:var(--fs);}
 
@@ -26,9 +26,10 @@
     .btn-primary{background:#0a3a74;color:#fff;border-color:#0a3a74}
     .btn-outline{background:#fff;border:1px dashed #cbd5e1}
     .btn-warn{background:#ffedd5;color:#9a3412;border:1px solid #f59e0b}
+    .btn-ghost{background:transparent;border:0}
 
     /* ====== Layout ====== */
-    .app{display:grid; grid-template-columns:240px 300px 1fr; gap:8px; padding:10px}
+    .app{display:grid; grid-template-columns:220px 260px 1fr; gap:8px; padding:10px}
     .left{background:#08223b;color:#cbd5e1;border-radius:14px;padding:10px}
     .left h3{margin:8px 10px}
     .side-item{display:block;width:100%;text-align:left;color:#cbd5e1;background:transparent;border:0;padding:10px 12px;border-radius:10px;cursor:pointer}
@@ -51,21 +52,40 @@
     textarea{min-height:var(--h);height:auto}
     input:not([readonly]):not(.ro), select:not([disabled]):not(.ro), textarea{background:var(--editable)}
     input[readonly], select[disabled], .ro{background:var(--readonly)!important;color:#475569}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
-    .actions{display:flex;align-items:center;gap:8px;margin:8px 0}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}
+    .actions{display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap}
     .hint{color:#64748b;font-size:12px}
-    .pill{background:#f1f5f9;border-radius:20px;padding:6px 10px;font-weight:700}
+    .pill{background:#f1f5f9;border-radius:20px;padding:6px 10px;font-weight:700;white-space:nowrap}
     .pill .num{font-size:16px}
 
     /* ====== Tabla ====== */
     table{width:100%;border-collapse:collapse}
-    th,td{border-bottom:1px solid #e5e7eb;padding:4px 6px;text-align:left}
+    th,td{border-bottom:1px solid #e5e7eb;padding:4px 6px;text-align:left;vertical-align:middle}
     thead tr{background:#e7effa}
     .preview img{max-width:92px;border-radius:8px;border:1px solid #e5e7eb;margin:2px}
 
+    /* ====== Responsive sin scroll horizontal ====== */
+    @media (max-width: 1100px){
+      .app{grid-template-columns:200px 1fr}
+      .mid{order:1}
+      .content{order:2}
+    }
+    @media (max-width: 860px){
+      .app{grid-template-columns:1fr}
+      .left{display:none}
+      .mid{order:1}
+      .content{order:2}
+      /* Tabla “apilada” 2 líneas por renglón */
+      table.nota-table thead{display:none}
+      table.nota-table tr{display:grid; grid-template-columns: 1fr 1fr; gap:6px; padding:6px 0; border-bottom:1px solid #e5e7eb}
+      table.nota-table td{border:0; padding:0}
+      table.nota-table td::before{content:attr(data-label); display:block; font-size:11px; color:#64748b}
+      .preview img{max-width:70px}
+    }
+
     /* ====== Toast ====== */
-    #toast{position:fixed;bottom:14px;right:14px;background:#0a3a74;color:#fff;padding:10px 14px;border-radius:10px;display:none}
-    #diag{position:fixed;bottom:14px;left:14px;background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:10px;display:none;max-width:70vw}
+    #toast{position:fixed;bottom:14px;right:14px;background:#0a3a74;color:#fff;padding:10px 14px;border-radius:10px;display:none;z-index:9999}
+    #diag{position:fixed;bottom:14px;left:14px;background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:10px;display:none;max-width:70vw;z-index:9999}
 
     /* Print */
     @media print{ header,.left,.mid,#tabs{display:none!important} .card{border:none} }
@@ -75,7 +95,7 @@
 <body>
 <header>
   <div class="brand">CONTROL-A · argozmx — Guadalajara, Jalisco</div>
-  <div class="hint">v1.9.6 · <span id="jsok">JS cargando…</span></div>
+  <div class="hint">v1.9.7 · <span id="jsok">JS cargando…</span></div>
   <div class="right-act">
     <button class="btn" id="btn-toggle-mid">Submenú</button>
     <button class="btn" id="btn-backup">💾 Respaldo</button>
@@ -107,7 +127,7 @@
 <div id="toast"></div>
 <div id="diag"></div>
 
-<!-- Tu lógica en archivo separado -->
+<!-- Lógica -->
 <script src="./app.js" defer></script>
 </body>
 </html>
