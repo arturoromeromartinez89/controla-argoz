@@ -1,3 +1,4 @@
+// app.js — CONTROL-A v1.9.4
 document.addEventListener('DOMContentLoaded', function init(){
   const jsok = document.getElementById('jsok'); if(jsok) jsok.textContent = 'JS OK';
   const diag = document.getElementById('diag');
@@ -5,32 +6,34 @@ document.addEventListener('DOMContentLoaded', function init(){
   window.onerror = (m,src,lin,col,err)=>{ showDiag('ERROR: '+(err?.message||m)); };
   window.addEventListener('unhandledrejection',e=> showDiag('PROMISE: '+(e.reason?.message||e.reason)));
 
+  /* helpers */
   const $ = (s,r=document)=> r.querySelector(s);
   const $$ = (s,r=document)=> Array.from(r.querySelectorAll(s));
   const el=(t,a={})=>Object.assign(document.createElement(t),a);
-  const toast=msg=>{const t=$("#toast"); if(!t) return; t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none',1800);}
+  const toast=msg=>{const t=$("#toast"); if(!t) return; t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none',1600);}
   const fmt2=n=>(Number(n)||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
   const today=()=>new Date().toLocaleDateString('es-MX');
   const now=()=>new Date().toLocaleTimeString('es-MX',{hour12:false,hour:'2-digit',minute:'2-digit'});
 
+  /* botones de header */
   const tgl=$("#btn-toggle-mid"); if(tgl) tgl.addEventListener('click', ()=>{
     const m=$("#subpanel"); if(!m) return;
     const will = getComputedStyle(m).display==='none'?'block':'none';
-    m.style.display=will;
-    toast('Submenú: '+(will==='block'?'mostrado':'oculto'));
+    m.style.display=will; toast('Submenú: '+(will==='block'?'mostrado':'oculto'));
   });
 
+  /* “BD” local */
   const DB={ get(k,d){ try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d))}catch(_){return d} },
              set(k,v){ localStorage.setItem(k,JSON.stringify(v)) } };
   const K_PED='argoz.pedidos', K_INV='argoz.inventarios';
 
-  const btnB=$("#btn-backup"); if(btnB) btnB.addEventListener('click', ()=>{
+  $("#btn-backup")?.addEventListener('click', ()=>{
     const data={pedidos:DB.get(K_PED,[]),inventarios:DB.get(K_INV,[])};
     const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
     const a=el('a',{href:URL.createObjectURL(blob),download:`argoz_backup_${Date.now()}.json`});
     document.body.appendChild(a); a.click(); a.remove();
   });
-  const btnR=$("#btn-restore"); if(btnR) btnR.addEventListener('click', ()=>{
+  $("#btn-restore")?.addEventListener('click', ()=>{
     const inp=el('input',{type:'file',accept:'application/json'});
     inp.onchange=()=>{ const f=inp.files[0]; if(!f) return;
       const fr=new FileReader();
@@ -44,6 +47,7 @@ document.addEventListener('DOMContentLoaded', function init(){
     inp.click();
   });
 
+  /* tabs */
   const tabs=$("#tabs"), views=$("#views"); let openTabs=[];
   function openTab(id,title,build){
     const ex=openTabs.find(t=>t.id===id); if(ex){activeTab(id); return;}
@@ -58,6 +62,7 @@ document.addEventListener('DOMContentLoaded', function init(){
   function activeTab(id){ openTabs.forEach(o=>{o.elTab.classList.toggle('active',o.id===id); o.elView.classList.toggle('active',o.id===id);}); }
   function closeTab(id){ const i=openTabs.findIndex(o=>o.id===id); if(i<0) return; const was=openTabs[i].elTab.classList.contains('active'); openTabs[i].elTab.remove(); openTabs[i].elView.remove(); openTabs.splice(i,1); if(was && openTabs.length) activeTab(openTabs[openTabs.length-1].id); }
 
+  /* submenú */
   const subpanel=$("#subpanel");
   function renderSubpanel(root='inicio'){
     if(!subpanel) return;
@@ -89,17 +94,17 @@ document.addEventListener('DOMContentLoaded', function init(){
   }
   renderSubpanel('inicio');
 
-  const rootMenu = document.getElementById('rootMenu');
-  if(rootMenu) rootMenu.addEventListener('click', (e)=>{
+  $("#rootMenu")?.addEventListener('click', (e)=>{
     const btn = e.target.closest('.tree-btn'); if(!btn) return;
     $$('.tree-btn').forEach(x=>x.classList.remove('active'));
     btn.classList.add('active');
     renderSubpanel(btn.dataset.root);
   });
 
+  /* ===== Inventarios por producción ===== */
   const MATS=["Plata .999","Plata .925 sólida","Limalla sólida","Limalla negra","Tierras .925","Otros .925","Mercancía terminada"];
   const ALLOY=0.07;
-  const K_INV_NEXT=()=> String((DB.get(K_INV,[]).map(x=>+x.folio).reduce((a,b)=>Math.max(a,b),0))+1).padStart(3,'0');
+  const nextInvFolio=()=> String((DB.get(K_INV,[]).map(x=>+x.folio).reduce((a,b)=>Math.max(a,b),0))+1).padStart(3,'0');
 
   function lineRow(tipo){
     const roAle=(tipo==='E')?'':'readonly';
@@ -113,29 +118,43 @@ document.addEventListener('DOMContentLoaded', function init(){
       <td><button class="btn btn-outline del" type="button">✕</button></td>
     </tr>`;
   }
+
+  function setAleacionState(matEl, aleaEl, tipo){
+    const is999 = matEl.value==='Plata .999';
+    const editable = (tipo==='E' && is999);
+    aleaEl.readOnly = !editable;
+    aleaEl.classList.toggle('is-readonly', !editable);
+    if(!editable) aleaEl.value = (+aleaEl.value||0).toFixed(2); // se queda, pero no editable
+  }
+
   function bindLine(tr,tipo,prevId){
     const mat=$('.mat',tr), bruto=$('.bruto',tr), alea=$('.alea',tr), bote=$('.bote',tr), neto=$('.neto',tr), warn=$('.warn',tr), foto=$('.foto',tr), del=$('.del',tr);
+
     const refresh=()=>{
       const is999=(mat.value==='Plata .999');
       if(tipo==='E' && is999 && !alea.dataset.edited){
         const v=(+bruto.value||0)*ALLOY; alea.value=v? v.toFixed(2):'';
       }
-      alea.readOnly=!(tipo==='E' && is999);
+      setAleacionState(mat, alea, tipo);
       const calc=(+bruto.value||0)-(+bote.value||0);
       if(neto.value==='') neto.value=calc? calc.toFixed(2):'';
       warn.style.display=(Math.abs((+neto.value||0)-calc)>0.009)?'block':'none';
     };
+
     ['input','change'].forEach(ev=>[mat,bruto,bote,neto].forEach(el=> el.addEventListener(ev,refresh)));
+    mat.addEventListener('change', refresh);
     alea.addEventListener('input',()=>alea.dataset.edited='1');
     del.addEventListener('click',()=>tr.remove());
+
     foto.addEventListener('change',async e=>{
       const f=e.target.files[0]; if(!f) return;
       const url=await fileToDataURLCompressed(f);
-      const img=el('img',{src:url});
-      const p=document.getElementById(prevId); if(p) p.appendChild(img);
+      document.getElementById(prevId)?.appendChild(el('img',{src:url}));
     });
+
     refresh();
   }
+
   async function fileToDataURLCompressed(file,maxW=1200,quality=.75){
     const img=await new Promise(r=>{const i=new Image(); i.onload=()=>r(i); i.src=URL.createObjectURL(file);});
     const ratio=Math.min(1,maxW/img.width), w=Math.round(img.width*ratio), h=Math.round(img.height*ratio);
@@ -163,7 +182,7 @@ document.addEventListener('DOMContentLoaded', function init(){
       <div class="hint">ENTRADA a línea de producción</div>
       <div class="grid">
         <div><label>Tipo</label><input value="ENTRADA" readonly></div>
-        <div><label>Folio</label><input id="inv-folio" value="${K_INV_NEXT()}" readonly></div>
+        <div><label>Folio</label><input id="inv-folio" value="${nextInvFolio()}" readonly></div>
         <div><label>Fecha</label><input id="inv-fecha" value="${today()}"></div>
         <div><label>Hora</label><input id="inv-hora" value="${now()}" readonly></div>
       </div>
@@ -206,7 +225,7 @@ document.addEventListener('DOMContentLoaded', function init(){
     v.innerHTML='';
     const c=el('div',{className:'card'});
     c.innerHTML=`<div class="actions" style="justify-content:space-between">
-      <div class="hint">Folio <b style="color:var(--rojo)">${it.folio}</b> — ${it.fecha} ${it.hora}</div>
+      <div class="hint">Folio <b style="color:#b91c1c">${it.folio}</b> — ${it.fecha} ${it.hora}</div>
       <div class="actions">
         <button class="btn btn-warn" id="btn-proc" type="button">Procesar</button>
         <button class="btn btn-outline" id="btn-share" type="button">📲 WhatsApp</button>
@@ -230,7 +249,7 @@ document.addEventListener('DOMContentLoaded', function init(){
     const add=()=>{ const tr=el('tr'); tr.innerHTML=lineRow('S'); $("#s-body",v).appendChild(tr); bindLine(tr,'S','s-prev'); };
     $("#s-add",v).addEventListener('click',add);
     if(!it.salida.lineas.length) add(); else {
-      it.salida.lineas.forEach(l=>{ add(); const tr=$("#s-body tr:last-child",v); $('.mat',tr).value=l.mat; $('.bruto',tr).value=l.bruto; $('.alea',tr).value=l.alea; $('.bote',tr).value=l.bote; $('.neto',tr).value=l.neto; });
+      it.salida.lineas.forEach(l=>{ add(); const tr=$("#s-body tr:last-child",v); $('.mat',tr).value=l.mat; $('.bruto',tr).value=l.bruto; $('.alea',tr).value=l.alea; $('.bote',tr).value=l.bote; $('.neto',tr).value=l.neto; bindLine(tr,'S','s-prev'); });
       (it.salida.fotos||[]).forEach(s=>$("#s-prev",v).appendChild(el('img',{src:s})));
     }
     $("#s-fotos",v).addEventListener('change', async e=>{
@@ -280,13 +299,13 @@ document.addEventListener('DOMContentLoaded', function init(){
     const mer=sal-ent, pct=ent? (mer/ent*100):0;
     const col=mer>=0?'green':'#b91c1c', sig=mer>=0?'+':'-';
     const rrow=l=>`<tr><td>${l.mat}</td><td>${fmt2(l.bruto)}</td><td>${fmt2(l.alea)}</td><td>${fmt2(l.bote)}</td><td>${fmt2(l.neto)}</td></tr>`;
-    const fotosE=(it.entrada.fotos||[]).map(s=>`<img src="${s}" style="max-width:110px;border:1px solid #ddd;border-radius:8px;margin:2px">`).join('');
-    const fotosS=(it.salida.fotos||[]).map(s=>`<img src="${s}" style="max-width:110px;border:1px solid #ddd;border-radius:8px;margin:2px">`).join('');
-    const html=`<div style="font-family:system-ui">
+    const fotosE=(it.entrada.fotos||[]).map(s=>`<img src="${s}" style="max-width:96px;border:1px solid #ddd;border-radius:8px;margin:2px">`).join('');
+    const fotosS=(it.salida.fotos||[]).map(s=>`<img src="${s}" style="max-width:96px;border:1px solid #ddd;border-radius:8px;margin:2px">`).join('');
+    const html=`<div style="font-family:system-ui;font-size:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div><div style="font-weight:700;color:#0a2c4c">TRASPASO DE ENTRADA A: LÍNEA DE PRODUCCIÓN</div>
         <div class="hint">Folio <b style="color:#b91c1c">${it.folio}</b> · Fecha ${it.fecha} · Hora ${it.hora}</div></div>
-        <div style="font-weight:800;color:${col};font-size:18px">MERMA: ${sig}${fmt2(Math.abs(mer))} g (${sig}${Math.abs(pct).toFixed(2)}%)</div>
+        <div style="font-weight:800;color:${col};font-size:16px">MERMA: ${sig}${fmt2(Math.abs(mer))} g (${sig}${Math.abs(pct).toFixed(2)}%)</div>
       </div>
       <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="4">
         <thead style="background:#e2e8f0"><tr><th>Material</th><th>Gramos bruto</th><th>Aleación</th><th>Peso bote</th><th>Peso neto</th></tr></thead>
@@ -306,20 +325,26 @@ document.addEventListener('DOMContentLoaded', function init(){
     w.document.write(`<html><head><title>Folio ${it.folio}</title><style>@page{size:5.5in 8.5in;margin:10mm}</style></head><body>${html}<script>setTimeout(()=>window.print(),200)</script></body></html>`);
   }
 
-  /* Pedidos */
+  /* ===== Pedidos (provisional, FIX plantillas) ===== */
   function viewPedLista(v){
     const lst=DB.get(K_PED,[]);
     const card=el('div',{className:'card'});
-    card.innerHTML=`<div class="actions" style="justify-content:space-between">
-      <b>Pedidos</b><button class="btn btn-primary" id="p-new" type="button">+ Nuevo</button>
-    </div>`;
+    card.innerHTML =
+      '<div class="actions" style="justify-content:space-between">' +
+      '<b>Pedidos</b><button class="btn btn-primary" id="p-new" type="button">+ Nuevo</button>' +
+      '</div>';
     const tbl=el('table');
-    tbl.innerHTML=`<thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Partidas</th><th>Gramos plan</th></tr></thead>
-    <tbody>${lst.map(p=>`<tr><td>${p.folio}</td><td>${p.fecha}</td><td>${p.cliente||'-'}</td><td>${p.partidas.length}</td><td>${fmt2(p.partidas.reduce((a,b)=>a+Number(b.gramos||0),0))}</td></tr>`).join('')}</tbody>`;
+    const rows = lst.map(p =>
+      '<tr><td>'+p.folio+'</td><td>'+p.fecha+'</td><td>'+(p.cliente||'-')+'</td>' +
+      '<td>'+p.partidas.length+'</td><td>'+fmt2(p.partidas.reduce((a,b)=>a+Number(b.gramos||0),0))+'</td></tr>'
+    ).join('');
+    tbl.innerHTML = '<thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Partidas</th><th>Gramos plan</th></tr></thead>' +
+                    '<tbody>'+rows+'</tbody>';
     card.appendChild(tbl);
     v.innerHTML=''; v.appendChild(card);
     $("#p-new",card).addEventListener('click',()=> openTab('ped-nuevo','Nuevo pedido',viewPedNuevo));
   }
+
   function viewPedNuevo(v){
     const fol=String(DB.get(K_PED,[]).length+1).padStart(4,'0');
     v.innerHTML=`<div class="card">
@@ -338,7 +363,12 @@ document.addEventListener('DOMContentLoaded', function init(){
         <button class="btn btn-outline" id="pd-to-prod" type="button">Crear meta producción</button>
       </div>
     </div>`;
-    const add=()=>{ const tr=el('tr'); tr.innerHTML=`<td><input class="prod" placeholder="Anillo X"></td><td><input type="number" step="1" class="cant"></td><td><input type="number" step="0.01" class="gram"></td><td><button class="btn btn-outline del" type="button">✕</button></td>`; $("#pd-body",v).appendChild(tr); $('.del',tr).addEventListener('click',()=>tr.remove()); };
+    const add=()=>{ const tr=el('tr'); tr.innerHTML=
+      '<td><input class="prod" placeholder="Anillo X"></td>'+
+      '<td><input type="number" step="1" class="cant"></td>'+
+      '<td><input type="number" step="0.01" class="gram"></td>'+
+      '<td><button class="btn btn-outline del" type="button">✕</button></td>';
+      $("#pd-body",v).appendChild(tr); $('.del',tr).addEventListener('click',()=>tr.remove()); };
     $("#pd-add",v).addEventListener('click',add); add();
     $("#pd-save",v).addEventListener('click',()=>{
       const ped={folio:$("#pd-folio",v).value,fecha:$("#pd-fecha",v).value,cliente:$("#pd-cliente",v).value,promesa:$("#pd-prom",v).value,
@@ -351,5 +381,5 @@ document.addEventListener('DOMContentLoaded', function init(){
       toast(`Meta de producción creada: ${fmt2(total)} g (informativa)`);
     });
   }
-});
 
+}); // DOM ready
