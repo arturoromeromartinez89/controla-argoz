@@ -1,104 +1,81 @@
 <!DOCTYPE html>
 <html lang="es-MX">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>CONTROL-A v1.9.5 — argozmx · Guadalajara, Jalisco</title>
-<style>
-/* ====== Reset & base ====== */
-*{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
-  background:#f4f6f8; color:#0f172a;
-}
-:root{
-  --azul:#0a2c4c; --azul-2:#0f3a66; --bg:#f4f6f8; --card:#ffffff; --b:#e5e7eb;
-  --beige:#edcdb7; --accent:#5b3b27; --rojo:#b91c1c;
-  --editable-bg:#fff7e6;   /* beige */
-  --readonly-bg:#eef2f7;   /* gris */
-  --line-h:34px; --fs:13px;
-}
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CONTROL-A v1.9.6 — argozmx · Guadalajara, Jalisco</title>
+  <link rel="icon" href="data:," />
+  <style>
+    /* ====== Base ====== */
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    :root{
+      --azul:#0a2c4c; --azul-2:#0f3a66; --b:#e5e7eb; --card:#fff; --bg:#f4f6f8;
+      --rojo:#b91c1c; --ok:#064e3b;
+      --editable:#fff7e6; --readonly:#eef2f7;
+      --fs:13px; --h:34px;
+    }
+    body{margin:0; background:var(--bg); color:#0f172a; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; font-size:var(--fs);}
 
-/* ====== Layout ====== */
-header{
-  background:var(--azul); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:14px;
-}
-header .brand{font-weight:800}
-header .right-act{margin-left:auto; display:flex; gap:10px}
-.btn{background:#fff; color:#0f172a; border:1px solid #d1d5db; padding:6px 10px; border-radius:8px; cursor:pointer}
-.btn:hover{background:#f8fafc}
-.btn-primary{background:#0a3a74; color:#fff; border-color:#0a3a74}
-.btn-primary:hover{filter:brightness(1.05)}
-.btn-warn{background:#ffedd5; color:#9a3412; border:1px solid #f59e0b}
-.btn-outline{background:#fff; color:#0f172a; border:1px dashed #cbd5e1}
-.btn-danger{background:#fee2e2; color:#b91c1c; border:1px solid #fecaca}
+    /* ====== Header ====== */
+    header{background:var(--azul); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:14px}
+    .brand{font-weight:800}
+    .right-act{margin-left:auto; display:flex; gap:8px}
+    .btn{border:1px solid #cbd5e1; padding:6px 10px; border-radius:8px; background:#fff; cursor:pointer}
+    .btn:hover{background:#f8fafc}
+    .btn-primary{background:#0a3a74;color:#fff;border-color:#0a3a74}
+    .btn-outline{background:#fff;border:1px dashed #cbd5e1}
+    .btn-warn{background:#ffedd5;color:#9a3412;border:1px solid #f59e0b}
 
-.app{display:grid; grid-template-columns: 240px 300px 1fr; gap:8px; padding:10px}
-.left{background:#08223b; border-radius:14px; color:#cbd5e1; padding:10px}
-.left h3{margin:8px 10px 6px 10px}
-.side-item{
-  width:100%; text-align:left; background:transparent; color:#cbd5e1;
-  border:none; padding:10px 12px; border-radius:10px; cursor:pointer; display:block
-}
-.side-item:hover, .side-item.active{background:#0d3a66;color:#fff}
+    /* ====== Layout ====== */
+    .app{display:grid; grid-template-columns:240px 300px 1fr; gap:8px; padding:10px}
+    .left{background:#08223b;color:#cbd5e1;border-radius:14px;padding:10px}
+    .left h3{margin:8px 10px}
+    .side-item{display:block;width:100%;text-align:left;color:#cbd5e1;background:transparent;border:0;padding:10px 12px;border-radius:10px;cursor:pointer}
+    .side-item:hover,.side-item.active{background:#0d3a66;color:#fff}
 
-.mid{background:transparent}
-.card{
-  background:var(--card); border-radius:14px; border:1px solid var(--b);
-  padding:12px; margin-bottom:10px; box-shadow:0 1px 0 #eaeef2
-}
-.card h2{margin:0 0 10px 0; color:var(--azul)}
+    .mid{}
+    .card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:12px;margin-bottom:10px}
+    .card h2{margin:0 0 10px 0;color:var(--azul)}
+    .content{min-height:60vh}
+    #tabs{display:flex;gap:6px;flex-wrap:wrap;padding:0 6px}
+    .tab{background:#e2e8f0;padding:6px 10px;border-radius:10px;cursor:pointer}
+    .tab.active{background:#0a3a74;color:#fff}
+    .tab .x{margin-left:6px;opacity:.7}
+    #views .view{display:none}
+    #views .view.active{display:block}
 
-.content{min-height:60vh}
-#tabs{display:flex; gap:6px; flex-wrap:wrap; padding:0 6px}
-.tab{
-  background:#e2e8f0; color:#0f172a; padding:6px 10px; border-radius:10px; cursor:pointer;
-}
-.tab.active{background:#0a3a74; color:#fff}
-.tab .x{margin-left:6px; opacity:.7}
-#views .view{display:none}
-#views .view.active{display:block}
+    /* ====== Form ====== */
+    label{display:block;font-size:12px;color:#334155;margin-bottom:2px}
+    input,select,textarea{height:var(--h);padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:var(--fs);outline:none}
+    textarea{min-height:var(--h);height:auto}
+    input:not([readonly]):not(.ro), select:not([disabled]):not(.ro), textarea{background:var(--editable)}
+    input[readonly], select[disabled], .ro{background:var(--readonly)!important;color:#475569}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+    .actions{display:flex;align-items:center;gap:8px;margin:8px 0}
+    .hint{color:#64748b;font-size:12px}
+    .pill{background:#f1f5f9;border-radius:20px;padding:6px 10px;font-weight:700}
+    .pill .num{font-size:16px}
 
-/* ====== Inputs ====== */
-input, select, textarea{height:var(--line-h); padding:6px 8px; font-size:13px; border:1px solid #cbd5e1; border-radius:8px; outline:none}
-textarea{min-height:var(--line-h); height:auto}
-input[readonly], select[disabled], .is-readonly{background:var(--readonly-bg)!important; color:#475569}
-input:not([readonly]):not(.readonly), select:not([disabled]):not(.readonly), textarea{background:var(--editable-bg)}
-label{display:block; font-size:12px; color:#334155; margin-bottom:2px}
+    /* ====== Tabla ====== */
+    table{width:100%;border-collapse:collapse}
+    th,td{border-bottom:1px solid #e5e7eb;padding:4px 6px;text-align:left}
+    thead tr{background:#e7effa}
+    .preview img{max-width:92px;border-radius:8px;border:1px solid #e5e7eb;margin:2px}
 
-.grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px}
-.actions{display:flex; gap:8px; align-items:center; margin:8px 0}
-.hint{color:#64748b; font-size:12px}
-.badge-pend{ background:#ffedd5; color:#9a3412; border:1px solid #f59e0b; padding:2px 6px; border-radius:999px; font-size:12px }
-.pill-total{ background:#f1f5f9; border-radius:20px; padding:6px 10px; font-weight:700; color:#111 }
-.pill-total .num{ font-size:16px }
+    /* ====== Toast ====== */
+    #toast{position:fixed;bottom:14px;right:14px;background:#0a3a74;color:#fff;padding:10px 14px;border-radius:10px;display:none}
+    #diag{position:fixed;bottom:14px;left:14px;background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:10px;display:none;max-width:70vw}
 
-/* ====== Tablas ====== */
-table{width:100%; border-collapse:collapse}
-th, td{border-bottom:1px solid #e5e7eb; padding:4px 6px; text-align:left; font-size:13px}
-thead th{color:#475569}
-.nota-table thead tr{background:#e7effa}
-
-/* ====== Previews ====== */
-.preview img{max-width:92px; border-radius:8px; border:1px solid #e5e7eb; margin:2px}
-
-/* ====== Toast & diag ====== */
-#toast{position:fixed; bottom:14px; right:14px; background:#0a3a74; color:#fff; padding:10px 14px; border-radius:10px; display:none}
-#diag{position:fixed; bottom:14px; left:14px; background:#fee2e2; color:#991b1b; padding:10px 14px; border-radius:10px; display:none; max-width:60vw}
-
-/* Print */
-@media print{
-  header, .left, .mid, #tabs{display:none!important}
-  .card{border:none; box-shadow:none}
-}
-@page{ size:5.5in 8.5in; margin:10mm }
-</style>
+    /* Print */
+    @media print{ header,.left,.mid,#tabs{display:none!important} .card{border:none} }
+    @page{size:5.5in 8.5in;margin:10mm}
+  </style>
 </head>
 <body>
 <header>
   <div class="brand">CONTROL-A · argozmx — Guadalajara, Jalisco</div>
-  <div class="hint">v1.9.5 · <span id="jsok">JS cargando…</span></div>
+  <div class="hint">v1.9.6 · <span id="jsok">JS cargando…</span></div>
   <div class="right-act">
     <button class="btn" id="btn-toggle-mid">Submenú</button>
     <button class="btn" id="btn-backup">💾 Respaldo</button>
@@ -117,10 +94,10 @@ thead th{color:#475569}
     <button class="side-item tree-btn" data-root="catalogo">📇 Catálogo</button>
   </aside>
 
-  <!-- Submenú contextual -->
+  <!-- Submenú -->
   <section class="mid" id="subpanel"></section>
 
-  <!-- Hoja de trabajo con pestañas -->
+  <!-- Hoja de trabajo (tabs) -->
   <main class="content">
     <div id="tabs"></div>
     <div id="views"></div>
@@ -130,360 +107,7 @@ thead th{color:#475569}
 <div id="toast"></div>
 <div id="diag"></div>
 
-<script>
-/* ===== JS principal v1.9.5 (Inventarios → Traspasos) ===== */
-document.addEventListener('DOMContentLoaded', function init(){
-  /* helpers */
-  const $ = (s,r=document)=> r.querySelector(s);
-  const $$ = (s,r=document)=> Array.from(r.querySelectorAll(s));
-  const el=(t,a={})=>Object.assign(document.createElement(t),a);
-  const fmt2=n=>(Number(n)||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const today=()=>new Date().toLocaleDateString('es-MX');
-  const now=()=>new Date().toLocaleTimeString('es-MX',{hour12:false,hour:'2-digit',minute:'2-digit'});
-  const toast=msg=>{const t=$("#toast"); if(!t) return; t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none',1700)};
-
-  const jsok=$("#jsok"); if(jsok) jsok.textContent='JS OK';
-  const diag=$("#diag"); window.onerror=(m,src,lin,col,err)=>{diag.textContent='ERROR: '+(err?.message||m); diag.style.display='block'};
-  window.addEventListener('unhandledrejection',e=>{diag.textContent='PROMESA: '+(e.reason?.message||e.reason); diag.style.display='block'});
-
-  /* persistencia */
-  const DB={ get(k,d){ try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d))}catch(_){return d} },
-             set(k,v){ localStorage.setItem(k,JSON.stringify(v)) } };
-  const K_TRS='argoz.traspasos';
-  const K_PED='argoz.pedidos';
-
-  /* backup/restore */
-  $("#btn-backup")?.addEventListener('click', ()=>{
-    const blob=new Blob([JSON.stringify({traspasos:DB.get(K_TRS,[]),pedidos:DB.get(K_PED,[])},null,2)],{type:'application/json'});
-    const a=el('a',{href:URL.createObjectURL(blob),download:`argoz_backup_${Date.now()}.json`}); document.body.appendChild(a); a.click(); a.remove();
-  });
-  $("#btn-restore")?.addEventListener('click', ()=>{
-    const i=el('input',{type:'file',accept:'application/json'});
-    i.onchange=()=>{const f=i.files[0]; if(!f) return; const fr=new FileReader();
-      fr.onload=()=>{try{const o=JSON.parse(fr.result); if(o.traspasos) DB.set(K_TRS,o.traspasos); if(o.pedidos) DB.set(K_PED,o.pedidos); toast('Datos restaurados'); renderSubpanel('inventarios');}catch{toast('Archivo inválido')}}
-      fr.readAsText(f);
-    }; i.click();
-  });
-
-  /* tabs */
-  const tabs=$("#tabs"), views=$("#views"); let openTabs=[];
-  function openTab(id,title,build){
-    const ex=openTabs.find(t=>t.id===id); if(ex){activeTab(id); return;}
-    const t=el('div',{className:'tab'}); t.innerHTML=`${title} <span class="x" title="Cerrar">×</span>`;
-    const v=el('div',{className:'view'});
-    tabs.appendChild(t); views.appendChild(v);
-    openTabs.push({id,elTab:t,elView:v});
-    t.addEventListener('click',e=>{ if(e.target.classList.contains('x')) closeTab(id); else activeTab(id); });
-    try{build(v);}catch(e){v.innerHTML='<div class="card">Error al cargar vista</div>'; console.error(e);}
-    activeTab(id);
-  }
-  function activeTab(id){ openTabs.forEach(o=>{o.elTab.classList.toggle('active',o.id===id); o.elView.classList.toggle('active',o.id===id);}); }
-  function closeTab(id){ const i=openTabs.findIndex(o=>o.id===id); if(i<0) return; const act=openTabs[i].elTab.classList.contains('active'); openTabs[i].elTab.remove(); openTabs[i].elView.remove(); openTabs.splice(i,1); if(act&&openTabs.length) activeTab(openTabs[openTabs.length-1].id); }
-  $("#btn-toggle-mid")?.addEventListener('click',()=>{ const m=$("#subpanel"); if(!m) return; m.style.display = getComputedStyle(m).display==='none'?'block':'none'; });
-
-  /* subpanel */
-  function renderSubpanel(root='inventarios'){
-    const sub=$("#subpanel"); sub.innerHTML='';
-    const box=el('div',{className:'card'}); const h=el('h2'); h.textContent=({inicio:'Inicio',ventas:'Ventas',inventarios:'Inventarios',pedidos:'Pedidos',catalogo:'Catálogo'})[root]||root; box.appendChild(h);
-    const add=(txt,fn)=>{ const b=el('button',{className:'subitem',textContent:txt}); b.addEventListener('click',fn); box.appendChild(b); };
-
-    if(root==='inventarios'){
-      const wrap=el('div',{className:'actions'}); const bNew=el('button',{className:'btn btn-primary',innerHTML:'+ Nueva Entrada'}); bNew.addEventListener('click',()=> openTab('trs-nuevo','Nuevo traspaso',viewTraspasoNuevo)); wrap.appendChild(bNew); box.appendChild(wrap);
-      add('Folios pendientes',()=> openTab('trs-pend','Pendientes',viewTraspasosPend));
-      add('Buscar folio…',()=> openTab('trs-buscar','Buscar folio',viewTraspasoBuscar));
-    }
-    if(root==='pedidos'){
-      add('Lista de pedidos',()=> openTab('ped-lista','Pedidos',viewPedLista));
-      add('+ Nuevo pedido',()=> openTab('ped-nuevo','Nuevo pedido',viewPedNuevo));
-    }
-    if(root==='ventas'){ add('Remisiones (lista)',()=> openTab('ven-lista','Remisiones',v=>v.innerHTML='<div class="card">Próximamente…</div>')) }
-    if(root==='catalogo'){ add('Materiales',()=> openTab('cat-mat','Materiales',v=>v.innerHTML('<div class="card">Pendiente…</div>'))) }
-    sub.appendChild(box);
-  }
-  renderSubpanel('inventarios');
-  $("#subpanel").style.display='block';
-  $$(".tree-btn").forEach(b=> b.addEventListener('click',e=>{ $$(".tree-btn").forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderSubpanel(b.dataset.root);}))
-
-  /* ===== Inventarios: Traspasos ===== */
-  const ALMACENES=["CAJA FUERTE","PRODUCCIÓN"];
-  const MATERIAL_OPCIONES=[
-    "Plata .999","Plata .925 sólida","Limalla sólida","Limalla negra","Tierras .925","Otros .925","Mercancía terminada"
-  ];
-  const ALLOY=0.07;
-  const nextFolio=()=> String((DB.get(K_TRS,[]).map(x=>+x.folio).reduce((a,b)=>Math.max(a,b),0))+1).padStart(3,'0');
-  const calcSub=(gr,alea)=> (+gr||0)+(+alea||0);
-
-  function lineRow(tipo){
-    const ro = (tipo==='S')?'readonly':'';
-    return `<tr>
-      <td class="row-idx">#</td>
-      <td class="row-foto"><button type="button" class="btn btn-outline cam">📷</button></td>
-      <td class="row-mat"><select class="mat">${MATERIAL_OPCIONES.map(m=>`<option>${m}</option>`).join('')}</select></td>
-      <td class="row-det"><input class="det" placeholder="(opcional)"></td>
-      <td class="row-alea"><input type="number" step="0.01" class="alea" ${ro}></td>
-      <td class="row-gr"><input type="number" step="0.01" class="gr"></td>
-      <td class="row-sub"><input type="number" step="0.01" class="sub" readonly></td>
-    </tr>`;
-  }
-  function renumerar(tbody){ Array.from(tbody.querySelectorAll('tr')).forEach((tr,i)=> tr.querySelector('.row-idx').textContent=i+1); }
-  function setAleaState(matEl, aleaEl, tipo){
-    const is999 = matEl.value==='Plata .999'; const editable=(tipo==='E'&&is999); aleaEl.readOnly=!editable; aleaEl.classList.toggle('is-readonly',!editable); if(!editable && !is999) aleaEl.value='0';
-  }
-  async function toDataURL(file,maxW=1200,quality=.75){
-    const img=await new Promise(r=>{const i=new Image(); i.onload=()=>r(i); i.src=URL.createObjectURL(file);});
-    const scale=Math.min(1,maxW/img.width), w=Math.round(img.width*scale), h=Math.round(img.height*scale);
-    const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
-    return c.toDataURL('image/jpeg',quality);
-  }
-  function capturePhotoTo(tr, prevId){
-    const inp=el('input',{type:'file',accept:'image/*',capture:'environment'});
-    inp.onchange=async ()=>{const f=inp.files[0]; if(!f) return; const u=await toDataURL(f); document.getElementById(prevId)?.appendChild(el('img',{src:u})); tr.dataset.foto=u;};
-    inp.click();
-  }
-  function bindLine(tr, tipo, totalUpdater, previewAreaId){
-    const mat=$('.mat',tr), alea=$('.alea',tr), gr=$('.gr',tr), sub=$('.sub',tr), cam=$('.cam',tr);
-    const recalc=()=>{
-      const is999 = mat.value==='Plata .999';
-      setAleaState(mat, alea, tipo);
-      if(tipo==='E' && is999 && !alea.dataset.edited){ alea.value = gr.value ? (Number(gr.value)*ALLOY).toFixed(2) : ''; }
-      sub.value = calcSub(gr.value, alea.value).toFixed(2);
-      totalUpdater();
-    };
-    ['input','change'].forEach(ev=>[mat,alea,gr].forEach(x=> x.addEventListener(ev,recalc)));
-    alea.addEventListener('input',()=> alea.dataset.edited='1');
-    cam.addEventListener('click',()=> capturePhotoTo(tr, previewAreaId));
-    recalc();
-  }
-  function sumSubtotales(tb){ return Array.from(tb.querySelectorAll('.row-sub .sub')).reduce((s,i)=> s+(+i.value||0),0); }
-
-  function renderHeader(container, data, locked){
-    container.innerHTML=`
-    <div class="actions" style="justify-content:space-between;align-items:center">
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <div><label>Fecha</label><input id="h-fecha" value="${data.fecha}" ${locked?'readonly':''}></div>
-        <div><label>Sale de</label><select id="h-sale" ${locked?'disabled':''}>${ALMACENES.map(a=>`<option ${a===data.saleDe?'selected':''}>${a}</option>`).join('')}</select></div>
-        <div><label>Entra a</label><select id="h-entra" ${locked?'disabled':''}>${ALMACENES.map(a=>`<option ${a===data.entraA?'selected':''}>${a}</option>`).join('')}</select></div>
-        <div><label>Comentarios</label><textarea id="h-coment" ${locked?'readonly class="is-readonly"':''}>${data.comentarios||''}</textarea></div>
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-        <div><b>FOLIO</b> <span style="color:var(--rojo);font-weight:800">${data.folio}</span></div>
-        <div class="pill-total">TOTAL GR. <span class="num" id="pill-total">0.00</span></div>
-      </div>
-    </div>`;
-  }
-
-  /* PDFs */
-  function pdfEntrada(tras){
-    const rows=tras.lineasEntrada.map(l=>`<tr>
-      <td>${l.idx}</td><td>${l.material}</td><td>${l.detalle||''}</td>
-      <td style="text-align:right">${fmt2(l.aleacion)}</td>
-      <td style="text-align:right">${fmt2(l.gr)}</td>
-      <td style="text-align:right">${fmt2(l.subtotal)}</td></tr>`).join('');
-    const fotos=(tras.fotosEntrada||[]).map(s=>`<img src="${s}" style="max-width:96px;border:1px solid #ddd;border-radius:8px;margin:2px">`).join('');
-    const html=`<div style="font-family:system-ui;font-size:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div><div style="font-weight:700;color:#0a2c4c">TRASPASO (ENTRADA)</div>
-          <div>Folio <b style="color:#b91c1c">${tras.folio}</b> · ${tras.fecha} ${tras.hora}</div>
-          <div>Sale de: <b>${tras.saleDe}</b> &nbsp; Entra a: <b>${tras.entraA}</b></div></div>
-        <div style="font-weight:800;font-size:16px">MERMA: —</div>
-      </div>
-      <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="4">
-        <thead style="background:#e2e8f0"><tr><th>#</th><th>Material</th><th>Detalle</th><th>Aleación</th><th>Gr</th><th>SubTotal</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div style="margin-top:6px"><b>Total Gr:</b> ${fmt2(tras.totalGr)}</div>
-      <div class="hint" style="margin:6px 0"><b>ENTREGÓ:</b> ____________________ &nbsp; <b>RECIBIÓ:</b> ____________________</div>
-      <div>${fotos}</div>
-    </div>`;
-    const w=window.open('','_blank'); w.document.write(`<html><head><title>Folio ${tras.folio}</title><style>@page{size:5.5in 8.5in;margin:10mm}</style></head><body>${html}<script>setTimeout(()=>print(),200)</script></body></html>`);
-  }
-  function pdfCompleto(tras){
-    const sum=a=>a.reduce((x,y)=>x+(+y||0),0);
-    const ent=sum(tras.lineasEntrada.map(l=>l.subtotal)); const sal=sum((tras.lineasSalida||[]).map(l=>l.subtotal));
-    const mer=sal-ent; const pct=ent?(mer/ent*100):0; const col=mer>=0?'green':'#b91c1c'; const sig=mer>=0?'+':'-';
-    const rowsE=tras.lineasEntrada.map(l=>`<tr><td>${l.idx}</td><td>${l.material}</td><td>${l.detalle||''}</td>
-      <td style="text-align:right">${fmt2(l.aleacion)}</td><td style="text-align:right">${fmt2(l.gr)}</td><td style="text-align:right">${fmt2(l.subtotal)}</td></tr>`).join('');
-    const rowsS=(tras.lineasSalida||[]).map(l=>`<tr><td>${l.idx}</td><td>${l.material}</td><td>${l.detalle||''}</td>
-      <td style="text-align:right">0.00</td><td style="text-align:right">${fmt2(l.gr)}</td><td style="text-align:right">${fmt2(l.subtotal)}</td></tr>`).join('');
-    const fotosE=(tras.fotosEntrada||[]).map(s=>`<img src="${s}" style="max-width:96px;border:1px solid #ddd;border-radius:8px;margin:2px">`).join('');
-    const fotosS=(tras.fotosSalida||[]).map(s=>`<img src="${s}" style="max-width:96px;border:1px solid #ddd;border-radius:8px;margin:2px">`).join('');
-    const html=`<div style="font-family:system-ui;font-size:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div><div style="font-weight:700;color:#0a2c4c">TRASPASO PARA PRODUCCIÓN</div>
-          <div>Folio <b style="color:#b91c1c">${tras.folio}</b> · ${tras.fecha} ${tras.hora}</div>
-          <div>Sale de: <b>${tras.saleDe}</b> &nbsp; Entra a: <b>${tras.entraA}</b></div></div>
-        <div style="font-weight:800;color:${col};font-size:16px">MERMA: ${sig}${fmt2(Math.abs(mer))} g (${sig}${Math.abs(pct).toFixed(2)}%)</div>
-      </div>
-      <div style="font-weight:700;color:#0a2c4c;margin:6px 0">ENTRADA</div>
-      <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="4">
-        <thead style="background:#e2e8f0"><tr><th>#</th><th>Material</th><th>Detalle</th><th>Aleación</th><th>Gr</th><th>SubTotal</th></tr></thead><tbody>${rowsE}</tbody></table>
-      <div style="margin:4px 0">${fotosE}</div>
-      <div style="font-weight:700;color:#0a2c4c;margin:6px 0">SALIDA</div>
-      <table style="width:100%;border-collapse:collapse" border="1" cellspacing="0" cellpadding="4">
-        <thead style="background:#e2e8f0"><tr><th>#</th><th>Material</th><th>Detalle</th><th>Aleación</th><th>Gr</th><th>SubTotal</th></tr></thead><tbody>${rowsS}</tbody></table>
-      <div style="margin:4px 0">${fotosS}</div>
-      <div class="hint" style="margin:6px 0"><b>ENTREGÓ:</b> ____________________ &nbsp; <b>RECIBIÓ:</b> ____________________</div>
-    </div>`;
-    const w=window.open('','_blank'); w.document.write(`<html><head><title>Folio ${tras.folio}</title><style>@page{size:5.5in 8.5in;margin:10mm}</style></head><body>${html}<script>setTimeout(()=>print(),200)</script></body></html>`);
-  }
-
-  function toJsonEntrada(tbody){
-    return Array.from(tbody.querySelectorAll('tr')).map((tr,i)=>({
-      idx:i+1, material:$('.mat',tr).value, detalle:$('.det',tr).value.trim(),
-      aleacion:+($('.alea',tr).value||0), gr:+($('.gr',tr).value||0),
-      subtotal:+($('.sub',tr).value||0), fotoLinea: tr.dataset.foto||null
-    })).filter(r=> r.gr || r.aleacion || r.detalle);
-  }
-
-  /* NUEVO TRASPASO (ENTRADA) */
-  function viewTraspasoNuevo(v){
-    const folio=nextFolio();
-    const data={folio, fecha:today(), hora:now(), saleDe:'CAJA FUERTE', entraA:'PRODUCCIÓN', comentarios:''};
-    v.innerHTML=`<div class="card">
-      <div id="hdr"></div>
-      <table class="nota-table" style="margin-top:8px">
-        <thead><tr><th>#</th><th>Foto</th><th>Material</th><th>Detalle</th><th>Aleación</th><th>Gr</th><th>SubTotal</th></tr></thead>
-        <tbody id="tb-e"></tbody>
-        <tfoot><tr><td colspan="7"><button class="btn btn-outline" id="add-e" type="button">+ Agregar línea</button></td></tr></tfoot>
-      </table>
-      <div class="grid"><div><label>Fotos del traspaso (máx 3)</label><input id="fotos-e" type="file" accept="image/*" multiple capture="environment"></div></div>
-      <div id="prev-e" class="preview"></div>
-      <div class="actions"><button class="btn btn-primary" id="save-e">Guardar</button><button class="btn btn-outline" id="print-e">Vista previa</button></div>
-    </div>`;
-    const hdr=$("#hdr",v), tb=$("#tb-e",v), pill=()=>$("#pill-total",v);
-    function updateTotal(){ pill().textContent = fmt2(sumSubtotales(tb)); }
-    renderHeader(hdr,data,false);
-
-    const addLine=()=>{ const tr=el('tr'); tr.innerHTML=lineRow('E'); tb.appendChild(tr); renumerar(tb); bindLine(tr,'E',updateTotal,'prev-e'); };
-    $("#add-e",v).addEventListener('click',addLine); addLine();
-
-    $("#fotos-e",v).addEventListener('change', async e=>{
-      const c=$("#prev-e",v); c.innerHTML=''; for(const f of Array.from(e.target.files||[]).slice(0,3)){ c.appendChild(el('img',{src:await toDataURL(f)})); }
-    });
-    $("#print-e",v).addEventListener('click', ()=> pdfEntrada(buildEntrada()));
-    $("#save-e",v).addEventListener('click', ()=>{
-      if(!confirm('¿Seguro que quieres guardar el traspaso?')) return;
-      const arr=DB.get(K_TRS,[]); const tras=buildEntrada();
-      const esProd = (tras.saleDe==='CAJA FUERTE' && tras.entraA==='PRODUCCIÓN');
-      tras.tipo = esProd? 'PRODUCCION':'ALMACENES';
-      tras.cerrado = !esProd;
-      arr.push(tras); DB.set(K_TRS,arr);
-      toast(`Traspaso guardado — folio ${tras.folio}`);
-      if(esProd) openTab(`trs-proc-${tras.folio}`,`Folio ${tras.folio}`, vv=> viewTraspasoProcesar(vv,tras.folio));
-    });
-
-    function buildEntrada(){
-      const lineas=toJsonEntrada(tb);
-      const fotos=Array.from($("#prev-e",v).querySelectorAll('img')).map(i=>i.src);
-      const totalGr=lineas.reduce((a,l)=>a+(+l.subtotal||0),0);
-      return {folio:data.folio, fecha:$("#h-fecha",v).value, hora:data.hora, saleDe:$("#h-sale",v).value,
-              entraA:$("#h-entra",v).value, comentarios:$("#h-coment",v).value,
-              lineasEntrada:lineas, fotosEntrada:fotos, lineasSalida:[], fotosSalida:[], totalGr};
-    }
-  }
-
-  /* PENDIENTES */
-  function viewTraspasosPend(v){
-    const arr=DB.get(K_TRS,[]).filter(t=> t.tipo==='PRODUCCION' && !t.cerrado);
-    v.innerHTML=''; const c=el('div',{className:'card'});
-    c.innerHTML=`<div class="actions" style="justify-content:space-between"><div><b>Folios pendientes</b> <span class="badge-pend">${arr.length}</span></div></div>`;
-    const wrap=el('div',{className:'actions',style:'flex-wrap:wrap;gap:6px'}); c.appendChild(wrap);
-    arr.forEach(t=>{ const b=el('button',{className:'btn btn-warn',textContent:`Folio ${t.folio}`}); b.addEventListener('click',()=> openTab(`trs-proc-${t.folio}`,`Folio ${t.folio}`, vv=> viewTraspasoProcesar(vv,t.folio))); wrap.appendChild(b); });
-    v.appendChild(c);
-  }
-
-  /* BUSCAR */
-  function viewTraspasoBuscar(v){
-    v.innerHTML=`<div class="card"><div class="grid"><div><label>Folio</label><input id="q-folio" placeholder="001"></div></div>
-    <div class="actions"><button class="btn btn-primary" id="q-ver">Abrir</button></div></div>`;
-    $("#q-ver",v).addEventListener('click', ()=>{ const f=$("#q-folio",v).value.trim(); if(!f) return toast('Escribe folio'); openTab(`trs-open-${f}`,`Folio ${f}`, vv=> viewTraspasoProcesar(vv,f,true)); });
-  }
-
-  /* PROCESAR (SALIDA) */
-  function viewTraspasoProcesar(v, folio, abrirSiCerrado=false){
-    const arr=DB.get(K_TRS,[]); const t=arr.find(x=>x.folio==folio);
-    if(!t){ v.innerHTML='<div class="card">Folio no encontrado</div>'; return; }
-    v.innerHTML=`<div class="card">
-      <div id="hdr"></div>
-      <div class="hint" style="margin:8px 0">SALIDA (mismo folio)</div>
-      <table class="nota-table"><thead><tr><th>#</th><th>Foto</th><th>Material</th><th>Detalle</th><th>Aleación</th><th>Gr</th><th>SubTotal</th></tr></thead>
-        <tbody id="tb-s"></tbody>
-        <tfoot><tr><td colspan="7"><button class="btn btn-outline" id="add-s">+ Agregar línea</button></td></tr></tfoot>
-      </table>
-      <div class="grid"><div><label>Fotos de salida</label><input id="fotos-s" type="file" accept="image/*" multiple capture="environment"></div></div>
-      <div id="prev-s" class="preview"></div>
-      <div class="actions"><button class="btn btn-outline" id="save-parcial">Guardar SALIDA PARCIAL</button><button class="btn btn-warn" id="save-final">Cerrar con SALIDA FINAL</button></div>
-    </div>`;
-    renderHeader($("#hdr",v),t,true);
-    const tb=$("#tb-s",v);
-    const addLine=()=>{ const tr=el('tr'); tr.innerHTML=lineRow('S'); tb.appendChild(tr); renumerar(tb);
-      $('.alea',tr).value='0'; $('.alea',tr).classList.add('is-readonly');
-      bindLine(tr,'S',()=>{},'prev-s'); };
-    $("#add-s",v).addEventListener('click',addLine);
-    if(t.lineasSalida?.length){ t.lineasSalida.forEach(l=>{ addLine(); const tr=$('#tb-s tr:last-child',v); $('.mat',tr).value=l.material; $('.det',tr).value=l.detalle||''; $('.gr',tr).value=l.gr; $('.sub',tr).value=l.subtotal.toFixed(2); });
-      (t.fotosSalida||[]).forEach(s=> $("#prev-s",v).appendChild(el('img',{src:s})));
-    } else addLine();
-
-    $("#fotos-s",v).addEventListener('change', async e=>{
-      const c=$("#prev-s",v); c.innerHTML=''; for(const f of Array.from(e.target.files||[]).slice(0,3)){ c.appendChild(el('img',{src:await toDataURL(f)})); }
-    });
-
-    const grabSalida=()=>{
-      const rows=toJsonEntrada(tb).map(r=>({...r, aleacion:0, subtotal:+r.gr})); // en salida subtotal=gr
-      const fotos=Array.from($("#prev-s",v).querySelectorAll('img')).map(i=>i.src);
-      return {rows,fotos};
-    };
-
-    $("#save-parcial",v).addEventListener('click', ()=>{
-      const {rows,fotos}=grabSalida(); t.lineasSalida=rows; t.fotosSalida=fotos; DB.set(K_TRS,arr); toast('Salida PARCIAL guardada');
-    });
-    $("#save-final",v).addEventListener('click', ()=>{
-      const {rows,fotos}=grabSalida(); if(!rows.length) return toast('Agrega líneas de salida');
-      const ent=t.lineasEntrada.reduce((a,l)=>a+l.subtotal,0), sal=rows.reduce((a,l)=>a+l.subtotal,0), mer=sal-ent;
-      if(mer<0) alert('Atención: MENOS gramos que la entrada. Revisa.');
-      if(mer>0) alert('Estás registrando MÁS gramos que la entrada.');
-      if(!confirm('¿Cerrar folio con SALIDA FINAL?')) return;
-      t.lineasSalida=rows; t.fotosSalida=fotos; t.cerrado=true; DB.set(K_TRS,arr); toast('Folio cerrado'); pdfCompleto(t);
-    });
-
-    if(abrirSiCerrado && t.tipo==='ALMACENES' && t.cerrado){ $$('#add-s,#fotos-s,#save-parcial,#save-final',v).forEach(x=>x&&(x.style.display='none')); }
-  }
-
-  /* ===== Pedidos (simple) ===== */
-  function viewPedLista(v){
-    const lst=DB.get(K_PED,[]), c=el('div',{className:'card'});
-    c.innerHTML='<div class="actions" style="justify-content:space-between"><b>Pedidos</b><button class="btn btn-primary" id="p-new">+ Nuevo</button></div>';
-    const tbl=el('table');
-    const rows=lst.map(p=>`<tr><td>${p.folio}</td><td>${p.fecha}</td><td>${p.cliente||'-'}</td><td>${p.partidas.length}</td><td>${fmt2(p.partidas.reduce((a,b)=>a+Number(b.gramos||0),0))}</td></tr>`).join('');
-    tbl.innerHTML='<thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Partidas</th><th>Gramos plan</th></tr></thead><tbody>'+rows+'</tbody>';
-    c.appendChild(tbl); v.innerHTML=''; v.appendChild(c); $("#p-new",c).addEventListener('click',()=> openTab('ped-nuevo','Nuevo pedido',viewPedNuevo));
-  }
-  function viewPedNuevo(v){
-    const fol=String(DB.get(K_PED,[]).length+1).padStart(4,'0');
-    v.innerHTML=`<div class="card">
-      <div class="grid">
-        <div><label>Folio</label><input id="pd-folio" value="${fol}" readonly></div>
-        <div><label>Fecha</label><input id="pd-fecha" value="${today()}"></div>
-        <div><label>Cliente</label><input id="pd-cliente" placeholder="Nombre cliente"></div>
-        <div><label>Promesa</label><input id="pd-prom" placeholder="dd/mm/aaaa"></div>
-      </div>
-      <table><thead><tr><th>Producto</th><th>Cantidad</th><th>Gramos estimados</th><th></th></tr></thead>
-        <tbody id="pd-body"></tbody>
-        <tfoot><tr><td colspan="4"><button class="btn btn-outline" id="pd-add">+ Agregar partida</button></td></tr></tfoot>
-      </table>
-      <div class="actions"><button class="btn btn-primary" id="pd-save">Guardar pedido</button><button class="btn btn-outline" id="pd-to-prod">Crear meta producción</button></div>
-    </div>`;
-    const add=()=>{ const tr=el('tr'); tr.innerHTML='<td><input class="prod" placeholder="Anillo X"></td><td><input type="number" step="1" class="cant"></td><td><input type="number" step="0.01" class="gram"></td><td><button class="btn btn-outline del">✕</button></td>'; $("#pd-body",v).appendChild(tr); $('.del',tr).addEventListener('click',()=>tr.remove()); };
-    $("#pd-add",v).addEventListener('click',add); add();
-    $("#pd-save",v).addEventListener('click',()=>{
-      const ped={folio:$("#pd-folio",v).value,fecha:$("#pd-fecha",v).value,cliente:$("#pd-cliente",v).value,promesa:$("#pd-prom",v).value,
-        partidas:Array.from($("#pd-body",v).querySelectorAll('tr')).map(tr=>({prod:$('.prod',tr).value,cant:+$('.cant',tr).value||0,gramos:+$('.gram',tr).value||0})).filter(p=>p.prod)};
-      const arr=DB.get(K_PED,[]); arr.push(ped); DB.set(K_PED,arr); toast('Pedido guardado'); openTab('ped-lista','Pedidos',viewPedLista);
-    });
-    $("#pd-to-prod",v).addEventListener('click',()=>{ const total=Array.from($("#pd-body",v).querySelectorAll('tr')).reduce((s,tr)=>s+(+$('.gram',tr).value||0),0); toast('Meta de producción: '+fmt2(total)+' g'); });
-  }
-
-});
-</script>
+<!-- Tu lógica en archivo separado -->
+<script src="./app.js" defer></script>
 </body>
 </html>
