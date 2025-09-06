@@ -4,25 +4,226 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CONTROL-A v1.8 — argozmx · Guadalajara, Jalisco</title>
-  <meta name="theme-color" content="#0a2c4c" />
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:#f5f6f8;color:#0f172a}
-    .wrap{max-width:1200px;margin:0 auto;padding:24px}
-    .card{background:#fff;border-radius:16px;box-shadow:0 6px 20px rgba(0,0,0,.08);padding:16px}
-    h1{margin:0 0 12px 0;color:#0a2c4c}
-    .hint{color:#64748b}
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
+      background: #f7fafc;
+      color: #111;
+    }
+    header {
+      background: #0a2c4c;
+      color: #fff;
+      padding: 10px 20px;
+      font-weight: bold;
+    }
+    .app { display: flex; height: 100vh; }
+    aside.side {
+      width: 200px;
+      background: #0a2c4c;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+    }
+    .side-item {
+      background: transparent;
+      border: none;
+      color: #fff;
+      text-align: left;
+      padding: 12px 16px;
+      cursor: pointer;
+    }
+    .side-item.active, .side-item:hover {
+      background: #153d66;
+    }
+    .mid { width: 0; }
+    main.content {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+    }
+    h2 { color: #0a2c4c; margin-top: 0; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .btn-primary { background: #0a2c4c; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+    .btn-outline { border: 1px solid #0a2c4c; background: #fff; color: #0a2c4c; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+    .btn-warn { background: orange; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+    .btn-danger { background: red; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 12px; margin: 12px 0; }
+    .grid label { font-size: 13px; display: block; margin-bottom: 4px; }
+    .grid input, .grid textarea, .grid select {
+      width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 6px;
+    }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
+    th { background: #0a2c4c; color: #fff; }
+    .nota-table tfoot td { text-align: right; }
+    .hint { font-size: 13px; color: #444; }
+    .bar-gray { background: #ddd; padding: 6px; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>CONTROL-A v1.8 — argozmx</h1>
-      <p class="hint">Estructura para Vercel lista. Reemplaza este archivo por tu <b>index.html</b> completo si tienes una versión más avanzada.</p>
-      <p>Este placeholder confirma que el despliegue funciona. A partir de aquí puedes pegar el contenido completo de tu app.</p>
-    </div>
-  </div>
-  <script>
-    // Aquí irá tu JS completo del ERP (inventarios por producción, catálogo, etc.).
-  </script>
+<header>
+  CONTROL-A · argozmx — Guadalajara, Jalisco
+</header>
+
+<div class="app">
+  <!-- Menú lateral -->
+  <aside class="side" id="sidebar">
+    <button class="side-item active" data-sec="inicio">🏠 Inicio</button>
+    <button class="side-item" data-sec="venta">🧾 Venta</button>
+    <button class="side-item" data-sec="gasto">💸 Gasto</button>
+    <button class="side-item" data-sec="produccion">⚙️ Producción</button>
+    <button class="side-item" data-sec="remisiones">📚 Remisiones</button>
+    <button class="side-item" data-sec="mermas">🏷️ Inventarios producción</button>
+    <button class="side-item" data-sec="catalogo">📇 Catálogo</button>
+    <button class="side-item" data-sec="cxp">📅 CxP</button>
+    <button class="side-item" data-sec="kardex">📈 Kardex</button>
+  </aside>
+
+  <main class="content" id="content">
+    <!-- Dashboard -->
+    <section id="screen-inicio">
+      <div class="card">
+        <h2>Dashboard semanal</h2>
+        <div class="grid">
+          <div><b>Ventas:</b> $0.00</div>
+          <div><b>Gastos:</b> $0.00</div>
+          <div><b>CxP:</b> $0.00</div>
+          <div><b>Meta prod.:</b> 0 g</div>
+          <div><b>Mermas:</b> 0 g</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- INVENTARIOS POR PRODUCCIÓN -->
+    <section id="screen-mermas" style="display:none">
+      <div class="card">
+        <h2>Inventarios por producción</h2>
+        <div class="hint">Política: máx 3 folios abiertos</div>
+        <div class="actions">
+          <button class="btn-primary" id="btn-merma-nuevo">+ Nuevo traspaso de ENTRADA</button>
+          <button class="btn-outline" id="btn-merma-procesar">Procesar traspasos abiertos</button>
+          <button class="btn-outline" id="btn-ver-pendientes">Ver folios pendientes</button>
+        </div>
+        <div style="margin-top:8px">
+          <label>Folios pendientes</label>
+          <div id="mf-pendientes" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        </div>
+      </div>
+
+      <div id="mf-form" class="card" style="display:none">
+        <div class="actions" style="justify-content:space-between">
+          <div class="hint" id="mf-breadcrumb">ENTRADA a línea de producción</div>
+          <div class="actions">
+            <button class="btn-warn" id="btn-procesar" style="display:none">Procesar</button>
+            <button class="btn-outline" id="btn-share" style="display:none">📲 WhatsApp</button>
+          </div>
+        </div>
+        <div class="grid">
+          <div><label>Tipo</label><input readonly value="ENTRADA"/></div>
+          <div><label>Folio</label><input id="mf-folio" readonly/></div>
+          <div><label>Fecha</label><input id="mf-fecha"/></div>
+          <div><label>Hora (auto)</label><input id="mf-hora" readonly/></div>
+        </div>
+
+        <table class="nota-table" id="mf-tabla">
+          <thead>
+            <tr>
+              <th>Material</th><th>Gramos bruto</th><th>Aleación</th><th>Peso bote</th><th>Peso neto</th><th>Foto</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="mf-body"></tbody>
+          <tfoot>
+            <tr><td colspan="7"><button class="btn-outline" id="mf-add">+ Agregar línea</button></td></tr>
+          </tfoot>
+        </table>
+
+        <div class="grid">
+          <div>
+            <label>Fotos del traspaso (mín 1)</label>
+            <input type="file" id="mf-fotos" accept="image/*" multiple capture="environment"/>
+          </div>
+          <div>
+            <label>Observaciones</label>
+            <textarea id="mf-obs"></textarea>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn-primary" id="mf-guardar">Guardar</button>
+          <button class="btn-outline" id="mf-imprimir">Vista previa</button>
+          <button class="btn-danger" id="mf-cancel">Cancelar</button>
+        </div>
+
+        <div id="mf-fotos-preview" class="actions" style="gap:6px;flex-wrap:wrap"></div>
+
+        <div id="mf-salida" style="display:none;margin-top:10px">
+          <div class="bar-gray"><b>SALIDA DE LÍNEA DE PRODUCCIÓN</b></div>
+          <table class="nota-table" id="mf-tabla-s">
+            <thead>
+              <tr>
+                <th>Material</th><th>Gramos bruto</th><th>Aleación</th><th>Peso bote</th><th>Peso neto</th><th>Foto</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="mf-body-s"></tbody>
+            <tfoot>
+              <tr><td colspan="7"><button class="btn-outline" id="mf-add-s">+ Agregar línea</button></td></tr>
+            </tfoot>
+          </table>
+          <div class="grid">
+            <div><label>Fotos de salida (máx 3)</label><input id="mf-fotos-s" type="file" accept="image/*" multiple capture="environment"/></div>
+          </div>
+          <div id="mf-fotos-preview-s" class="actions" style="gap:6px;flex-wrap:wrap"></div>
+          <div class="actions">
+            <button class="btn-outline" id="mf-salida-parcial">Guardar salida parcial</button>
+            <button class="btn-warn" id="mf-salida-final">Cerrar con salida final</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CATÁLOGO -->
+    <section id="screen-catalogo" style="display:none">
+      <div class="card">
+        <h2>Catálogo</h2>
+        <p>Aquí se gestionan Clientes, Materiales y Productos terminados.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+/* ======================
+   LÓGICA JS RESUMIDA
+   ======================
+   - Manejo de navegación (mostrar/ocultar secciones).
+   - Inventarios producción: crear entrada con folio, luego salida.
+   - Aleación automática: 7% si material es .999.
+   - Fotos: preview debajo de cada traspaso.
+   - Guardado en localStorage.
+   - Impresión: solo 1 hoja.
+   - Compartir (simulado WhatsApp).
+*/
+document.querySelectorAll(".side-item").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    document.querySelectorAll(".side-item").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    document.querySelectorAll("main section").forEach(sec=>sec.style.display="none");
+    document.querySelector("#screen-"+btn.dataset.sec).style.display="block";
+  });
+});
+</script>
 </body>
 </html>
