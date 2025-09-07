@@ -1,9 +1,10 @@
-/* CONTROL-A · app.js v2.2
+/* CONTROL-A · app.js v2.3
    Cambios:
-   - Columnas proporcionadas (no se enciman) + inputs 100% del TD
-   - En “Procesar este traspaso” ENTRADA bloqueada, SALIDA editable
-   - SALIDA con líneas visibles + botones Agregar/Eliminar línea
-   - Submenú: botón Folios cerrados
+   - Folio en rojo en PDF
+   - Merma: gramos y porcentaje
+   - Tabla PDF con anchos (# chico, Detalle ancho)
+   - 4 firmas (2 entrada + 2 salida)
+   - Evidencia por folio (imagen) incluida en PDF
    - Vista previa = BORRADOR; PDF/WA sólo cuando cerrado
    - Sin shorthand, sin comas colgantes
 */
@@ -269,6 +270,7 @@
         lineas: salidaLineas,
         totalGr: 0
       },
+      evidencia: "",       // evidencia (dataURL) por folio
       cerrado: false
     };
 
@@ -289,7 +291,7 @@
   function abrirTraspasoExistente(id, modoProcesar){
     var tr = DB.traspasos.find(function(x){ return x.id === id; });
     if(!tr){ toast('No encontrado'); return; }
-    if(!tr.salida || !tr.salida.lineas){ // saneamiento
+    if(!tr.salida || !tr.salida.lineas){
       tr.salida = {
         creada: true,
         fecha: hoyStr(),
@@ -303,12 +305,12 @@
       saveDB(DB);
     }
     if(tr.salida.lineas.length===0){
-      // crea 3 líneas por defecto si no hay
       var i; for(i=0;i<3;i++){
         tr.salida.lineas.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0 });
       }
       saveDB(DB);
     }
+    if(typeof tr.evidencia !== 'string'){ tr.evidencia = ""; saveDB(DB); }
 
     var titulo = 'Traspaso ' + String(tr.folio).padStart(3, '0');
 
@@ -581,12 +583,23 @@
 
       card.appendChild(bar);
 
-      // Evidencia global
+      // Evidencia global por folio
       var divEv = document.createElement('div');
       divEv.className = 'actions';
       var cam = document.createElement('span'); cam.textContent = '📷';
       var lbl = document.createElement('span'); lbl.textContent = ' Cargar evidencia en foto';
       var inFile = document.createElement('input'); inFile.type = 'file'; inFile.accept = 'image/*';
+      inFile.addEventListener('change', function(){
+        var f = inFile.files && inFile.files[0] ? inFile.files[0] : null;
+        if(!f){ return; }
+        var reader = new FileReader();
+        reader.onload = function(e){
+          tr.evidencia = e.target.result; // dataURL
+          saveDB(DB);
+          toast('Foto cargada al folio '+String(tr.folio).padStart(3,'0'));
+        };
+        reader.readAsDataURL(f);
+      });
       divEv.appendChild(cam); divEv.appendChild(lbl); divEv.appendChild(inFile);
       card.appendChild(divEv);
 
@@ -794,12 +807,16 @@
   }
 
   // ===== PDF / WhatsApp =====
+  // isDraft = true → agrega marca de agua BORRADOR
   function imprimirPDF(tr, isDraft){
     var w = window.open('', '_blank', 'width=840,height=900');
     if(!w){ alert('Bloqueador de ventanas activo. Permite pop-ups para imprimir.'); return; }
 
-    var dif = parseFloat(tr.salida.totalGr || 0) - parseFloat(tr.totalGr || 0);
-    var mermaTxt = (dif < 0) ? ('MERMA: ' + f2(dif)) : 'MERMA: 0.00';
+    var ent = parseFloat(tr.totalGr || 0);
+    var sal = parseFloat(tr.salida.totalGr || 0);
+    var dif = sal - ent;
+    var mermaAbs = Math.max(0, ent - sal);
+    var mermaPct = ent > 0 ? (mermaAbs / ent) * 100 : 0;
 
     var headCss = ''
       + '@page{size:5.5in 8.5in;margin:10mm;}'
@@ -809,41 +826,64 @@
       + 'th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left;word-break:break-word;}'
       + 'thead tr{background:#e7effa;}'
       + '.row{display:flex;gap:8px;margin:6px 0;} .col{flex:1;}'
-      + '.ok{color:#065f46;} .bad{color:#b91c1c;font-weight:bold;}'
-      + '.sign{display:flex;justify-content:space-between;margin-top:18px;} .sign div{width:45%;border-top:1px solid #94a3b8;padding-top:6px;text-align:center;}'
-      + '.water{position:fixed;top:40%;left:15%;font-size:48px;color:#94a3b880;transform:rotate(-20deg);}';
+      + '.signs{display:flex;justify-content:space-between;margin-top:18px;} .signs div{width:45%;border-top:1px solid #94a3b8;padding-top:6px;text-align:center;}'
+      + '.water{position:fixed;top:40%;left:15%;font-size:48px;color:#94a3b880;transform:rotate(-20deg);}'
+      + '.folio-red{color:#b91c1c;font-weight:bold;}';
 
     var html = [];
     html.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Folio '+String(tr.folio).padStart(3,'0')+' — CONTROL-A</title><style>'+headCss+'</style></head><body>');
     if(isDraft){ html.push('<div class="water">BORRADOR</div>'); }
 
-    html.push('<h1>Traspaso '+String(tr.folio).padStart(3,'0')+'</h1>');
+    // ===== ENTRADA =====
+    html.push('<h1>Traspaso <span class="folio-red">'+String(tr.folio).padStart(3,'0')+'</span></h1>');
     html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.fecha+' '+tr.hora+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.entraA)+'</div></div>');
-    html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(tr.comentarios)+'</div><div class="col"><b>Total GR (entrada):</b> '+f2(tr.totalGr)+'</div></div>');
-    html.push('<table><thead><tr><th>#</th><th>Material</th><th>Detalle</th><th>Gr</th><th>Aleación</th><th>Subtotal</th></tr></thead><tbody>');
+    html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(tr.comentarios)+'</div><div class="col"><b>Total GR (entrada):</b> '+f2(ent)+'</div></div>');
+    html.push('<table><thead><tr>'
+      + '<th style="width:5%">#</th>'
+      + '<th style="width:20%">Material</th>'
+      + '<th style="width:35%">Detalle</th>'
+      + '<th style="width:10%">Gr</th>'
+      + '<th style="width:10%">Aleación</th>'
+      + '<th style="width:20%">Subtotal</th>'
+      + '</tr></thead><tbody>');
     var i;
     for(i=0;i<tr.lineasEntrada.length;i++){
       var li = tr.lineasEntrada[i];
       html.push('<tr><td>'+(i+1)+'</td><td>'+nombreMaterial(li.materialId)+'</td><td>'+escapeHTML(li.detalle)+'</td><td>'+f2(li.gramos)+'</td><td>'+f2(li.aleacion)+'</td><td>'+f2(li.subtotal)+'</td></tr>');
     }
     html.push('</tbody></table>');
+    // Firmas entrada
+    html.push('<div class="signs"><div>Entregó (entrada)</div><div>Recibió (entrada)</div></div>');
 
+    // ===== SALIDA =====
     html.push('<h2>Salida</h2>');
     html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.salida.fecha+' '+tr.salida.hora+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.salida.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.salida.entraA)+'</div></div>');
-    html.push('<div class="row"><div class="col"><b>Comentarios salida:</b> '+escapeHTML(tr.salida.comentarios)+'</div><div class="col"><b>Total GR (salida):</b> '+f2(tr.salida.totalGr)+'</div></div>');
+    html.push('<div class="row"><div class="col"><b>Comentarios salida:</b> '+escapeHTML(tr.salida.comentarios)+'</div><div class="col"><b>Total GR (salida):</b> '+f2(sal)+'</div></div>');
 
     var signo = dif >= 0 ? '+' : '';
-    var difClass = dif < 0 ? 'bad' : 'ok';
-    html.push('<div class="row"><div class="col '+(dif<0?'bad':'ok')+'"><b>'+mermaTxt+'</b></div><div class="col '+difClass+'"><b>DIF:</b> '+signo+f2(dif)+'</div></div>');
+    html.push('<div class="row"><div class="col"><b>MERMA:</b> '+f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)</div><div class="col"><b>DIF:</b> '+signo+f2(dif)+'</div></div>');
 
-    html.push('<table><thead><tr><th>#</th><th>Material</th><th>Detalle</th><th>Gr</th><th>Aleación</th><th>Subtotal</th></tr></thead><tbody>');
+    html.push('<table><thead><tr>'
+      + '<th style="width:5%">#</th>'
+      + '<th style="width:20%">Material</th>'
+      + '<th style="width:35%">Detalle</th>'
+      + '<th style="width:10%">Gr</th>'
+      + '<th style="width:10%">Aleación</th>'
+      + '<th style="width:20%">Subtotal</th>'
+      + '</tr></thead><tbody>');
     for(i=0;i<tr.salida.lineas.length;i++){
       var lo = tr.salida.lineas[i];
       html.push('<tr><td>'+(i+1)+'</td><td>'+nombreMaterial(lo.materialId)+'</td><td>'+escapeHTML(lo.detalle)+'</td><td>'+f2(lo.gramos)+'</td><td>'+f2(lo.aleacion)+'</td><td>'+f2(lo.subtotal)+'</td></tr>');
     }
     html.push('</tbody></table>');
+    // Firmas salida
+    html.push('<div class="signs"><div>Entregó (salida)</div><div>Recibió (salida)</div></div>');
 
-    html.push('<div class="sign"><div>Entregó</div><div>Recibió</div></div>');
+    // Evidencia fotográfica (si existe)
+    if(tr.evidencia && typeof tr.evidencia === 'string' && tr.evidencia.length > 10){
+      html.push('<h2>Evidencia fotográfica</h2>');
+      html.push('<img src="'+tr.evidencia+'" style="max-width:100%;max-height:300px;border:1px solid #cbd5e1;border-radius:6px;" />');
+    }
 
     html.push('</body></html>');
     w.document.write(html.join(''));
