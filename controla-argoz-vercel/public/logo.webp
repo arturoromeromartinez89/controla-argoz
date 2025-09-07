@@ -1,3 +1,17 @@
-<!-- Pon esto en el HTML donde cargues el logo -->
-<img src="/assets/logo-argozmx.png" class="logo-oscila" alt="argozmx" />
+/* Coloca en tu CSS global */
+.logo-oscila{
+  display:inline-block;
+  width: 56px;          /* ajusta tamaño a tu gusto */
+  height: 56px;
+  will-change: transform;
+  transform-origin: 50% 50%;
+  animation: argozOscila 10s ease-in-out infinite;
+}
 
+/* 0–70% está quieto; 70–85% gira a 180°; 85–100% regresa a 0° */
+@keyframes argozOscila{
+  0%   { transform: rotate(0deg); }
+  70%  { transform: rotate(0deg); }
+  85%  { transform: rotate(180deg); }
+  100% { transform: rotate(0deg); }
+}
