@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CONTROL-A v1.9.9 — argozmx · Guadalajara, Jalisco</title>
+  <title>CONTROL-A v2.0 — argozmx · Guadalajara, Jalisco</title>
   <link rel="icon" href="data:," />
   <style>
     /* ====== Base ====== */
@@ -11,7 +11,7 @@
     html,body{height:100%}
     :root{
       --azul:#0a2c4c; --azul-2:#0f3a66; --b:#e5e7eb; --card:#fff; --bg:#f4f6f8;
-      --rojo:#b91c1c; --ok:#064e3b;
+      --rojo:#b91c1c; --ok:#064e3b; --naranja:#ea580c;
       --editable:#fff7e6; --readonly:#eef2f7;
       --fs:13px; --h:34px;
     }
@@ -24,15 +24,16 @@
     .btn-primary{background:#0a3a74;color:#fff;border-color:#0a3a74}
     .btn-outline{background:#fff;border:1px dashed #cbd5e1}
     .btn-warn{background:#ffedd5;color:#9a3412;border:1px solid #f59e0b}
+    .btn-orange{background:var(--naranja);color:#fff;border:1px solid var(--naranja)}
     .app{display:grid; grid-template-columns:240px 300px 1fr; gap:8px; padding:10px}
     .left{background:#08223b;color:#cbd5e1;border-radius:14px;padding:10px}
     .left h3{margin:8px 10px}
     .side-item{display:block;width:100%;text-align:left;color:#cbd5e1;background:transparent;border:0;padding:10px 12px;border-radius:10px;cursor:pointer}
     .side-item:hover,.side-item.active{background:#0d3a66;color:#fff}
     .mid{}
-    .card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:12px;margin-bottom:10px}
+    .card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:12px;margin-bottom:10px;overflow-x:auto}
     .card h2{margin:0 0 10px 0;color:var(--azul)}
-    .content{min-height:60vh}
+    .content{min-height:60vh;overflow-x:hidden}
     #tabs{display:flex;gap:6px;flex-wrap:wrap;padding:0 6px}
     .tab{background:#e2e8f0;padding:6px 10px;border-radius:10px;cursor:pointer}
     .tab.active{background:#0a3a74;color:#fff}
@@ -44,13 +45,14 @@
     textarea{min-height:var(--h);height:auto}
     input:not([readonly]):not(.ro), select:not([disabled]):not(.ro), textarea{background:var(--editable)}
     input[readonly], select[disabled], .ro{background:var(--readonly)!important;color:#475569}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
     .actions{display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap}
     .hint{color:#64748b;font-size:12px}
     .pill{background:#f1f5f9;border-radius:20px;padding:6px 10px;font-weight:700}
+    .pill.orange{background:#fed7aa;color:#9a3412}
     .pill .num{font-size:16px}
-    table{width:100%;border-collapse:collapse}
-    th,td{border-bottom:1px solid #e5e7eb;padding:4px 6px;text-align:left;vertical-align:middle}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}
+    th,td{border-bottom:1px solid #e5e7eb;padding:4px 6px;text-align:left;vertical-align:middle;word-break:break-word}
     thead tr{background:#e7effa}
     .preview img{max-width:92px;border-radius:8px;border:1px solid #e5e7eb;margin:2px}
     #toast{position:fixed;bottom:14px;right:14px;background:#0a3a74;color:#fff;padding:10px 14px;border-radius:10px;display:none;z-index:9999}
@@ -62,7 +64,7 @@
 <body>
 <header>
   <div class="brand">CONTROL-A · argozmx — Guadalajara, Jalisco</div>
-  <div class="hint">v1.9.9 · <span id="jsok">JS cargando...</span></div>
+  <div class="hint">v2.0 · <span id="jsok">JS cargando...</span></div>
   <div class="right-act">
     <button class="btn" id="btn-toggle-mid">Submenú</button>
     <button class="btn" id="btn-backup">💾 Respaldo</button>
@@ -99,7 +101,7 @@
   });
 </script>
 
-<script src="/app.js?v=1999" defer
+<script src="/app.js?v=2000" defer
   onload="document.getElementById('jsok').textContent='JS OK'"
   onerror="document.getElementById('jsok').textContent='JS NO CARGÓ (404)'; document.getElementById('diag').style.display='block'; document.getElementById('diag').textContent='No se encontró /app.js en la carpeta pública.'">
 </script>
