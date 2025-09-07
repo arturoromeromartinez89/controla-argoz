@@ -106,13 +106,50 @@
 
     var view = document.createElement('div');
     view.className = 'view active';
-    view.id = 'view-'+id';
+    function openTab(id, titulo, renderFn){
+  var tabBtn = qs('[data-tab="'+id+'"]', tabsHost);
+  if(tabBtn){
+    qsa('.tab', tabsHost).forEach(function(t){ t.classList.remove('active'); });
+    tabBtn.classList.add('active');
     qsa('.view', viewsHost).forEach(function(v){ v.classList.remove('active'); });
-    viewsHost.appendChild(view);
-
-    renderFn(view);
+    qs('#view-'+id, viewsHost).classList.add('active');
+    return;
   }
+  var tab = document.createElement('div');
+  tab.className = 'tab active';
+  tab.setAttribute('data-tab', id);
+  tab.textContent = titulo;
 
+  var x = document.createElement('span');
+  x.className = 'x';
+  x.textContent = ' ×';
+  x.style.cursor = 'pointer';
+  x.addEventListener('click', function(ev){
+    ev.stopPropagation();
+    var v = qs('#view-'+id, viewsHost);
+    if(v) v.remove();
+    tab.remove();
+    var last = tabsHost.lastElementChild;
+    if(last){
+      last.classList.add('active');
+      var vid = last.getAttribute('data-tab');
+      var vv = qs('#view-'+vid, viewsHost);
+      if(vv) vv.classList.add('active');
+    }
+  });
+
+  tab.appendChild(x);
+  qsa('.tab', tabsHost).forEach(function(t){ t.classList.remove('active'); });
+  tabsHost.appendChild(tab);
+
+  var view = document.createElement('div');
+  view.className = 'view active';
+  view.id = 'view-'+id; // <-- CORREGIDO
+  qsa('.view', viewsHost).forEach(function(v){ v.classList.remove('active'); });
+  viewsHost.appendChild(view);
+
+  renderFn(view);
+}
   // ===== SUBMENÚS =====
   qsa('.tree-btn').forEach(function(btn){
     btn.addEventListener('click', function(){
