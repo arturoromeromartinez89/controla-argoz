@@ -1,1 +1,3 @@
+<!-- Pon esto en el HTML donde cargues el logo -->
+<img src="/assets/logo-argozmx.png" class="logo-oscila" alt="argozmx" />
 
