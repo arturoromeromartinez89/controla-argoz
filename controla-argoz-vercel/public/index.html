@@ -16,8 +16,6 @@
       --fs:13px; --h:34px;
     }
     body{margin:0; background:var(--bg); color:#0f172a; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; font-size:var(--fs);}
-
-    /* ====== Header ====== */
     header{background:var(--azul); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:14px}
     .brand{font-weight:800}
     .right-act{margin-left:auto; display:flex; gap:8px}
@@ -26,14 +24,11 @@
     .btn-primary{background:#0a3a74;color:#fff;border-color:#0a3a74}
     .btn-outline{background:#fff;border:1px dashed #cbd5e1}
     .btn-warn{background:#ffedd5;color:#9a3412;border:1px solid #f59e0b}
-
-    /* ====== Layout ====== */
     .app{display:grid; grid-template-columns:240px 300px 1fr; gap:8px; padding:10px}
     .left{background:#08223b;color:#cbd5e1;border-radius:14px;padding:10px}
     .left h3{margin:8px 10px}
     .side-item{display:block;width:100%;text-align:left;color:#cbd5e1;background:transparent;border:0;padding:10px 12px;border-radius:10px;cursor:pointer}
     .side-item:hover,.side-item.active{background:#0d3a66;color:#fff}
-
     .mid{}
     .card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:12px;margin-bottom:10px}
     .card h2{margin:0 0 10px 0;color:var(--azul)}
@@ -44,8 +39,6 @@
     .tab .x{margin-left:6px;opacity:.7}
     #views .view{display:none}
     #views .view.active{display:block}
-
-    /* ====== Form ====== */
     label{display:block;font-size:12px;color:#334155;margin-bottom:2px}
     input,select,textarea{height:var(--h);padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:var(--fs);outline:none}
     textarea{min-height:var(--h);height:auto}
@@ -56,18 +49,12 @@
     .hint{color:#64748b;font-size:12px}
     .pill{background:#f1f5f9;border-radius:20px;padding:6px 10px;font-weight:700}
     .pill .num{font-size:16px}
-
-    /* ====== Tabla ====== */
     table{width:100%;border-collapse:collapse}
     th,td{border-bottom:1px solid #e5e7eb;padding:4px 6px;text-align:left;vertical-align:middle}
     thead tr{background:#e7effa}
     .preview img{max-width:92px;border-radius:8px;border:1px solid #e5e7eb;margin:2px}
-
-    /* ====== Toast ====== */
     #toast{position:fixed;bottom:14px;right:14px;background:#0a3a74;color:#fff;padding:10px 14px;border-radius:10px;display:none;z-index:9999}
     #diag{position:fixed;bottom:14px;left:14px;background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:10px;display:none;max-width:70vw;z-index:9999}
-
-    /* Print */
     @media print{ header,.left,.mid,#tabs{display:none!important} .card{border:none} }
     @page{size:5.5in 8.5in;margin:10mm}
   </style>
@@ -84,7 +71,6 @@
 </header>
 
 <div class="app">
-  <!-- Menú maestro -->
   <aside class="left">
     <h3>Menú</h3>
     <button class="side-item tree-btn active" data-root="inicio">🏠 Inicio</button>
@@ -94,10 +80,8 @@
     <button class="side-item tree-btn" data-root="catalogo">📇 Catálogo</button>
   </aside>
 
-  <!-- Submenú -->
   <section class="mid" id="subpanel"></section>
 
-  <!-- Hoja de trabajo (tabs) -->
   <main class="content">
     <div id="tabs"></div>
     <div id="views"></div>
@@ -107,7 +91,6 @@
 <div id="toast"></div>
 <div id="diag"></div>
 
-<!-- Detector simple de errores de carga -->
 <script>
   window.addEventListener('error', function(e){
     const d=document.getElementById('diag'); if(!d) return;
@@ -116,7 +99,6 @@
   });
 </script>
 
-<!-- app.js con cache-buster y onerror visible -->
 <script src="/app.js?v=1999" defer
   onload="document.getElementById('jsok').textContent='JS OK'"
   onerror="document.getElementById('jsok').textContent='JS NO CARGÓ (404)'; document.getElementById('diag').style.display='block'; document.getElementById('diag').textContent='No se encontró /app.js en la carpeta pública.'">
