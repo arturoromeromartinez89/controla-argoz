@@ -1,8 +1,11 @@
 /* CONTROL-A — app.js v1.9.9
-   Cambios clave: Procesar SALIDA con encabezado propio y SELECTS de almacén (editable),
-   ENTRADA arriba bloqueada, SALIDA abajo editable (default PRODUCCIÓN→CAJA FUERTE).
-   Mantiene: responsive, calendario (type=date), 3 líneas por defecto, GR antes que Aleación,
-   tolerancias de merma, máximo folios abiertos, PDF/WhatsApp, inventarios por almacén y “Grs disponibles”. */
+   Corrección: Al procesar un folio se muestran dos headers:
+   - ENTRADA (arriba, solo lectura)
+   - SALIDA (abajo, editable) con selects "Sale de / Entra a" (default PRODUCCIÓN→CAJA FUERTE).
+   Se usa lo elegido para validar y asentar inventario.
+   Mantiene: calendario, 3 líneas por defecto, GR antes que Aleación, 7% aleación en .999,
+   tolerancias de merma (5% por defecto; Limalla 20%; Limalla negra 50%; Tierras 70%),
+   máximo 5 folios abiertos, “Grs disponibles”, PDF media carta y botón WhatsApp. */
 (() => {
   /* ===== Helpers ===== */
   const $ = (s,r=document)=> r.querySelector(s);
@@ -27,7 +30,7 @@
   const MATS=["Plata .999","Plata .925 sólida","Limalla sólida","Limalla negra","Tierras .925","Otros .925","Mercancía terminada"];
   const ALLOY=0.07;
 
-  // tolerancias (merma máx.) a nivel folio según materiales en la ENTRADA
+  // tolerancias por materiales en la ENTRADA
   const TOLS = { "Limalla sólida":20, "Limalla negra":50, "Tierras .925":70 };
   const TOL_DEF = 5;
 
@@ -91,7 +94,7 @@
     i.click();
   });
 
-  /* ===== Inventarios (kardex simple) ===== */
+  /* ===== Inventarios ===== */
   function invGet(){ return DB.get(K_INV,{}); }
   function invSet(x){ DB.set(K_INV,x); }
   function invApply(alm,material,delta){
@@ -164,60 +167,7 @@
   }
   const sumSub = tb => Array.from(tb.querySelectorAll('.sub')).reduce((s,i)=>s+(+i.value||0),0);
 
-  // Header de NUEVA ENTRADA (editable)
-  function hdrNewEntrada(container,data){
-    const disp = fmt2(invTotalAlmacen(data.saleDe));
-    container.innerHTML = `
-      <div class="actions" style="justify-content:space-between;align-items:center">
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div><label>Fecha</label><input id="h-fecha" type="date" value="${toYMD()}"></div>
-          <div><label>Sale de</label><select id="h-sale">${ALMACENES.map(a=>`<option ${a===data.saleDe?'selected':''}>${a}</option>`).join('')}</select></div>
-          <div><label>Entra a</label><select id="h-entra">${ALMACENES.map(a=>`<option ${a===data.entraA?'selected':''}>${a}</option>`).join('')}</select></div>
-          <div><label>Comentarios</label><textarea id="h-com"></textarea></div>
-        </div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <div><b>FOLIO</b> <span style="color:#b91c1c;font-weight:800">${data.folio}</span></div>
-          <div class="pill">Grs disp. en <b id="pill-alm">${data.saleDe}</b>: <span id="pill-disp" class="num">${disp}</span></div>
-          <div class="pill">TOTAL GR. <span id="pill" class="num">0.00</span></div>
-        </div>
-      </div>`;
-  }
-
-  // Header ENTRADA (arriba, bloqueado) para PROCESAR
-  function hdrEntradaBloq(container,data){
-    const disp = fmt2(invTotalAlmacen(data.saleDe));
-    container.innerHTML = `
-      <div class="actions" style="justify-content:space-between;align-items:center">
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div><label>Fecha (entrada)</label><input type="date" value="${toYMD()}" readonly class="ro"></div>
-          <div><label>Sale de</label><input value="${data.saleDe}" readonly class="ro"></div>
-          <div><label>Entra a</label><input value="${data.entraA}" readonly class="ro"></div>
-          <div><label>Comentarios</label><textarea readonly class="ro">${data.comentarios||''}</textarea></div>
-        </div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <div><b>FOLIO</b> <span style="color:#b91c1c;font-weight:800">${data.folio}</span></div>
-          <div class="pill">Grs disp. en <b>${data.saleDe}</b>: <span class="num">${disp}</span></div>
-        </div>
-      </div>`;
-  }
-
-  // Header SALIDA (abajo, editable) con selects (¡esto es lo que pediste!)
-  function hdrSalidaEditable(container,defaults){
-    const disp = fmt2(invTotalAlmacen(defaults.sale));
-    container.innerHTML = `
-      <div class="actions" style="justify-content:space-between;align-items:center">
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div><label>Fecha (salida)</label><input id="s-fecha" type="date" value="${toYMD()}"></div>
-          <div><label>Sale de</label><select id="s-sale">${ALMACENES.map(a=>`<option ${a===defaults.sale?'selected':''}>${a}</option>`).join('')}</select></div>
-          <div><label>Entra a</label><select id="s-entra">${ALMACENES.map(a=>`<option ${a===defaults.entra?'selected':''}>${a}</option>`).join('')}</select></div>
-        </div>
-        <div class="pill">Grs disp. en <b id="s-sale-label">${defaults.sale}</b>: <span id="s-disp" class="num">${disp}</span></div>
-      </div>`;
-    const sSale=$("#s-sale",container), sDisp=$("#s-disp",container), sLbl=$("#s-sale-label",container);
-    sSale?.addEventListener('change', ()=>{ sLbl.textContent = sSale.value; sDisp.textContent = fmt2(invTotalAlmacen(sSale.value)); });
-  }
-
-  /* ====== PDF helpers ====== */
+  /* ====== PDF ====== */
   function openPrint(html, titulo='Documento'){
     const w=window.open('','_blank');
     w.document.write(`<html><head><title>${titulo}</title>
@@ -268,7 +218,7 @@
       <div>
         <div class="caps">TRASPASO PARA PRODUCCIÓN</div>
         <div class="muted">Folio <b style="color:#b91c1c">${t.folio}</b> · ${t.fecha} ${t.hora}</div>
-        <div>Sale de: <b>${t.saleDe}</b> · Entra a: <b>${t.entraA}</b></div>
+        <div>Sale de: <b>${t.salidaSaleDe||t.saleDe}</b> · Entra a: <b>${t.salidaEntraA||t.entraA}</b></div>
       </div>
       <div class="pill" style="color:${col}">MERMA: ${sig}${fmt2(Math.abs(merma))} g (${sig}${Math.abs(mermaPct).toFixed(2)}%)</div>
     </div>
@@ -281,9 +231,9 @@
     <div class="muted" style="margin:6px 0"><b>ENTREGÓ:</b> ____________________ &nbsp; <b>RECIBIÓ:</b> ____________________</div>`;
     openPrint(html, `Producción ${t.folio}`);
   }
-  function sharePDF(action){ action(); }
+  const sharePDF = (action)=> action();
 
-  /* ====== NUEVA ENTRADA ====== */
+  /* ===== NUEVA ENTRADA ===== */
   function viewTrsNew(v){
     const abiertos = DB.get(K_TRS,[]).filter(t=>t.tipo==='PRODUCCION' && !t.cerrado).length;
     if(abiertos>=5){ v.innerHTML='<div class="card">Límite alcanzado: ya hay 5 folios de PRODUCCIÓN abiertos.</div>'; return; }
@@ -309,12 +259,30 @@
       </div>
     `;
 
+    // Header editable (nueva entrada)
+    function hdrNewEntrada(container,data){
+      const disp = fmt2(invTotalAlmacen(data.saleDe));
+      container.innerHTML = `
+        <div class="actions" style="justify-content:space-between;align-items:center">
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div><label>Fecha</label><input id="h-fecha" type="date" value="${toYMD()}"></div>
+            <div><label>Sale de</label><select id="h-sale">${ALMACENES.map(a=>`<option ${a===data.saleDe?'selected':''}>${a}</option>`).join('')}</select></div>
+            <div><label>Entra a</label><select id="h-entra">${ALMACENES.map(a=>`<option ${a===data.entraA?'selected':''}>${a}</option>`).join('')}</select></div>
+            <div><label>Comentarios</label><textarea id="h-com"></textarea></div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <div><b>FOLIO</b> <span style="color:#b91c1c;font-weight:800">${data.folio}</span></div>
+            <div class="pill">Grs disp. en <b id="pill-alm">${data.saleDe}</b>: <span id="pill-disp" class="num">${disp}</span></div>
+            <div class="pill">TOTAL GR. <span id="pill" class="num">0.00</span></div>
+          </div>
+        </div>`;
+    }
     hdrNewEntrada($("#hdr",v),data);
 
     const tb=$("#tb-e",v), pill=()=>$("#pill",v);
     const recalc=()=> pill().textContent = fmt2(sumSub(tb));
     const add=()=>{ const tr=el('tr'); tr.innerHTML=lineRow('E'); tb.appendChild(tr); renum(tb); bindLine(tr,'E',recalc,'prev-e'); };
-    $("#add-e",v).addEventListener('click',add); add(); add(); add(); // 3 líneas por defecto
+    $("#add-e",v).addEventListener('click',add); add(); add(); add();
 
     $("#f-e",v).addEventListener('change', async e=>{
       const p=$("#prev-e",v); p.innerHTML=''; for(const f of Array.from(e.target.files||[]).slice(0,3)){ p.appendChild(el('img',{src:await toDataURL(f)})); }
@@ -350,7 +318,7 @@
       const arr=DB.get(K_TRS,[]); const t=buildEntrada();
 
       if(t.tipo==='PRODUCCION'){
-        // salida de CAJA FUERTE hacia producción (virtual): restar de CF
+        // salida de CAJA FUERTE hacia producción: restar de CF
         t.lineasEntrada.forEach(l=> invApply('CAJA FUERTE', l.material, -l.subtotal));
       } else {
         // entre almacenes: asiento directo
@@ -390,9 +358,9 @@
     v.innerHTML = `
       <div class="card">
         <h2>Folio ${t.folio}</h2>
-        <div id="hdr-in"></div>   <!-- ENTRADA bloqueada -->
-        <div class="hint">Configura la SALIDA (mismo folio). Por defecto: PRODUCCIÓN → CAJA FUERTE.</div>
-        <div id="hdr-out"></div>  <!-- SALIDA editable -->
+        <div id="hdr-in"></div>   <!-- ENTRADA (bloqueada) -->
+        <div class="hint">Configura la SALIDA de este folio (mismo número). Por defecto: PRODUCCIÓN → CAJA FUERTE.</div>
+        <div id="hdr-out"></div>  <!-- SALIDA (editable) -->
 
         <table class="nota-table">
           <thead><tr><th>#</th><th>Foto</th><th>Material</th><th>Detalle</th><th>GR</th><th>Aleación</th><th>SubTotal</th></tr></thead>
@@ -415,16 +383,43 @@
       </div>
     `;
 
-    // ENTRADA (arriba, solo lectura)
-    hdrEntradaBloq($("#hdr-in",v), t);
+    // ENTRADA: encabezado bloqueado
+    (function hdrEntradaBloq(container,data){
+      const disp = fmt2(invTotalAlmacen(data.saleDe));
+      container.innerHTML = `
+        <div class="actions" style="justify-content:space-between;align-items:center">
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div><label>Fecha (entrada)</label><input type="date" value="${toYMD()}" readonly class="ro"></div>
+            <div><label>Sale de</label><input value="${data.saleDe}" readonly class="ro"></div>
+            <div><label>Entra a</label><input value="${data.entraA}" readonly class="ro"></div>
+            <div><label>Comentarios</label><textarea readonly class="ro">${data.comentarios||''}</textarea></div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <div><b>FOLIO</b> <span style="color:#b91c1c;font-weight:800">${data.folio}</span></div>
+            <div class="pill">Grs disp. en <b>${data.saleDe}</b>: <span class="num">${disp}</span></div>
+          </div>
+        </div>`;
+    })($("#hdr-in",v), t);
 
-    // SALIDA (abajo, editable con selects — aquí está la corrección)
-    const defaultsOut = { sale:'PRODUCCIÓN', entra:'CAJA FUERTE' };
-    hdrSalidaEditable($("#hdr-out",v), defaultsOut);
+    // SALIDA: encabezado editable con selects
+    (function hdrSalidaEditable(container,defaults){
+      const disp = fmt2(invTotalAlmacen(defaults.sale));
+      container.innerHTML = `
+        <div class="actions" style="justify-content:space-between;align-items:center">
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div><label>Fecha (salida)</label><input id="s-fecha" type="date" value="${toYMD()}"></div>
+            <div><label>Sale de</label><select id="s-sale">${ALMACENES.map(a=>`<option ${a===defaults.sale?'selected':''}>${a}</option>`).join('')}</select></div>
+            <div><label>Entra a</label><select id="s-entra">${ALMACENES.map(a=>`<option ${a===defaults.entra?'selected':''}>${a}</option>`).join('')}</select></div>
+          </div>
+          <div class="pill">Grs disp. en <b id="s-sale-label">${defaults.sale}</b>: <span id="s-disp" class="num">${disp}</span></div>
+        </div>`;
+      const sSale=$("#s-sale",container), sDisp=$("#s-disp",container), sLbl=$("#s-sale-label",container);
+      sSale?.addEventListener('change', ()=>{ sLbl.textContent = sSale.value; sDisp.textContent = fmt2(invTotalAlmacen(sSale.value)); });
+    })($("#hdr-out",v), {sale:'PRODUCCIÓN', entra:'CAJA FUERTE'});
 
     const tb=$("#tb-s",v);
     const add=()=>{ const tr=el('tr'); tr.innerHTML=lineRow('S'); tb.appendChild(tr); renum(tb);
-      const ale=$('.alea',tr); ale.value='0'; ale.classList.add('ro');
+      const ale=$('.alea',tr); ale.value='0'; ale.classList.add('ro'); // aleación no aplica a SALIDA
       bindLine(tr,'S',()=>{},'prev-s');
     };
     $("#add-s",v).onclick=add;
@@ -460,7 +455,7 @@
       const sSale = $("#s-sale",v).value;
       const sEntra = $("#s-entra",v).value;
 
-      // Política actual de cierre: PRODUCCIÓN → CAJA FUERTE
+      // Política de cierre actual: PRODUCCIÓN → CAJA FUERTE
       if(!(sSale==='PRODUCCIÓN' && sEntra==='CAJA FUERTE')){
         alert('Para cerrar producción, la salida debe ser PRODUCCIÓN → CAJA FUERTE.');
         return false;
@@ -487,17 +482,14 @@
         return false;
       }
 
-      if(mer<0){
-        const mot = $("#motivo",v).value.trim();
-        if(mot) t.motivoMerma = mot;
-      }
+      const motMenos = $("#motivo",v).value.trim();
+      if(mer<0 && motMenos) t.motivoMerma = motMenos;
 
-      // Asentar inventarios de SALIDA con selects elegidos
+      // Asiento inventario usando selects elegidos
       rows.forEach(l=> invApply(sEntra, l.material, l.subtotal));
 
       // Guardar/cerrar
-      t.salidaSaleDe = sSale;
-      t.salidaEntraA = sEntra;
+      t.salidaSaleDe = sSale; t.salidaEntraA = sEntra;
       t.lineasSalida = rows; t.fotosSalida = fotos; t.cerrado=true;
       DB.set(K_TRS,arr);
 
@@ -531,7 +523,7 @@
     }
   }
 
-  /* ====== Pedidos (sin cambios funcionales) ====== */
+  /* ====== Pedidos ====== */
   function viewPedList(v){
     const lst=DB.get(K_PED,[]); v.innerHTML='';
     const c=el('div',{className:'card'});
