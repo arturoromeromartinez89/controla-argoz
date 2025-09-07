@@ -75,7 +75,7 @@
 <body>
 <header>
   <div class="brand">CONTROL-A · argozmx — Guadalajara, Jalisco</div>
-  <div class="hint">v1.9.9 · <span id="jsok">JS cargando…</span></div>
+  <div class="hint">v1.9.9 · <span id="jsok">JS cargando...</span></div>
   <div class="right-act">
     <button class="btn" id="btn-toggle-mid">Submenú</button>
     <button class="btn" id="btn-backup">💾 Respaldo</button>
@@ -107,7 +107,19 @@
 <div id="toast"></div>
 <div id="diag"></div>
 
-<!-- Tu lógica en archivo separado -->
-<script src="./app.js" defer></script>
+<!-- Detector simple de errores de carga -->
+<script>
+  window.addEventListener('error', function(e){
+    const d=document.getElementById('diag'); if(!d) return;
+    d.style.display='block';
+    d.textContent = 'ERROR JS: ' + (e.message || e.type);
+  });
+</script>
+
+<!-- app.js con cache-buster y onerror visible -->
+<script src="/app.js?v=1999" defer
+  onload="document.getElementById('jsok').textContent='JS OK'"
+  onerror="document.getElementById('jsok').textContent='JS NO CARGÓ (404)'; document.getElementById('diag').style.display='block'; document.getElementById('diag').textContent='No se encontró /app.js en la carpeta pública.'">
+</script>
 </body>
 </html>
