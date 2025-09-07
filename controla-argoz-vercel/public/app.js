@@ -1,11 +1,8 @@
-/* CONTROL-A — app.js v1.9.7
-   Cambios: responsive sin scroll, fecha con calendario (type=date), 3 líneas por defecto,
-   orden columnas (#, Foto, Material, Detalle, GR, Aleación, Subtotal), GR antes que Aleación,
-   “Grs disponibles” por almacén, reglas de cierre PRODUCCIÓN (merma ≤ tolerancia),
-   tolerancias por material (Limalla 20%, Limalla negra 50%, Tierras 70%),
-   salida producción debe regresar a Caja Fuerte, producto terminado obligatorio (o explicación),
-   inventarios por almacén (kardex simple), máximo 5 folios abiertos,
-   botones grises tras cierre pero PDF/WhatsApp activos, PDF estética igual al sistema. */
+/* CONTROL-A — app.js v1.9.9
+   Cambios clave: Procesar SALIDA con encabezado propio y SELECTS de almacén (editable),
+   ENTRADA arriba bloqueada, SALIDA abajo editable (default PRODUCCIÓN→CAJA FUERTE).
+   Mantiene: responsive, calendario (type=date), 3 líneas por defecto, GR antes que Aleación,
+   tolerancias de merma, máximo folios abiertos, PDF/WhatsApp, inventarios por almacén y “Grs disponibles”. */
 (() => {
   /* ===== Helpers ===== */
   const $ = (s,r=document)=> r.querySelector(s);
@@ -15,17 +12,14 @@
   const toYMD=(d=new Date())=>{
     const pad=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   };
-  const fromYMD=(v)=>{ // a dd/mm/aaaa
-    if(!v) return '';
-    const [y,m,d]=v.split('-'); return `${d}/${m}/${y}`;
-  };
+  const fromYMD=(v)=>{ if(!v) return ''; const [y,m,d]=v.split('-'); return `${d}/${m}/${y}`; };
   const nowHM=()=>new Date().toLocaleTimeString('es-MX',{hour12:false,hour:'2-digit',minute:'2-digit'});
   const toast=msg=>{const t=$("#toast"); if(!t) return; t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none',1600)};
 
   /* ===== Estado y persistencia ===== */
   const K_TRS='argoz.traspasos';
   const K_PED='argoz.pedidos';
-  const K_INV='argoz.inventarios'; // kardex simple por almacén/material (solo CAJA FUERTE se “asienta” en cierre)
+  const K_INV='argoz.inventarios';
   const DB={ get(k,d){ try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d))}catch(_){return d} },
              set(k,v){ localStorage.setItem(k,JSON.stringify(v)) } };
 
@@ -33,18 +27,13 @@
   const MATS=["Plata .999","Plata .925 sólida","Limalla sólida","Limalla negra","Tierras .925","Otros .925","Mercancía terminada"];
   const ALLOY=0.07;
 
-  // tolerancias (merma máxima) por material en la ENTRADA del folio
-  const TOLERANCIAS = {
-    "Limalla sólida": 20,
-    "Limalla negra": 50,
-    "Tierras .925" : 70
-  };
-  const TOL_DEF = 5; // por defecto
+  // tolerancias (merma máx.) a nivel folio según materiales en la ENTRADA
+  const TOLS = { "Limalla sólida":20, "Limalla negra":50, "Tierras .925":70 };
+  const TOL_DEF = 5;
 
-  const jsok=()=>{ try{$("#jsok").textContent='JS OK';}catch{} }
-  document.addEventListener('DOMContentLoaded', jsok);
+  document.addEventListener('DOMContentLoaded', ()=>{ try{$("#jsok").textContent='JS OK';}catch{} });
 
-  /* ===== Layout: Tabs y Subpanel ===== */
+  /* ===== Tabs/Subpanel ===== */
   const tabs=$("#tabs"), views=$("#views"); let OPEN=[];
   function openTab(id,title,build){
     const ex=OPEN.find(t=>t.id===id); if(ex){activeTab(id); return;}
@@ -64,7 +53,7 @@
   function renderSubpanel(root='inventarios'){
     const s=$("#subpanel"); s.innerHTML='';
     const card=el('div',{className:'card'}); const h=el('h2'); h.textContent=({inicio:'Inicio',ventas:'Ventas',inventarios:'Inventarios',pedidos:'Pedidos',catalogo:'Catálogo'})[root]||root; card.appendChild(h);
-    const add=(t,fn)=>{ const b=el('button',{className:'btn btn-outline',textContent:t}); b.addEventListener('click',fn); card.appendChild(b); };
+    const add=(t,fn)=>{ const b=el('button',{className:'btn btn-outline',textContent=t}); b.addEventListener('click',fn); card.appendChild(b); };
 
     if(root==='inventarios'){
       const a=el('div',{className:'actions'});
@@ -102,16 +91,15 @@
     i.click();
   });
 
-  /* ===== Inventarios / Kardex ===== */
+  /* ===== Inventarios (kardex simple) ===== */
   function invGet(){ return DB.get(K_INV,{}); }
   function invSet(x){ DB.set(K_INV,x); }
-  function invGetAlm(alm){ const inv=invGet(); inv[alm]=inv[alm]||{}; return inv[alm]; }
   function invApply(alm,material,delta){
     const inv=invGet(); inv[alm]=inv[alm]||{}; inv[alm][material]=(inv[alm][material]||0)+delta; invSet(inv);
   }
   function invTotalAlmacen(alm){
-    // Para PRODUCCIÓN: mostrar SOLO virtual (folios abiertos) según regla del negocio
     if(alm==='PRODUCCIÓN'){
+      // Virtual = sum(entradas abiertas − salidas parciales)
       const ab=DB.get(K_TRS,[]).filter(t=> t.tipo==='PRODUCCION' && !t.cerrado);
       const sum=a=>a.reduce((x,y)=>x+(+y||0),0);
       let total=0;
@@ -122,8 +110,7 @@
       });
       return total;
     } else {
-      // CAJA FUERTE: suma de inventario asentado
-      const inv=invGetAlm(alm); return Object.values(inv).reduce((a,b)=>a+(+b||0),0);
+      const inv=invGet()[alm]||{}; return Object.values(inv).reduce((a,b)=>a+(+b||0),0);
     }
   }
 
@@ -132,11 +119,11 @@
   const calcSub=(gr,alea)=> (+gr||0) + (+alea||0);
 
   function lineRow(tipo){
-    const ro = (tipo==='S') ? 'readonly' : '';  // salida: aleación bloqueada
+    const ro = (tipo==='S') ? 'readonly' : '';
     return `<tr>
       <td class="idx" data-label="#">#</td>
       <td data-label="Foto"><button type="button" class="btn btn-outline cam">📷</button></td>
-      <td data-label="Material"><select class="mat">${MATS.map(m=>`<option>${m}</option>`).join('')}</select></td>
+      <td data-label="Material"><select class="mat">${["",...MATS].map(m=> m?`<option>${m}</option>`:'<option value="">—</option>').join('')}</select></td>
       <td data-label="Detalle"><input class="det" placeholder="(opcional)"></td>
       <td data-label="GR"><input type="number" step="0.01" class="gr"></td>
       <td data-label="Aleación"><input type="number" step="0.01" class="alea" ${ro}></td>
@@ -151,14 +138,12 @@
     aleaEl.classList.toggle('ro', !editable);
     if(!editable && !is999){ aleaEl.value='0'; }
   }
-
   async function toDataURL(file,maxW=1200,quality=.8){
     const img=await new Promise(r=>{const i=new Image(); i.onload=()=>r(i); i.src=URL.createObjectURL(file);});
     const sc=Math.min(1,maxW/img.width), w=Math.round(img.width*sc), h=Math.round(img.height*sc);
     const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
     return c.toDataURL('image/jpeg',quality);
   }
-
   function bindLine(tr,tipo,update,prevId){
     const mat=$('.mat',tr), gr=$('.gr',tr), ale=$('.alea',tr), sub=$('.sub',tr), cam=$('.cam',tr);
     const recalc=()=>{
@@ -179,33 +164,60 @@
   }
   const sumSub = tb => Array.from(tb.querySelectorAll('.sub')).reduce((s,i)=>s+(+i.value||0),0);
 
-  function hdr(v,data,locked){
-    // indicador de “Grs disponibles” del almacén “Sale de”
+  // Header de NUEVA ENTRADA (editable)
+  function hdrNewEntrada(container,data){
     const disp = fmt2(invTotalAlmacen(data.saleDe));
-    v.innerHTML = `
+    container.innerHTML = `
       <div class="actions" style="justify-content:space-between;align-items:center">
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div><label>Fecha</label><input id="h-fecha" type="date" value="${toYMD()}" ${locked?'readonly':''}></div>
-          <div><label>Sale de</label><select id="h-sale" ${locked?'disabled':''}>${ALMACENES.map(a=>`<option ${a===data.saleDe?'selected':''}>${a}</option>`).join('')}</select></div>
-          <div><label>Entra a</label><select id="h-entra" ${locked?'disabled':''}>${ALMACENES.map(a=>`<option ${a===data.entraA?'selected':''}>${a}</option>`).join('')}</select></div>
-          <div><label>Comentarios</label><textarea id="h-com" ${locked?'readonly class="ro"':''}>${data.comentarios||''}</textarea></div>
+          <div><label>Fecha</label><input id="h-fecha" type="date" value="${toYMD()}"></div>
+          <div><label>Sale de</label><select id="h-sale">${ALMACENES.map(a=>`<option ${a===data.saleDe?'selected':''}>${a}</option>`).join('')}</select></div>
+          <div><label>Entra a</label><select id="h-entra">${ALMACENES.map(a=>`<option ${a===data.entraA?'selected':''}>${a}</option>`).join('')}</select></div>
+          <div><label>Comentarios</label><textarea id="h-com"></textarea></div>
         </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <div><b>FOLIO</b> <span style="color:var(--rojo);font-weight:800">${data.folio}</span></div>
-            <div class="pill">Grs disp. en <b>${data.saleDe}</b>: <span id="pill-disp" class="num">${disp}</span></div>
-            <div class="pill">TOTAL GR. <span id="pill" class="num">0.00</span></div>
-          </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div><b>FOLIO</b> <span style="color:#b91c1c;font-weight:800">${data.folio}</span></div>
+          <div class="pill">Grs disp. en <b id="pill-alm">${data.saleDe}</b>: <span id="pill-disp" class="num">${disp}</span></div>
+          <div class="pill">TOTAL GR. <span id="pill" class="num">0.00</span></div>
         </div>
       </div>`;
   }
-  function refreshDisp(v){
-    const alm = $("#h-sale",v)?.value || "CAJA FUERTE";
-    const disp = invTotalAlmacen(alm);
-    $("#pill-disp",v).textContent = fmt2(disp);
+
+  // Header ENTRADA (arriba, bloqueado) para PROCESAR
+  function hdrEntradaBloq(container,data){
+    const disp = fmt2(invTotalAlmacen(data.saleDe));
+    container.innerHTML = `
+      <div class="actions" style="justify-content:space-between;align-items:center">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div><label>Fecha (entrada)</label><input type="date" value="${toYMD()}" readonly class="ro"></div>
+          <div><label>Sale de</label><input value="${data.saleDe}" readonly class="ro"></div>
+          <div><label>Entra a</label><input value="${data.entraA}" readonly class="ro"></div>
+          <div><label>Comentarios</label><textarea readonly class="ro">${data.comentarios||''}</textarea></div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div><b>FOLIO</b> <span style="color:#b91c1c;font-weight:800">${data.folio}</span></div>
+          <div class="pill">Grs disp. en <b>${data.saleDe}</b>: <span class="num">${disp}</span></div>
+        </div>
+      </div>`;
   }
 
-  /* ====== PDF helpers (estética similar) ====== */
+  // Header SALIDA (abajo, editable) con selects (¡esto es lo que pediste!)
+  function hdrSalidaEditable(container,defaults){
+    const disp = fmt2(invTotalAlmacen(defaults.sale));
+    container.innerHTML = `
+      <div class="actions" style="justify-content:space-between;align-items:center">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div><label>Fecha (salida)</label><input id="s-fecha" type="date" value="${toYMD()}"></div>
+          <div><label>Sale de</label><select id="s-sale">${ALMACENES.map(a=>`<option ${a===defaults.sale?'selected':''}>${a}</option>`).join('')}</select></div>
+          <div><label>Entra a</label><select id="s-entra">${ALMACENES.map(a=>`<option ${a===defaults.entra?'selected':''}>${a}</option>`).join('')}</select></div>
+        </div>
+        <div class="pill">Grs disp. en <b id="s-sale-label">${defaults.sale}</b>: <span id="s-disp" class="num">${disp}</span></div>
+      </div>`;
+    const sSale=$("#s-sale",container), sDisp=$("#s-disp",container), sLbl=$("#s-sale-label",container);
+    sSale?.addEventListener('change', ()=>{ sLbl.textContent = sSale.value; sDisp.textContent = fmt2(invTotalAlmacen(sSale.value)); });
+  }
+
+  /* ====== PDF helpers ====== */
   function openPrint(html, titulo='Documento'){
     const w=window.open('','_blank');
     w.document.write(`<html><head><title>${titulo}</title>
@@ -222,7 +234,6 @@
         .thumbs img{max-width:96px;border:1px solid #ddd;border-radius:8px;margin:2px}
       </style></head><body>${html}<script>setTimeout(()=>print(),200)</script></body></html>`);
   }
-
   function pdfEntrada(t){
     const rows=t.lineasEntrada.map(l=>`<tr>
       <td>${l.idx}</td><td>${l.material}</td><td>${l.detalle||''}</td>
@@ -245,7 +256,6 @@
     <div class="thumbs">${fotos}</div>`;
     openPrint(html, `Entrada ${t.folio}`);
   }
-
   function pdfCompleto(t, merma, mermaPct){
     const col=merma>=0?'green':'#b91c1c', sig=merma>=0?'+':'-';
     const rE=t.lineasEntrada.map(l=>`<tr><td>${l.idx}</td><td>${l.material}</td><td>${l.detalle||''}</td>
@@ -271,22 +281,15 @@
     <div class="muted" style="margin:6px 0"><b>ENTREGÓ:</b> ____________________ &nbsp; <b>RECIBIÓ:</b> ____________________</div>`;
     openPrint(html, `Producción ${t.folio}`);
   }
+  function sharePDF(action){ action(); }
 
-  // compartir como PDF: abriremos la vista de impresión; para compartir, el usuario guarda como PDF y comparte (Web Share con archivos no siempre está disponible)
-  function sharePDF(action){
-    // action() abre la vista de impresión en nueva ventana
-    action();
-    // Sin texto adicional; la UI ya muestra solo el ícono de WhatsApp.
-  }
-
-  /* ====== NUEVO TRASPASO (ENTRADA) ====== */
+  /* ====== NUEVA ENTRADA ====== */
   function viewTrsNew(v){
-    // Máximo 5 folios de producción abiertos
     const abiertos = DB.get(K_TRS,[]).filter(t=>t.tipo==='PRODUCCION' && !t.cerrado).length;
     if(abiertos>=5){ v.innerHTML='<div class="card">Límite alcanzado: ya hay 5 folios de PRODUCCIÓN abiertos.</div>'; return; }
 
     const folio=nextFolio();
-    const data={folio, fecha:toYMD(), hora:nowHM(), saleDe:'CAJA FUERTE', entraA:'PRODUCCIÓN', comentarios:''};
+    const data={folio, saleDe:'CAJA FUERTE', entraA:'PRODUCCIÓN'};
 
     v.innerHTML = `
       <div class="card">
@@ -306,35 +309,36 @@
       </div>
     `;
 
-    const head=$("#hdr",v), tb=$("#tb-e",v), pill=()=>$("#pill",v);
-    const pillDisp=()=>$("#pill-disp",v);
+    hdrNewEntrada($("#hdr",v),data);
 
-    function recalc(){ pill().textContent = fmt2(sumSub(tb)); }
-    hdr(head,data,false);
-    $("#h-sale",v).addEventListener('change', ()=> refreshDisp(v));
-    refreshDisp(v);
-
+    const tb=$("#tb-e",v), pill=()=>$("#pill",v);
+    const recalc=()=> pill().textContent = fmt2(sumSub(tb));
     const add=()=>{ const tr=el('tr'); tr.innerHTML=lineRow('E'); tb.appendChild(tr); renum(tb); bindLine(tr,'E',recalc,'prev-e'); };
-    $("#add-e",v).addEventListener('click',add);
-    // 3 líneas por defecto
-    add(); add(); add();
+    $("#add-e",v).addEventListener('click',add); add(); add(); add(); // 3 líneas por defecto
 
     $("#f-e",v).addEventListener('change', async e=>{
       const p=$("#prev-e",v); p.innerHTML=''; for(const f of Array.from(e.target.files||[]).slice(0,3)){ p.appendChild(el('img',{src:await toDataURL(f)})); }
     });
+
+    const refreshDisp=()=>{
+      const alm=$("#h-sale",v).value; $("#pill-alm",v).textContent=alm; $("#pill-disp",v).textContent=fmt2(invTotalAlmacen(alm));
+    };
+    $("#h-sale",v).addEventListener('change', refreshDisp);
 
     const buildEntrada=()=>{
       const rows=Array.from(tb.querySelectorAll('tr')).map((tr,i)=>({
         idx:i+1, material:$('.mat',tr).value, detalle:$('.det',tr).value.trim(),
         gr:+($('.gr',tr).value||0), aleacion:+($('.alea',tr).value||0),
         subtotal:+($('.sub',tr).value||0), fotoLinea: tr.dataset.foto||null
-      })).filter(r=> r.gr || r.aleacion || r.detalle);
+      })).filter(r=> r.material && (r.gr || r.aleacion || r.detalle));
       const fotos=Array.from($("#prev-e",v).querySelectorAll('img')).map(i=>i.src);
       const totalGr=rows.reduce((a,l)=>a+(+l.subtotal||0),0);
       return {
-        folio:data.folio, fecha:fromYMD($("#h-fecha",v).value), hora:data.hora,
+        folio:data.folio, fecha:fromYMD($("#h-fecha",v).value), hora:nowHM(),
         saleDe:$("#h-sale",v).value, entraA:$("#h-entra",v).value, comentarios:$("#h-com",v).value,
-        lineasEntrada:rows, fotosEntrada:fotos, lineasSalida:[], fotosSalida:[], totalGr
+        lineasEntrada:rows, fotosEntrada:fotos, lineasSalida:[], fotosSalida:[], totalGr,
+        tipo: ($("#h-sale",v).value==='CAJA FUERTE' && $("#h-entra",v).value==='PRODUCCIÓN') ? 'PRODUCCION' : 'ALMACENES',
+        cerrado: ($("#h-sale",v).value==='CAJA FUERTE' && $("#h-entra",v).value==='PRODUCCIÓN') ? false : true
       };
     };
 
@@ -344,25 +348,20 @@
     $("#save-e",v).addEventListener('click', ()=>{
       if(!confirm('¿Seguro que quieres guardar el traspaso?')) return;
       const arr=DB.get(K_TRS,[]); const t=buildEntrada();
-      const esProd=(t.saleDe==='CAJA FUERTE' && t.entraA==='PRODUCCIÓN');
-      t.tipo = esProd ? 'PRODUCCION' : 'ALMACENES';
-      t.cerrado = !esProd;
 
-      // Ajuste inventario CAJA FUERTE al crear ENTRADA de producción (sale de caja)
-      if(esProd){
+      if(t.tipo==='PRODUCCION'){
+        // salida de CAJA FUERTE hacia producción (virtual): restar de CF
         t.lineasEntrada.forEach(l=> invApply('CAJA FUERTE', l.material, -l.subtotal));
       } else {
-        // Entre almacenes: asiento directo
+        // entre almacenes: asiento directo
         t.lineasEntrada.forEach(l=>{
           invApply(t.saleDe, l.material, -l.subtotal);
           invApply(t.entraA, l.material,  l.subtotal);
         });
       }
 
-      arr.push(t); DB.set(K_TRS,arr);
-      toast(`Traspaso guardado — folio ${t.folio}`);
-      refreshDisp(v);
-      if(esProd) openTab(`trs-proc-${t.folio}`,`Folio ${t.folio}`, vv=> viewTrsProc(vv,t.folio));
+      arr.push(t); DB.set(K_TRS,arr); toast(`Traspaso guardado — folio ${t.folio}`);
+      if(t.tipo==='PRODUCCION') openTab(`trs-proc-${t.folio}`,`Folio ${t.folio}`, vv=> viewTrsProc(vv,t.folio));
     });
   }
 
@@ -390,9 +389,11 @@
 
     v.innerHTML = `
       <div class="card">
-        <div id="hdr"></div>
+        <h2>Folio ${t.folio}</h2>
+        <div id="hdr-in"></div>   <!-- ENTRADA bloqueada -->
+        <div class="hint">Configura la SALIDA (mismo folio). Por defecto: PRODUCCIÓN → CAJA FUERTE.</div>
+        <div id="hdr-out"></div>  <!-- SALIDA editable -->
 
-        <div class="hint" style="margin:8px 0">SALIDA (mismo folio) — Al cerrar, el material debe regresar a <b>CAJA FUERTE</b>.</div>
         <table class="nota-table">
           <thead><tr><th>#</th><th>Foto</th><th>Material</th><th>Detalle</th><th>GR</th><th>Aleación</th><th>SubTotal</th></tr></thead>
           <tbody id="tb-s"></tbody>
@@ -414,12 +415,15 @@
       </div>
     `;
 
-    hdr($("#hdr",v),{...t, fecha:toYMD()},true); // bloqueado (gris) y con calendario fijo
-    refreshDisp(v);
+    // ENTRADA (arriba, solo lectura)
+    hdrEntradaBloq($("#hdr-in",v), t);
+
+    // SALIDA (abajo, editable con selects — aquí está la corrección)
+    const defaultsOut = { sale:'PRODUCCIÓN', entra:'CAJA FUERTE' };
+    hdrSalidaEditable($("#hdr-out",v), defaultsOut);
 
     const tb=$("#tb-s",v);
     const add=()=>{ const tr=el('tr'); tr.innerHTML=lineRow('S'); tb.appendChild(tr); renum(tb);
-      // salida: aleación bloqueada y 0; subtotal = gr
       const ale=$('.alea',tr); ale.value='0'; ale.classList.add('ro');
       bindLine(tr,'S',()=>{},'prev-s');
     };
@@ -437,15 +441,14 @@
       const rows = Array.from(tb.querySelectorAll('tr')).map((tr,i)=>({
         idx:i+1, material:$('.mat',tr).value, detalle:$('.det',tr).value.trim(),
         gr:+($('.gr',tr).value||0), aleacion:0, subtotal:+($('.gr',tr).value||0), fotoLinea: tr.dataset.foto||null
-      })).filter(r=> r.gr || r.detalle);
+      })).filter(r=> r.material && (r.gr || r.detalle));
       const fotos=Array.from($("#prev-s",v).querySelectorAll('img')).map(i=>i.src);
       return {rows,fotos};
     };
-
     const sum = a => a.reduce((x,y)=>x+(+y||0),0);
     const tolFromEntrada = (t)=>{
       const mats = new Set(t.lineasEntrada.map(l=>l.material));
-      let tol=TOL_DEF; mats.forEach(m=>{ if(TOLERANCIAS[m]) tol=Math.max(tol, TOLERANCIAS[m]); });
+      let tol=TOL_DEF; mats.forEach(m=>{ if(TOLS[m]) tol=Math.max(tol, TOLS[m]); });
       return tol;
     };
 
@@ -454,13 +457,18 @@
     };
 
     function validarCierreYAplicar(){
-      // Reglas:
-      // 1) Entra a debe ser CAJA FUERTE
-      if(t.entraA !== 'CAJA FUERTE'){ alert('Para cerrar producción, la salida debe regresar a CAJA FUERTE.'); return false; }
+      const sSale = $("#s-sale",v).value;
+      const sEntra = $("#s-entra",v).value;
+
+      // Política actual de cierre: PRODUCCIÓN → CAJA FUERTE
+      if(!(sSale==='PRODUCCIÓN' && sEntra==='CAJA FUERTE')){
+        alert('Para cerrar producción, la salida debe ser PRODUCCIÓN → CAJA FUERTE.');
+        return false;
+      }
 
       const {rows,fotos}=grabSalida(); if(!rows.length){ toast('Agrega líneas de salida'); return false; }
 
-      // 2) Producto terminado obligatorio (o explicación requerida)
+      // Producto terminado obligatorio (o explicación)
       const tienePT = rows.some(r=> r.material==='Mercancía terminada');
       if(!tienePT){
         const motivo = prompt('No hay “Mercancía terminada” en la salida. Explica el motivo (obligatorio):','');
@@ -470,44 +478,39 @@
 
       const ent = sum(t.lineasEntrada.map(l=>l.subtotal));
       const sal = sum(rows.map(l=>l.subtotal));
-      const mer = sal - ent;                    // merma (+ creció, - faltó)
-      const mneg = ent>0 ? ((ent - sal)/ent*100) : 0; // % de merma si faltó
+      const mer = sal - ent;
+      const mneg = ent>0 ? ((ent - sal)/ent*100) : 0;
       const tol = tolFromEntrada(t);
 
-      // 3) Límite de merma (si faltó) — bloquea si supera tolerancia
       if(mneg > tol){
         alert(`Según la información cargada, la merma es ${mneg.toFixed(2)}% (> ${tol}%). No es posible cerrar este folio. Comprueba línea de producción.`);
         return false;
       }
 
-      // 4) Capturar motivo opcional si faltó
       if(mer<0){
         const mot = $("#motivo",v).value.trim();
         if(mot) t.motivoMerma = mot;
       }
 
-      // 5) Aplicar inventarios en cierre:
-      //   - PRODUCCIÓN (virtual) deja de contar al cerrarse (no asentamos nada en PRODUCCIÓN).
-      //   - CAJA FUERTE suma la salida por material.
-      rows.forEach(l=> invApply('CAJA FUERTE', l.material, l.subtotal));
+      // Asentar inventarios de SALIDA con selects elegidos
+      rows.forEach(l=> invApply(sEntra, l.material, l.subtotal));
 
-      // Guardar cambios
+      // Guardar/cerrar
+      t.salidaSaleDe = sSale;
+      t.salidaEntraA = sEntra;
       t.lineasSalida = rows; t.fotosSalida = fotos; t.cerrado=true;
       DB.set(K_TRS,arr);
 
-      // PDF completo
       const merPct = ent? (mer/ent*100):0;
       pdfCompleto(t, mer, merPct);
       toast('Folio cerrado');
+
+      // Deshabilitar edición; PDF/WA quedan activos
+      $$('#add-s,#f-s,#save-parcial,#save-final',v).forEach(x=> x && (x.disabled=true, x.classList.add('ro')));
       return true;
     }
 
-    $("#save-final",v).onclick=()=>{
-      if(validarCierreYAplicar()){
-        // deshabilitar edición, dejar PDF/WA activos
-        $$('#add-s,#f-s,#save-parcial,#save-final',v).forEach(x=> x && (x.disabled=true, x.classList.add('ro')));
-      }
-    };
+    $("#save-final",v).onclick=()=>{ validarCierreYAplicar(); };
     $("#pdf-final",v).onclick=()=>{
       const {rows}=grabSalida();
       const ent = sum(t.lineasEntrada.map(l=>l.subtotal));
@@ -523,13 +526,12 @@
       pdfCompleto(Object.assign({},t,{lineasSalida:rows}), mer, pct);
     });
 
-    // Solo lectura si se abrió un folio entre almacenes cerrado
     if(abrirSiCerrado && t.tipo==='ALMACENES' && t.cerrado){
       $$('#add-s,#f-s,#save-parcial,#save-final',v).forEach(x=> x && (x.style.display='none'));
     }
   }
 
-  /* ====== Pedidos (simple; aviso en ventas si CF=0 lo manejaremos después) ====== */
+  /* ====== Pedidos (sin cambios funcionales) ====== */
   function viewPedList(v){
     const lst=DB.get(K_PED,[]); v.innerHTML='';
     const c=el('div',{className:'card'});
@@ -561,8 +563,5 @@
     };
     $("#meta",v).onclick=()=>{ const total=Array.from($("#pb",v).querySelectorAll('.gram')).reduce((s,i)=>s+(+i.value||0),0); toast('Meta de producción: '+fmt2(total)+' g'); };
   }
-
-  // Nota: en Ventas, cuando intentes “seleccionar gramos” validaremos “Grs disponibles en CAJA FUERTE”.
-  // Si es 0: mostrar error “no cuentas con gramos para esta venta”. (Se integrará en el módulo de remisión.)
 
 })();
