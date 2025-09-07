@@ -16,7 +16,7 @@
       --fs:13px; --h:34px;
     }
     body{margin:0; background:var(--bg); color:#0f172a; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; font-size:var(--fs);}
-    header{background:var(--azul); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:14px}
+    header{background:var(--azul); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:12px}
     .brand{font-weight:800}
     .right-act{margin-left:auto; display:flex; gap:8px}
     .btn{border:1px solid #cbd5e1; padding:6px 10px; border-radius:8px; background:#fff; cursor:pointer}
@@ -57,13 +57,35 @@
     .preview img{max-width:92px;border-radius:8px;border:1px solid #e5e7eb;margin:2px}
     #toast{position:fixed;bottom:14px;right:14px;background:#0a3a74;color:#fff;padding:10px 14px;border-radius:10px;display:none;z-index:9999}
     #diag{position:fixed;bottom:14px;left:14px;background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:10px;display:none;max-width:70vw;z-index:9999}
+
+    /* ===== Logo animado (oscilación 180°; 3s animación + 7s pausa) ===== */
+    .logo-wrap{display:flex;align-items:center;gap:8px}
+    .logo-oscila{
+      width:28px; height:28px; display:inline-block;
+      transform-origin:center center;
+      will-change:transform;
+      image-rendering:-webkit-optimize-contrast;
+      animation: argozOscila 10s ease-in-out infinite;
+    }
+    /* 0–70% quieto; 70–85% gira a 180°; 85–100% regresa a 0° */
+    @keyframes argozOscila{
+      0%   { transform: rotate(0deg); }
+      70%  { transform: rotate(0deg); }
+      85%  { transform: rotate(180deg); }
+      100% { transform: rotate(0deg); }
+    }
+
     @media print{ header,.left,.mid,#tabs{display:none!important} .card{border:none} }
     @page{size:5.5in 8.5in;margin:10mm}
   </style>
 </head>
 <body>
 <header>
-  <div class="brand">CONTROL-A · argozmx — Guadalajara, Jalisco</div>
+  <div class="logo-wrap">
+    <!-- Asegúrate de tener este archivo en /public/logo.webp (fondo transparente) -->
+    <img src="/logo.webp" alt="argozmx" class="logo-oscila" />
+    <div class="brand">CONTROL-A · argozmx — Guadalajara, Jalisco</div>
+  </div>
   <div class="hint">v2.0 · <span id="jsok">JS cargando...</span></div>
   <div class="right-act">
     <button class="btn" id="btn-toggle-mid">Submenú</button>
