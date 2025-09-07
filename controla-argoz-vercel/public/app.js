@@ -1,12 +1,10 @@
-/* CONTROL-A · app.js v2.0.1 estable
-   - Evitar scroll horizontal (tablas fixed en CSS del index)
-   - Mostrar disponibles en almacén origen y destino (solo folios cerrados)
-   - Quitar foto por línea, botón global de evidencia
-   - Salida visible desde inicio (bloqueada); editable solo al "Procesar"
-   - Guardar entrada limpia la hoja y confirma mensaje
-   - Pendientes en naranja con botón "Procesar este traspaso" (con checklist)
-   - Vista previa = BORRADOR antes de cerrar
-   - PDF final y WhatsApp solo cuando cerrado
+/* CONTROL-A · app.js v2.2
+   Cambios:
+   - Columnas proporcionadas (no se enciman) + inputs 100% del TD
+   - En “Procesar este traspaso” ENTRADA bloqueada, SALIDA editable
+   - SALIDA con líneas visibles + botones Agregar/Eliminar línea
+   - Submenú: botón Folios cerrados
+   - Vista previa = BORRADOR; PDF/WA sólo cuando cerrado
    - Sin shorthand, sin comas colgantes
 */
 
@@ -43,7 +41,7 @@
   }
   var DB = loadDB();
 
-  // ===== Catálogo mínimo =====
+  // ===== Catálogos =====
   var ALMACENES = [
     { id: 'caja',  nombre: 'Caja fuerte' },
     { id: 'prod',  nombre: 'Producción' }
@@ -80,16 +78,34 @@
 
       var acciones = document.createElement('div');
       acciones.className = 'actions';
+
       var btnNew = document.createElement('button');
       btnNew.className = 'btn-primary';
       btnNew.textContent = '+ Nuevo traspaso';
       btnNew.addEventListener('click', function(){ abrirTraspasoNuevo(); });
       acciones.appendChild(btnNew);
 
+      var btnAbiertos = document.createElement('button');
+      btnAbiertos.className = 'btn-outline';
+      btnAbiertos.textContent = 'Traspasos pendientes';
+      btnAbiertos.addEventListener('click', function(){
+        listarAbiertos(true);
+      });
+      acciones.appendChild(btnAbiertos);
+
+      var btnCerrados = document.createElement('button');
+      btnCerrados.className = 'btn-outline';
+      btnCerrados.textContent = 'Folios cerrados';
+      btnCerrados.addEventListener('click', function(){
+        listarCerrados();
+      });
+      acciones.appendChild(btnCerrados);
+
       card.appendChild(acciones);
       host.appendChild(card);
 
-      listarAbiertos();
+      // carga por defecto: pendientes
+      listarAbiertos(false);
     } else {
       h2.textContent = 'Submenú';
       card.appendChild(h2);
@@ -139,28 +155,26 @@
 
     var view = document.createElement('div');
     view.className = 'view active';
-    view.id = 'view-'+id; // <— CORREGIDO
+    view.id = 'view-'+id;
     qsa('.view', viewsHost).forEach(function(v){ v.classList.remove('active'); });
     viewsHost.appendChild(view);
 
     renderFn(view);
   }
 
-  // ===== Listado de folios abiertos (pendientes) =====
-  function listarAbiertos(){
+  // ===== Listados =====
+  function listarAbiertos(mostrarTituloExtra){
     var host = qs('#subpanel');
     var card = document.createElement('div');
     card.className = 'card';
-    var h = document.createElement('h2');
-    h.textContent = 'Traspasos pendientes';
-    card.appendChild(h);
+    if(mostrarTituloExtra){
+      var h = document.createElement('h2'); h.textContent = 'Traspasos pendientes'; card.appendChild(h);
+    }
 
     var lst = DB.traspasos.filter(function(t){ return !t.cerrado; });
     if(lst.length === 0){
-      var p = document.createElement('p');
-      p.textContent = 'Sin folios abiertos.';
-      card.appendChild(p);
-    } else {
+      var p = document.createElement('p'); p.textContent = 'Sin folios abiertos.'; card.appendChild(p);
+    }else{
       lst.forEach(function(t){
         var fol = String(t.folio).padStart(3, '0');
         var row = document.createElement('div');
@@ -187,6 +201,25 @@
     host.appendChild(card);
   }
 
+  function listarCerrados(){
+    var host = qs('#subpanel');
+    var card = document.createElement('div'); card.className = 'card';
+    var h = document.createElement('h2'); h.textContent = 'Folios cerrados'; card.appendChild(h);
+
+    var lst = DB.traspasos.filter(function(t){ return !!t.cerrado; }).sort(function(a,b){ return b.folio - a.folio; });
+    if(lst.length===0){
+      var p = document.createElement('p'); p.textContent = 'Aún no hay folios cerrados.'; card.appendChild(p);
+    }else{
+      lst.forEach(function(t){
+        var row = document.createElement('div'); row.className='actions';
+        var pill = document.createElement('span'); pill.className='pill'; pill.textContent='Folio '+String(t.folio).padStart(3,'0'); row.appendChild(pill);
+        var btn = document.createElement('button'); btn.className='btn'; btn.textContent='Abrir PDF'; btn.addEventListener('click', function(){ imprimirPDF(t, false); }); row.appendChild(btn);
+        card.appendChild(row);
+      });
+    }
+    host.appendChild(card);
+  }
+
   // ===== Crear nuevo traspaso =====
   function nuevoTraspasoBase(){
     DB.folio += 1;
@@ -205,7 +238,6 @@
       });
     }
 
-    // La salida se crea desde el inicio pero bloqueada
     var salidaLineas = lineas.map(function(li){
       return {
         materialId: li.materialId,
@@ -253,10 +285,30 @@
   }
 
   // ===== Render de traspaso =====
-  // modoProcesar = true → habilita edición de SALIDA y sus selects
+  // modoProcesar = true → ENTRADA bloqueada, SALIDA editable
   function abrirTraspasoExistente(id, modoProcesar){
     var tr = DB.traspasos.find(function(x){ return x.id === id; });
     if(!tr){ toast('No encontrado'); return; }
+    if(!tr.salida || !tr.salida.lineas){ // saneamiento
+      tr.salida = {
+        creada: true,
+        fecha: hoyStr(),
+        hora: horaStr(),
+        saleDe: 'prod',
+        entraA: 'caja',
+        comentarios: '',
+        lineas: [],
+        totalGr: 0
+      };
+      saveDB(DB);
+    }
+    if(tr.salida.lineas.length===0){
+      // crea 3 líneas por defecto si no hay
+      var i; for(i=0;i<3;i++){
+        tr.salida.lineas.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0 });
+      }
+      saveDB(DB);
+    }
 
     var titulo = 'Traspaso ' + String(tr.folio).padStart(3, '0');
 
@@ -278,6 +330,7 @@
       var dvFecha = document.createElement('div');
       var lbF = document.createElement('label'); lbF.textContent = 'Fecha';
       var inF = document.createElement('input'); inF.type = 'date'; inF.value = tr.fecha;
+      inF.readOnly = !!modoProcesar; if(modoProcesar){ inF.classList.add('ro'); }
       inF.addEventListener('change', function(){ tr.fecha = inF.value; saveDB(DB); });
       dvFecha.appendChild(lbF); dvFecha.appendChild(inF);
 
@@ -290,6 +343,7 @@
         if(a.id === tr.saleDe) op.selected = true;
         selS.appendChild(op);
       });
+      selS.disabled = !!modoProcesar;
       selS.addEventListener('change', function(){
         tr.saleDe = selS.value;
         tr.tipo = (tr.saleDe === 'caja' && tr.entraA === 'prod') ? 'prod' : 'normal';
@@ -307,6 +361,7 @@
         if(a.id === tr.entraA) op2.selected = true;
         selE.appendChild(op2);
       });
+      selE.disabled = !!modoProcesar;
       selE.addEventListener('change', function(){
         tr.entraA = selE.value;
         tr.tipo = (tr.saleDe === 'caja' && tr.entraA === 'prod') ? 'prod' : 'normal';
@@ -318,6 +373,7 @@
       var dvC = document.createElement('div');
       var lbC = document.createElement('label'); lbC.textContent = 'Comentarios';
       var txC = document.createElement('textarea'); txC.value = tr.comentarios;
+      txC.readOnly = !!modoProcesar; if(modoProcesar){ txC.classList.add('ro'); }
       txC.addEventListener('input', function(){ tr.comentarios = txC.value; saveDB(DB); });
       dvC.appendChild(lbC); dvC.appendChild(txC);
 
@@ -347,11 +403,23 @@
 
       card.appendChild(grid1);
 
-      // ===== Tabla ENTRADA =====
+      // ===== Tabla ENTRADA (bloqueada si modoProcesar) =====
       card.appendChild(tablaLineasWidget({
         titulo: 'ENTRADA',
-        bloqueado: false,
+        bloqueado: !!modoProcesar,
         lineas: tr.lineasEntrada,
+        onAdd: function(){
+          tr.lineasEntrada.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0 });
+          tr.totalGr = sumaSubtotales(tr.lineasEntrada);
+          saveDB(DB);
+          abrirTraspasoExistente(tr.id, modoProcesar);
+        },
+        onDel: function(){
+          if(tr.lineasEntrada.length>1){ tr.lineasEntrada.pop(); }
+          tr.totalGr = sumaSubtotales(tr.lineasEntrada);
+          saveDB(DB);
+          abrirTraspasoExistente(tr.id, modoProcesar);
+        },
         onChange: function(){
           tr.totalGr = sumaSubtotales(tr.lineasEntrada);
           inT.value = f2(tr.totalGr);
@@ -359,36 +427,36 @@
         }
       }));
 
-      // ===== Acciones ENTRADA =====
-      var acts = document.createElement('div');
-      acts.className = 'actions';
+      // ===== Acciones ENTRADA (solo cuando NO estamos procesando) =====
+      if(!modoProcesar){
+        var acts = document.createElement('div');
+        acts.className = 'actions';
 
-      var btnGuardar = document.createElement('button');
-      btnGuardar.className = 'btn-primary';
-      btnGuardar.textContent = 'Guardar entrada';
-      btnGuardar.addEventListener('click', function(){
-        if(!confirm('¿Seguro que deseas guardar la ENTRADA?')) return;
-        saveDB(DB);
-        toast('Traspaso de entrada creado exitosamente; puedes consultarlo en "Traspasos pendientes".');
+        var btnGuardar = document.createElement('button');
+        btnGuardar.className = 'btn-primary';
+        btnGuardar.textContent = 'Guardar entrada';
+        btnGuardar.addEventListener('click', function(){
+          if(!confirm('¿Seguro que deseas guardar la ENTRADA?')) return;
+          saveDB(DB);
+          toast('Traspaso de entrada creado exitosamente; puedes consultarlo en "Traspasos pendientes".');
 
-        // cerrar tab y limpiar hoja (volver al submenú)
-        var view = qs('#view-trasp-' + tr.id);
-        if(view) view.remove();
-        var tabBtn = qs('[data-tab="trasp-' + tr.id + '"]');
-        if(tabBtn) tabBtn.remove();
-        renderSubmenu('inventarios');
-      });
-      acts.appendChild(btnGuardar);
+          // cerrar tab y limpiar hoja
+          var view = qs('#view-trasp-' + tr.id); if(view) view.remove();
+          var tabBtn = qs('[data-tab="trasp-' + tr.id + '"]'); if(tabBtn) tabBtn.remove();
+          renderSubmenu('inventarios');
+        });
+        acts.appendChild(btnGuardar);
 
-      var btnVista = document.createElement('button');
-      btnVista.className = 'btn';
-      btnVista.textContent = 'Vista previa';
-      btnVista.addEventListener('click', function(){ imprimirPDF(tr, true); });
-      acts.appendChild(btnVista);
+        var btnVista = document.createElement('button');
+        btnVista.className = 'btn';
+        btnVista.textContent = 'Vista previa';
+        btnVista.addEventListener('click', function(){ imprimirPDF(tr, true); });
+        acts.appendChild(btnVista);
 
-      card.appendChild(acts);
+        card.appendChild(acts);
+      }
 
-      // ===== SALIDA (visible desde inicio) =====
+      // ===== SALIDA =====
       var bar = document.createElement('div');
       bar.className = 'card';
 
@@ -396,16 +464,15 @@
       h3.textContent = modoProcesar ? 'SALIDA (editable)' : 'SALIDA (bloqueada hasta procesar)';
       bar.appendChild(h3);
 
-      // Header SALIDA (siempre visible; selects EDITABLES solo en modoProcesar)
+      // Header SALIDA
       var g2 = document.createElement('div');
       g2.className = 'grid';
 
       var dvFS = document.createElement('div');
       var lbFS = document.createElement('label'); lbFS.textContent = 'Fecha salida';
       var inFS = document.createElement('input'); inFS.type = 'date'; inFS.value = tr.salida.fecha;
-      inFS.readOnly = !modoProcesar;
+      inFS.readOnly = !modoProcesar; if(!modoProcesar){ inFS.classList.add('ro'); }
       inFS.addEventListener('change', function(){ tr.salida.fecha = inFS.value; saveDB(DB); });
-      if(!modoProcesar){ inFS.classList.add('ro'); }
       dvFS.appendChild(lbFS); dvFS.appendChild(inFS);
       g2.appendChild(dvFS);
 
@@ -440,8 +507,7 @@
       var dvCS = document.createElement('div');
       var lbCS = document.createElement('label'); lbCS.textContent = 'Comentarios (salida)';
       var txCS = document.createElement('textarea'); txCS.value = tr.salida.comentarios;
-      txCS.readOnly = !modoProcesar;
-      if(!modoProcesar){ txCS.classList.add('ro'); }
+      txCS.readOnly = !modoProcesar; if(!modoProcesar){ txCS.classList.add('ro'); }
       txCS.addEventListener('input', function(){ tr.salida.comentarios = txCS.value; saveDB(DB); });
       dvCS.appendChild(lbCS); dvCS.appendChild(txCS);
       g2.appendChild(dvCS);
@@ -454,11 +520,23 @@
 
       bar.appendChild(g2);
 
-      // Tabla SALIDA
+      // Tabla SALIDA (editable cuando modoProcesar = true) + agregar/eliminar líneas
       bar.appendChild(tablaLineasWidget({
         titulo: 'SALIDA',
         bloqueado: !modoProcesar,
         lineas: tr.salida.lineas,
+        onAdd: function(){
+          tr.salida.lineas.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0 });
+          tr.salida.totalGr = sumaSubtotales(tr.salida.lineas);
+          saveDB(DB);
+          abrirTraspasoExistente(tr.id, modoProcesar);
+        },
+        onDel: function(){
+          if(tr.salida.lineas.length>1){ tr.salida.lineas.pop(); }
+          tr.salida.totalGr = sumaSubtotales(tr.salida.lineas);
+          saveDB(DB);
+          abrirTraspasoExistente(tr.id, modoProcesar);
+        },
         onChange: function(){
           tr.salida.totalGr = sumaSubtotales(tr.salida.lineas);
           inTS.value = f2(tr.salida.totalGr);
@@ -466,7 +544,6 @@
         }
       }));
 
-      // Acciones de SALIDA (solo en modoProcesar)
       if(modoProcesar){
         var acts2 = document.createElement('div');
         acts2.className = 'actions';
@@ -517,19 +594,46 @@
     });
   }
 
-  // ===== Widget de tabla de líneas =====
+  // ===== Tabla de líneas (con anchos proporcionados + agregar/eliminar) =====
   function tablaLineasWidget(cfg){
-    // cfg: { titulo, bloqueado, lineas, onChange }
+    // cfg: { titulo, bloqueado, lineas, onAdd?, onDel?, onChange? }
     var wrap = document.createElement('div');
-    var h = document.createElement('h2'); h.textContent = cfg.titulo; wrap.appendChild(h);
+
+    // barra de acciones para agregar/eliminar
+    var topBar = document.createElement('div');
+    topBar.className = 'actions';
+    var h = document.createElement('h2'); h.textContent = cfg.titulo; topBar.appendChild(h);
+    var spacer = document.createElement('div'); spacer.style.flex='1'; topBar.appendChild(spacer);
+    if(!cfg.bloqueado){
+      var bAdd = document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea';
+      bAdd.addEventListener('click', function(){ if(typeof cfg.onAdd==='function'){ cfg.onAdd(); } });
+      topBar.appendChild(bAdd);
+
+      var bDel = document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última';
+      bDel.addEventListener('click', function(){ if(typeof cfg.onDel==='function'){ cfg.onDel(); } });
+      topBar.appendChild(bDel);
+    }
+    wrap.appendChild(topBar);
 
     var table = document.createElement('table');
     var thead = document.createElement('thead');
     var trh = document.createElement('tr');
-    var cols = ['#','Material','Detalle','Gr','Aleación','Subtotal'];
+
+    // Anchos proporcionales: # 6%, Material 22%, Detalle 28%, Gr 12%, Aleación 14%, Subtotal 18%
+    var headers = [
+      {t:'#', w:'6%'},
+      {t:'Material', w:'22%'},
+      {t:'Detalle', w:'28%'},
+      {t:'Gr', w:'12%'},
+      {t:'Aleación', w:'14%'},
+      {t:'Subtotal', w:'18%'}
+    ];
     var i;
-    for(i=0; i<cols.length; i++){
-      var th = document.createElement('th'); th.textContent = cols[i]; trh.appendChild(th);
+    for(i=0;i<headers.length;i++){
+      var th = document.createElement('th');
+      th.textContent = headers[i].t;
+      th.style.width = headers[i].w;
+      trh.appendChild(th);
     }
     thead.appendChild(trh);
     table.appendChild(thead);
@@ -545,7 +649,7 @@
 
       // Material
       var td2 = document.createElement('td');
-      var sel = document.createElement('select');
+      var sel = document.createElement('select'); sel.style.width='100%';
       MATERIALES.forEach(function(m){
         var op = document.createElement('option');
         op.value = m.id; op.textContent = m.nombre;
@@ -565,16 +669,14 @@
 
       // Detalle
       var td3 = document.createElement('td');
-      var inDet = document.createElement('input'); inDet.type = 'text'; inDet.value = li.detalle;
-      inDet.readOnly = !!cfg.bloqueado;
-      if(inDet.readOnly){ inDet.classList.add('ro'); }
+      var inDet = document.createElement('input'); inDet.type = 'text'; inDet.value = li.detalle; inDet.style.width='100%';
+      inDet.readOnly = !!cfg.bloqueado; if(inDet.readOnly){ inDet.classList.add('ro'); }
       inDet.addEventListener('input', function(){ li.detalle = inDet.value; saveDB(DB); });
-      td3.appendChild(inDet);
-      tr.appendChild(td3);
+      td3.appendChild(inDet); tr.appendChild(td3);
 
       // Gr
       var tdGr = document.createElement('td');
-      var inGr = document.createElement('input'); inGr.type = 'number'; inGr.step = '0.01'; inGr.min = '0'; inGr.value = li.gramos;
+      var inGr = document.createElement('input'); inGr.type = 'number'; inGr.step = '0.01'; inGr.min = '0'; inGr.value = li.gramos; inGr.style.width='100%';
       inGr.readOnly = !!cfg.bloqueado; if(inGr.readOnly){ inGr.classList.add('ro'); }
       inGr.addEventListener('input', function(){
         li.gramos = parseFloat(inGr.value || '0');
@@ -585,23 +687,20 @@
         }
         recalc();
       });
-      tdGr.appendChild(inGr);
-      tr.appendChild(tdGr);
+      tdGr.appendChild(inGr); tr.appendChild(tdGr);
 
       // Aleación
       var tdAle = document.createElement('td');
-      var inAle = document.createElement('input'); inAle.type = 'number'; inAle.step = '0.01'; inAle.min = '0'; inAle.value = li.aleacion;
+      var inAle = document.createElement('input'); inAle.type = 'number'; inAle.step = '0.01'; inAle.min = '0'; inAle.value = li.aleacion; inAle.style.width='100%';
       inAle.readOnly = (li.materialId !== '999') || !!cfg.bloqueado;
       if(inAle.readOnly){ inAle.classList.add('ro'); }
       inAle.addEventListener('input', function(){ li.aleacion = parseFloat(inAle.value || '0'); recalc(); });
-      tdAle.appendChild(inAle);
-      tr.appendChild(tdAle);
+      tdAle.appendChild(inAle); tr.appendChild(tdAle);
 
       // Subtotal
       var tdSub = document.createElement('td');
-      var inSub = document.createElement('input'); inSub.readOnly = true; inSub.value = f2(li.subtotal);
-      tdSub.appendChild(inSub);
-      tr.appendChild(tdSub);
+      var inSub = document.createElement('input'); inSub.readOnly = true; inSub.value = f2(li.subtotal); inSub.style.width='100%';
+      tdSub.appendChild(inSub); tr.appendChild(tdSub);
 
       function recalc(){
         li.subtotal = (parseFloat(li.gramos || 0) + parseFloat(li.aleacion || 0));
@@ -642,7 +741,7 @@
   }
   function f2(n){ return (parseFloat(n||0)).toFixed(2); }
 
-  // Inventario lógico por almacén (solo folios cerrados)
+  // Inventario lógico por almacén (folios cerrados)
   function calcDisponibles(almacenId){
     var sum = 0;
     DB.traspasos.forEach(function(t){
@@ -657,7 +756,7 @@
     return sum;
   }
 
-  // ===== Cierre de folio (valida merma y terminado) =====
+  // ===== Cierre de folio =====
   function cerrarFolio(tr, justificacion){
     if(tr.tipo === 'prod'){
       var hayTerminado = tr.salida.lineas.some(function(li){
@@ -675,7 +774,7 @@
     var mermaAbs = Math.max(0, ent - sal);
     var mermaPct = ent > 0 ? (mermaAbs / ent) : 0;
 
-    var tol = 0.05; // base
+    var tol = 0.05;
     tr.lineasEntrada.forEach(function(li){
       var mat = MATERIALES.find(function(m){ return m.id === li.materialId; });
       if(mat && mat.tolMerma > tol){ tol = mat.tolMerma; }
@@ -694,8 +793,7 @@
     imprimirPDF(tr, false);
   }
 
-  // ===== PDF + WhatsApp =====
-  // isDraft = true → agrega marca de agua "BORRADOR"
+  // ===== PDF / WhatsApp =====
   function imprimirPDF(tr, isDraft){
     var w = window.open('', '_blank', 'width=840,height=900');
     if(!w){ alert('Bloqueador de ventanas activo. Permite pop-ups para imprimir.'); return; }
@@ -711,7 +809,7 @@
       + 'th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left;word-break:break-word;}'
       + 'thead tr{background:#e7effa;}'
       + '.row{display:flex;gap:8px;margin:6px 0;} .col{flex:1;}'
-      + '.muted{color:#64748b;} .ok{color:#065f46;} .bad{color:#b91c1c;font-weight:bold;}'
+      + '.ok{color:#065f46;} .bad{color:#b91c1c;font-weight:bold;}'
       + '.sign{display:flex;justify-content:space-between;margin-top:18px;} .sign div{width:45%;border-top:1px solid #94a3b8;padding-top:6px;text-align:center;}'
       + '.water{position:fixed;top:40%;left:15%;font-size:48px;color:#94a3b880;transform:rotate(-20deg);}';
 
@@ -719,7 +817,6 @@
     html.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Folio '+String(tr.folio).padStart(3,'0')+' — CONTROL-A</title><style>'+headCss+'</style></head><body>');
     if(isDraft){ html.push('<div class="water">BORRADOR</div>'); }
 
-    // ENTRADA
     html.push('<h1>Traspaso '+String(tr.folio).padStart(3,'0')+'</h1>');
     html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.fecha+' '+tr.hora+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.entraA)+'</div></div>');
     html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(tr.comentarios)+'</div><div class="col"><b>Total GR (entrada):</b> '+f2(tr.totalGr)+'</div></div>');
@@ -731,7 +828,6 @@
     }
     html.push('</tbody></table>');
 
-    // SALIDA
     html.push('<h2>Salida</h2>');
     html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.salida.fecha+' '+tr.salida.hora+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.salida.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.salida.entraA)+'</div></div>');
     html.push('<div class="row"><div class="col"><b>Comentarios salida:</b> '+escapeHTML(tr.salida.comentarios)+'</div><div class="col"><b>Total GR (salida):</b> '+f2(tr.salida.totalGr)+'</div></div>');
@@ -756,7 +852,6 @@
   }
 
   function compartirWhatsApp(tr){
-    // En esta demo: abrir impresión y el usuario comparte manualmente el PDF
     imprimirPDF(tr, false);
     toast('Guarda el PDF y compártelo por WhatsApp.');
   }
