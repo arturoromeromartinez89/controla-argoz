@@ -1,13 +1,9 @@
-/* CONTROL-A · app.js v2.4
-   Módulos: Traspasos (previo) + NUEVO: Pedidos
-   Cambios relevantes:
-   - Pedidos: Nuevo / Pendientes / Importar CSV (desde Excel guardado como CSV)
-   - Encabezado de Pedido (fecha auto, tipo, cliente, observaciones)
-   - Líneas de Pedido: Código, Descripción, Piezas, Gramos, IVA, Observaciones
-   - Guardar limpia hoja y confirma: "Pedido creado exitosamente; puedes consultarlo en 'Pedidos pendientes'."
-   - Listado de Pedidos pendientes con botón Abrir
-   - Sin librerías externas. XLSX: solicitar convertir a CSV (temporal en MVP)
-   - Conserva Traspasos v2.3 (folio rojo, merma %, evidencia en PDF, etc.)
+/* CONTROL-A · app.js v2.4.1
+   Módulos: Traspasos (previo) + Pedidos
+   Cambios en esta versión:
+   - Importar Excel (CSV) SOLO desde la hoja de trabajo del pedido (no aparece en el submenú)
+   - Se elimina cualquier referencia a abrirImportadorCSV en el submenú
+   - Mantiene: confirmación y limpieza tras guardar, listado de pedidos pendientes, etc.
 */
 
 (function(){
@@ -177,11 +173,7 @@
       btnPend.addEventListener('click', function(){ listarPedidosPendientes(true); });
       acciones2.appendChild(btnPend);
 
-      var btnImport = document.createElement('button');
-      btnImport.className = 'btn-outline';
-      btnImport.textContent = 'Importar Excel (CSV)';
-      btnImport.addEventListener('click', function(){ abrirImportadorCSV(); });
-      acciones2.appendChild(btnImport);
+      // (Importar CSV se quitó del submenú a petición: solo dentro de la hoja del pedido)
 
       card.appendChild(acciones2);
       host.appendChild(card);
@@ -197,10 +189,8 @@
 
   // =====================================================================================
   //                                    TRASPASOS (EXISTENTE)
-  // (se conserva lo entregado en v2.3: folio rojo, merma %, evidencia, etc.)
   // =====================================================================================
 
-  // Listados traspasos
   function listarTraspasosAbiertos(mostrarTituloExtra){
     var host = qs('#subpanel');
     var card = document.createElement('div');
@@ -246,7 +236,6 @@
     host.appendChild(card);
   }
 
-  // Crear nuevo traspaso (igual que versión previa)
   function nuevoTraspasoBase(){
     DB.folio += 1;
     var id = 'T' + Date.now();
@@ -274,7 +263,6 @@
   }
   function abrirTraspasoNuevo(){ var id = nuevoTraspasoBase(); abrirTraspasoExistente(id, false); }
 
-  // Render traspaso (versión compacta; mantiene lógica previa)
   function abrirTraspasoExistente(id, modoProcesar){
     var tr = DB.traspasos.find(function(x){ return x.id===id; });
     if(!tr){ toast('No encontrado'); return; }
@@ -293,7 +281,6 @@
       host.innerHTML='';
       var card = document.createElement('div'); card.className='card';
 
-      // Header Entrada
       var grid1 = document.createElement('div'); grid1.className='grid';
       var dvFolio = document.createElement('div'); var lbFo=document.createElement('label'); lbFo.textContent='Folio'; var inFol=document.createElement('input'); inFol.readOnly=true; inFol.value=String(tr.folio).padStart(3,'0'); dvFolio.appendChild(lbFo); dvFolio.appendChild(inFol);
       var dvFecha = document.createElement('div'); var lbF=document.createElement('label'); lbF.textContent='Fecha'; var inF=document.createElement('input'); inF.type='date'; inF.value=tr.fecha; inF.readOnly=!!modoProcesar; if(modoProcesar){ inF.classList.add('ro'); } inF.addEventListener('change',function(){ tr.fecha=inF.value; saveDB(DB); }); dvFecha.appendChild(lbF); dvFecha.appendChild(inF);
@@ -306,7 +293,6 @@
       grid1.appendChild(dvFolio); grid1.appendChild(dvFecha); grid1.appendChild(dvS); grid1.appendChild(dvE); grid1.appendChild(dvC); grid1.appendChild(dvT); grid1.appendChild(dvDisp); grid1.appendChild(dvDisp2);
       card.appendChild(grid1);
 
-      // Tabla Entrada
       card.appendChild(tablaLineasTraspaso({
         titulo:'ENTRADA', bloqueado:!!modoProcesar, lineas:tr.lineasEntrada,
         onAdd:function(){ tr.lineasEntrada.push({materialId:'925',detalle:'',gramos:0,aleacion:0,subtotal:0}); tr.totalGr=sumaSubtotales(tr.lineasEntrada); saveDB(DB); abrirTraspasoExistente(tr.id, modoProcesar); },
@@ -330,7 +316,6 @@
         card.appendChild(acts);
       }
 
-      // SALIDA
       var bar=document.createElement('div'); bar.className='card';
       var h3=document.createElement('h2'); h3.textContent=modoProcesar?'SALIDA (editable)':'SALIDA (bloqueada hasta procesar)'; bar.appendChild(h3);
       var g2=document.createElement('div'); g2.className='grid';
@@ -359,7 +344,6 @@
 
       card.appendChild(bar);
 
-      // Evidencia global
       var divEv=document.createElement('div'); divEv.className='actions';
       var cam=document.createElement('span'); cam.textContent='📷';
       var lbl=document.createElement('span'); lbl.textContent=' Cargar evidencia en foto';
@@ -372,7 +356,6 @@
     });
   }
 
-  // Tabla líneas Traspaso
   function tablaLineasTraspaso(cfg){
     var wrap=document.createElement('div');
     var topBar=document.createElement('div'); topBar.className='actions';
@@ -497,7 +480,6 @@
     tr.cerrado=true; tr.cerradoComentario=justificacion||''; saveDB(DB); toast('Folio cerrado'); imprimirPDF(tr,false);
   }
 
-  // PDF Traspaso (con evidencia, folio rojo, merma %)
   function imprimirPDF(tr,isDraft){
     var w=window.open('', '_blank','width=840,height=900'); if(!w){ alert('Permite pop-ups para imprimir.'); return; }
     var dif=parseFloat(tr.salida.totalGr||0)-parseFloat(tr.totalGr||0);
@@ -514,7 +496,6 @@
     tr.lineasEntrada.forEach(function(li,i){ html.push('<tr><td>'+(i+1)+'</td><td>'+nombreMaterial(li.materialId)+'</td><td>'+escapeHTML(li.detalle)+'</td><td>'+f2(li.gramos)+'</td><td>'+f2(li.aleacion)+'</td><td>'+f2(li.subtotal)+'</td></tr>'); });
     html.push('</tbody></table>');
     html.push('<div class="signs"><div>Entregó (entrada)</div><div>Recibió (entrada)</div></div>');
-
     html.push('<h2>Salida</h2>');
     html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.salida.fecha+' '+tr.salida.hora+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.salida.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.salida.entraA)+'</div></div>');
     html.push('<div class="row"><div class="col"><b>Comentarios salida:</b> '+escapeHTML(tr.salida.comentarios)+'</div><div class="col"><b>Total GR (salida):</b> '+f2(tr.salida.totalGr)+'</div></div>');
@@ -534,7 +515,6 @@
   //                                        PEDIDOS (NUEVO)
   // =====================================================================================
 
-  // Listados pedidos
   function listarPedidosPendientes(mostrarTitulo){
     var host=qs('#subpanel');
     var card=document.createElement('div'); card.className='card';
@@ -553,7 +533,6 @@
     host.appendChild(card);
   }
 
-  // Nuevo pedido
   function nuevoPedidoBase(){
     DB.pedFolio += 1;
     var id='P'+Date.now();
@@ -563,7 +542,7 @@
       fecha:hoyStr(),
       tipo:'cliente',     // 'cliente' | 'stock'
       cliente:'',
-      estado:'Borrador',  // reservado para futuro flujo
+      estado:'Borrador',
       observaciones:'',
       lineas:[
         { codigo:'', descripcion:'', piezas:0, gramos:0, iva:0, observaciones:'' },
@@ -578,7 +557,6 @@
   }
   function abrirPedidoNuevo(){ var id=nuevoPedidoBase(); abrirPedidoExistente(id); }
 
-  // Render pedido
   function abrirPedidoExistente(id){
     var ped=DB.pedidos.find(function(p){ return p.id===id; });
     if(!ped){ toast('No encontrado'); return; }
@@ -588,7 +566,6 @@
       host.innerHTML='';
       var card=document.createElement('div'); card.className='card';
 
-      // Encabezado
       var grid=document.createElement('div'); grid.className='grid';
 
       var dvFolio=document.createElement('div'); var lbFo=document.createElement('label'); lbFo.textContent='Folio'; var inFo=document.createElement('input'); inFo.readOnly=true; inFo.value=String(ped.folio).padStart(3,'0'); dvFolio.appendChild(lbFo); dvFolio.appendChild(inFo);
@@ -608,7 +585,7 @@
       grid.appendChild(dvFolio); grid.appendChild(dvFecha); grid.appendChild(dvTipo); grid.appendChild(dvCli); grid.appendChild(dvObs);
       card.appendChild(grid);
 
-      // Tabla líneas Pedido + botones
+      // Tabla + Importador CSV (aquí va el importador)
       card.appendChild(tablaLineasPedido({
         lineas: ped.lineas,
         onAdd: function(){ ped.lineas.push({codigo:'',descripcion:'',piezas:0,gramos:0,iva:0,observaciones:''}); recalcPedido(ped); saveDB(DB); abrirPedidoExistente(ped.id); },
@@ -616,9 +593,9 @@
         onChange: function(){ recalcPedido(ped); saveDB(DB); }
       }));
 
-      // Acciones
       var acts=document.createElement('div'); acts.className='actions';
-      // Importar CSV (desde Excel guardado como CSV)
+
+      // Importador CSV SOLO aquí
       var inpFile=document.createElement('input'); inpFile.type='file'; inpFile.accept='.csv,.CSV,.xlsx,.xls';
       inpFile.addEventListener('change', function(){
         var f=inpFile.files && inpFile.files[0] ? inpFile.files[0] : null;
@@ -654,7 +631,6 @@
     });
   }
 
-  // Tabla líneas de Pedido
   function tablaLineasPedido(cfg){
     var wrap=document.createElement('div');
     var top=document.createElement('div'); top.className='actions';
@@ -698,7 +674,6 @@
     return wrap;
   }
 
-  // Totales de pedido
   function recalcPedido(ped){
     var piezas=0, gramos=0, i;
     for(i=0;i<ped.lineas.length;i++){
@@ -708,21 +683,16 @@
     ped.totales={ piezas:piezas, gramos:gramos };
   }
 
-  // Importador CSV (desde Excel guardado como CSV)
   function leerCSVyCargarLineas(file, ped){
     var reader=new FileReader();
     reader.onload=function(ev){
       var text=ev.target.result || '';
-      // Detectar separador por la primera línea: coma, punto y coma, tab
       var firstLine=text.split(/\r?\n/)[0] || '';
       var sep=','; if(firstLine.indexOf(';')>=0){ sep=';'; } if(firstLine.indexOf('\t')>=0){ sep='\t'; }
       var rows=text.split(/\r?\n/).filter(function(r){ return r.trim().length>0; });
-
       if(rows.length===0){ alert('El CSV está vacío.'); return; }
 
-      // Encabezados
       var headers = rows[0].split(sep).map(function(s){ return s.replace(/^"|"$/g,'').trim(); });
-
       function idxOf(names){
         var i, j;
         for(i=0;i<names.length;i++){
@@ -731,7 +701,6 @@
         }
         return -1;
       }
-
       var idxCodigo = idxOf(['Código','Codigo','SKU','Clave','Code']);
       var idxPiezas = idxOf(['Piezas','Pz','Piezas (Pz)','Cantidad','Cant']);
       var idxGramos = idxOf(['Gramos','Gr','Grs']);
@@ -757,18 +726,12 @@
           iva: idxIVA>=0 ? parseFloat(cols[idxIVA]||'0') : 0,
           observaciones: ''
         };
-
-        // Evitar filas totalmente vacías
         var sumEmpty = (li.codigo+li.descripcion).trim()==='' && li.piezas===0 && li.gramos===0;
         if(sumEmpty) continue;
-
         nuevas.push(li);
       }
 
-      if(nuevas.length===0){
-        alert('No se encontraron líneas válidas en el CSV.');
-        return;
-      }
+      if(nuevas.length===0){ alert('No se encontraron líneas válidas en el CSV.'); return; }
 
       ped.lineas = nuevas;
       recalcPedido(ped);
@@ -779,7 +742,6 @@
     reader.readAsText(file, 'utf-8');
   }
 
-  // Vista previa (BORRADOR) del pedido
   function vistaPreviaPedido(ped){
     var w=window.open('', '_blank','width=840,height=900'); if(!w){ alert('Permite pop-ups.'); return; }
     var css='@page{size:5.5in 8.5in;margin:10mm;}body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}h1{color:#0a2c4c;margin:0 0 6px 0;}table{width:100%;border-collapse:collapse;table-layout:fixed;}th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left;word-break:break-word;}thead tr{background:#e7effa;}.row{display:flex;gap:8px;margin:6px 0;}.col{flex:1;}.water{position:fixed;top:40%;left:10%;font-size:48px;color:#94a3b880;transform:rotate(-20deg);}';
@@ -802,7 +764,7 @@
   // ===== Submenú inicial =====
   renderSubmenu('inicio');
 
-  // Exponer helpers de traspasos que usan botones
+  // Exponer helpers usados por botones
   window.imprimirPDF=imprimirPDF;
   window.compartirWhatsApp=compartirWhatsApp;
   window.cargarEvidencia=cargarEvidencia;
