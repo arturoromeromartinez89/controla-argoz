@@ -1,4 +1,4 @@
-/* CONTROL-A · app.js v2.0 estable
+/* CONTROL-A · app.js v2.0.1 estable
    - Evitar scroll horizontal (tablas fixed en CSS del index)
    - Mostrar disponibles en almacén origen y destino (solo folios cerrados)
    - Quitar foto por línea, botón global de evidencia
@@ -139,7 +139,7 @@
 
     var view = document.createElement('div');
     view.className = 'view active';
-    view.id = 'view-'+id';
+    view.id = 'view-'+id; // <— CORREGIDO
     qsa('.view', viewsHost).forEach(function(v){ v.classList.remove('active'); });
     viewsHost.appendChild(view);
 
