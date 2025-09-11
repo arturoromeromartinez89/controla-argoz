@@ -185,7 +185,6 @@
 
     renderFn(view);
   }
-
   // ===== Submenús =====
   function renderSubmenu(root){
     var host = qs('#subpanel');
@@ -372,7 +371,6 @@
     return obj.id;
   }
   function abrirTraspasoNuevo(){ var id = nuevoTraspasoBase(); abrirTraspasoExistente(id, false); }
-
   function abrirTraspasoExistente(id, modoProcesar){
     var tr = DB.traspasos.find(function(x){ return x.id === id; });
     if(!tr){ toast('No encontrado'); return; }
@@ -729,7 +727,6 @@
     });
     return sum;
   }
-
   function cerrarFolio(tr, justificacion){
     if(tr.tipo==='prod'){
       var hayTerminado = tr.salida.lineas.some(function(li){
