@@ -1,10 +1,9 @@
-/* CONTROL-A · app.js v2.4
-   - Pedidos: Importar Excel (CSV) con botón verde dentro de la hoja
-   - Fecha promesa = fecha + 15 días (editable)
-   - Estatus: pendiente (naranja) → aceptar→ en proceso (azul) → finalizar (verde)
-   - Sin columna IVA en líneas de pedido
-   - Guardar limpia hoja y regresa a submenú con aviso
-   - Mantiene Traspasos v2.3 estable
+/* CONTROL-A · app.js v2.4.2
+   Basado en tu v2.4 estable. Cambios integrados sin romper lógica existente:
+   - FIX: Agregar/Eliminar líneas funciona dentro del widget (sin re-render global)
+   - Panel de MERMA en SALIDA con umbrales: verde ≤2.5%, naranja >2.5% y <4.5%, rojo ≥4.5%
+   - Inputs móviles legibles (16px, ~40px, números a la derecha, placeholder 0.00)
+   - Se conserva todo v2.4 (PDF con folio rojo, evidencia, pedidos con botón Excel interno, estatus, etc.)
    - Sin shorthand de propiedades, sin comas colgantes, sin errores de comillas
 */
 
@@ -230,7 +229,6 @@
 
   // =====================================================================
   // =========================  MÓDULO: TRASPASOS  =======================
-  // (versión compacta estable v2.3 — no tocar salvo bug)
   // =====================================================================
 
   function listarAbiertos(mostrarTituloExtra){
@@ -368,14 +366,16 @@
       grid1.appendChild(dvC); grid1.appendChild(dvT); grid1.appendChild(dvDisp); grid1.appendChild(dvDisp2);
       card.appendChild(grid1);
 
-      // Tabla ENTRADA
+      // Tabla ENTRADA (sin onAdd/onDel externos; el widget se autogestiona)
       card.appendChild(tablaLineasWidget({
         titulo: 'ENTRADA',
         bloqueado: !!modoProcesar,
         lineas: tr.lineasEntrada,
-        onAdd: function(){ tr.lineasEntrada.push({materialId:'925',detalle:'',gramos:0,aleacion:0,subtotal:0}); tr.totalGr=sumaSubtotales(tr.lineasEntrada); saveDB(DB); abrirTraspasoExistente(tr.id, modoProcesar); },
-        onDel: function(){ if(tr.lineasEntrada.length>1){ tr.lineasEntrada.pop(); } tr.totalGr=sumaSubtotales(tr.lineasEntrada); saveDB(DB); abrirTraspasoExistente(tr.id, modoProcesar); },
-        onChange: function(){ tr.totalGr=sumaSubtotales(tr.lineasEntrada); inT.value=f2(tr.totalGr); saveDB(DB); }
+        onChange: function(){
+          tr.totalGr = sumaSubtotales(tr.lineasEntrada);
+          inT.value = f2(tr.totalGr);
+          saveDB(DB);
+        }
       }));
 
       // Acciones ENTRADA (solo si NO procesando)
@@ -422,13 +422,26 @@
       var inTS=document.createElement('input'); inTS.readOnly=true; inTS.value=f2(tr.salida.totalGr); dvTS.appendChild(lbTS); dvTS.appendChild(inTS); g2.appendChild(dvTS);
       bar.appendChild(g2);
 
+      // Panel MERMA con umbrales fijos
+      var mermaPanel = document.createElement('div');
+      mermaPanel.className = 'actions';
+      mermaPanel.style.border = '1px dashed #cbd5e1';
+      mermaPanel.style.borderRadius = '10px';
+      mermaPanel.style.padding = '8px';
+      actualizarMermaPanel(mermaPanel, tr);
+      bar.appendChild(mermaPanel);
+
+      // Tabla SALIDA (widget autogestionado)
       bar.appendChild(tablaLineasWidget({
         titulo: 'SALIDA',
         bloqueado: !modoProcesar,
         lineas: tr.salida.lineas,
-        onAdd: function(){ tr.salida.lineas.push({materialId:'925',detalle:'',gramos:0,aleacion:0,subtotal:0}); tr.salida.totalGr=sumaSubtotales(tr.salida.lineas); saveDB(DB); abrirTraspasoExistente(tr.id, modoProcesar); },
-        onDel: function(){ if(tr.salida.lineas.length>1){ tr.salida.lineas.pop(); } tr.salida.totalGr=sumaSubtotales(tr.salida.lineas); saveDB(DB); abrirTraspasoExistente(tr.id, modoProcesar); },
-        onChange: function(){ tr.salida.totalGr=sumaSubtotales(tr.salida.lineas); inTS.value=f2(tr.salida.totalGr); saveDB(DB); }
+        onChange: function(){
+          tr.salida.totalGr = sumaSubtotales(tr.salida.lineas);
+          inTS.value = f2(tr.salida.totalGr);
+          saveDB(DB);
+          actualizarMermaPanel(mermaPanel, tr);
+        }
       }));
 
       if(modoProcesar){
@@ -461,15 +474,59 @@
     });
   }
 
+  // ===== Panel de merma (umbrales fijos) =====
+  function actualizarMermaPanel(panel, tr){
+    var ent = parseFloat(tr.totalGr || 0);
+    var sal = parseFloat(tr.salida.totalGr || 0);
+    var dif = sal - ent;
+    var mermaAbs = Math.max(0, ent - sal);
+    var mermaPct = ent > 0 ? (mermaAbs/ent)*100 : 0;
+
+    var color = '#065f46';
+    var estado = 'OK';
+    if(mermaPct > 2.5 && mermaPct < 4.5){
+      color = '#b45309';
+      estado = 'Atento';
+    }
+    if(mermaPct >= 4.5){
+      color = '#b91c1c';
+      estado = 'Excede';
+    }
+
+    panel.innerHTML = '';
+    var chips = [
+      'Entrada: ' + f2(ent) + ' g',
+      'Salida: ' + f2(sal) + ' g',
+      'Dif: ' + (dif>=0?'+':'') + f2(dif) + ' g',
+      'Merma: ' + f2(mermaAbs) + ' g (' + mermaPct.toFixed(1) + '%)',
+      'Estado: ' + estado
+    ];
+    var i;
+    for(i=0;i<chips.length;i++){
+      var chip = document.createElement('span');
+      chip.style.background = '#f1f5f9';
+      chip.style.borderRadius = '16px';
+      chip.style.padding = '6px 10px';
+      chip.style.marginRight = '6px';
+      chip.textContent = chips[i];
+      if(chips[i].indexOf('Estado:')===0){ chip.style.color = color; chip.style.fontWeight = '700'; }
+      panel.appendChild(chip);
+    }
+  }
+
+  // ===== Tabla de líneas (Traspasos) =====
   function tablaLineasWidget(cfg){
+    // cfg: { titulo, bloqueado, lineas, onChange? }
     var wrap = document.createElement('div');
 
     var topBar = document.createElement('div'); topBar.className='actions';
     var h = document.createElement('h2'); h.textContent = cfg.titulo; topBar.appendChild(h);
     var spacer = document.createElement('div'); spacer.style.flex='1'; topBar.appendChild(spacer);
+    var bAdd, bDel;
     if(!cfg.bloqueado){
-      var bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea'; bAdd.addEventListener('click', function(){ if(typeof cfg.onAdd==='function'){ cfg.onAdd(); } }); topBar.appendChild(bAdd);
-      var bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última'; bDel.addEventListener('click', function(){ if(typeof cfg.onDel==='function'){ cfg.onDel(); } }); topBar.appendChild(bDel);
+      bAdd = document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea';
+      bDel = document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última';
+      topBar.appendChild(bAdd); topBar.appendChild(bDel);
     }
     wrap.appendChild(topBar);
 
@@ -492,6 +549,12 @@
     thead.appendChild(trh); table.appendChild(thead);
 
     var tbody=document.createElement('tbody');
+
+    function rebuild(){
+      tbody.innerHTML = '';
+      var r;
+      for(r=0; r<cfg.lineas.length; r++){ renderRow(r); }
+    }
 
     function renderRow(idx){
       var li = cfg.lineas[idx];
@@ -516,12 +579,15 @@
 
       var td3=document.createElement('td');
       var inDet=document.createElement('input'); inDet.type='text'; inDet.value=li.detalle; inDet.style.width='100%';
+      inDet.style.fontSize='16px'; inDet.style.height='40px';
       inDet.readOnly=!!cfg.bloqueado; if(inDet.readOnly){ inDet.classList.add('ro'); }
       inDet.addEventListener('input', function(){ li.detalle=inDet.value; saveDB(DB); });
       td3.appendChild(inDet); tr.appendChild(td3);
 
       var tdGr=document.createElement('td');
       var inGr=document.createElement('input'); inGr.type='number'; inGr.step='0.01'; inGr.min='0'; inGr.value=li.gramos; inGr.style.width='100%';
+      inGr.placeholder='0.00'; inGr.inputMode='decimal';
+      inGr.style.fontSize='16px'; inGr.style.height='40px'; inGr.style.textAlign='right';
       inGr.readOnly=!!cfg.bloqueado; if(inGr.readOnly){ inGr.classList.add('ro'); }
       inGr.addEventListener('input', function(){
         li.gramos=parseFloat(inGr.value||'0');
@@ -534,12 +600,15 @@
 
       var tdAle=document.createElement('td');
       var inAle=document.createElement('input'); inAle.type='number'; inAle.step='0.01'; inAle.min='0'; inAle.value=li.aleacion; inAle.style.width='100%';
+      inAle.placeholder='0.00'; inAle.inputMode='decimal';
+      inAle.style.fontSize='16px'; inAle.style.height='40px'; inAle.style.textAlign='right';
       inAle.readOnly=(li.materialId!=='999') || !!cfg.bloqueado; if(inAle.readOnly){ inAle.classList.add('ro'); }
       inAle.addEventListener('input', function(){ li.aleacion=parseFloat(inAle.value||'0'); recalc(); });
       tdAle.appendChild(inAle); tr.appendChild(tdAle);
 
       var tdSub=document.createElement('td');
       var inSub=document.createElement('input'); inSub.readOnly=true; inSub.value=f2(li.subtotal); inSub.style.width='100%';
+      inSub.style.fontSize='16px'; inSub.style.height='40px'; inSub.style.textAlign='right';
       tdSub.appendChild(inSub); tr.appendChild(tdSub);
 
       function recalc(){
@@ -552,14 +621,31 @@
       tbody.appendChild(tr);
     }
 
-    var r;
-    for(r=0;r<cfg.lineas.length;r++){ renderRow(r); }
+    // render inicial
+    rebuild();
+
+    // botones internos
+    if(bAdd){
+      bAdd.addEventListener('click', function(){
+        cfg.lineas.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0 });
+        rebuild();
+        if(typeof cfg.onChange === 'function'){ cfg.onChange(); }
+      });
+    }
+    if(bDel){
+      bDel.addEventListener('click', function(){
+        if(cfg.lineas.length>1){ cfg.lineas.pop(); }
+        rebuild();
+        if(typeof cfg.onChange === 'function'){ cfg.onChange(); }
+      });
+    }
 
     table.appendChild(tbody);
     wrap.appendChild(table);
     return wrap;
   }
 
+  // ===== Helpers de negocio =====
   function sumaSubtotales(arr){
     var s=0; var i;
     for(i=0;i<arr.length;i++){ s += parseFloat(arr[i].subtotal||0); }
@@ -736,10 +822,10 @@
       folio: DB.folioPedidos,
       fecha: fecha,
       promesa: addDays(fecha, 15),
-      tipo: 'cliente', // 'cliente' | 'stock'
+      tipo: 'cliente',
       cliente: '',
       observaciones: '',
-      estatus: 'pendiente', // pendiente | proceso | finalizado
+      estatus: 'pendiente',
       lineas: [
         { codigo:'', descripcion:'', piezas:0, gramos:0, obs:'' },
         { codigo:'', descripcion:'', piezas:0, gramos:0, obs:'' },
@@ -821,7 +907,7 @@
       }
       card.appendChild(estBar);
 
-      // ===== Importar Excel (CSV) — botón verde arriba de líneas =====
+      // Importar Excel (CSV) — botón verde arriba de líneas
       var importBar=document.createElement('div'); importBar.className='actions';
       var impBtn=document.createElement('button'); impBtn.className='btn'; impBtn.innerHTML='⬆️ 🟩 Excel (CSV)';
       impBtn.style.background='#16a34a'; impBtn.style.color='#fff'; impBtn.style.border='1px solid #16a34a';
@@ -834,11 +920,9 @@
       importBar.appendChild(impBtn); importBar.appendChild(fileIn);
       card.appendChild(importBar);
 
-      // ===== Líneas del pedido (sin IVA) =====
+      // Líneas del pedido (widget autogestionado, sin IVA)
       card.appendChild(tablaLineasPedido({
         lineas: ped.lineas,
-        onAdd: function(){ ped.lineas.push({ codigo:'', descripcion:'', piezas:0, gramos:0, obs:'' }); saveDB(DB); abrirPedidoExistente(ped.id); },
-        onDel: function(){ if(ped.lineas.length>1){ ped.lineas.pop(); } saveDB(DB); abrirPedidoExistente(ped.id); },
         onChange: function(){ saveDB(DB); }
       }));
 
@@ -865,13 +949,14 @@
   }
 
   function tablaLineasPedido(cfg){
+    // cfg: { lineas, onChange? } — el widget maneja agregar/eliminar
     var wrap=document.createElement('div');
 
     var top=document.createElement('div'); top.className='actions';
     var h=document.createElement('h2'); h.textContent='Líneas del pedido'; top.appendChild(h);
     var sp=document.createElement('div'); sp.style.flex='1'; top.appendChild(sp);
-    var bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea'; bAdd.addEventListener('click', function(){ if(typeof cfg.onAdd==='function'){ cfg.onAdd(); } });
-    var bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última'; bDel.addEventListener('click', function(){ if(typeof cfg.onDel==='function'){ cfg.onDel(); } });
+    var bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea';
+    var bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última';
     top.appendChild(bAdd); top.appendChild(bDel);
     wrap.appendChild(top);
 
@@ -885,6 +970,13 @@
 
     var tbody=document.createElement('tbody');
 
+    function rebuild(){
+      tbody.innerHTML = '';
+      var r;
+      for(r=0;r<cfg.lineas.length;r++){ renderRow(r); }
+      if(typeof cfg.onChange==='function'){ cfg.onChange(); }
+    }
+
     function renderRow(idx){
       var li=cfg.lineas[idx];
       var tr=document.createElement('tr');
@@ -892,23 +984,40 @@
       var td0=document.createElement('td'); td0.textContent=(idx+1); tr.appendChild(td0);
 
       var tdCod=document.createElement('td'); var inCod=document.createElement('input'); inCod.type='text'; inCod.value=li.codigo; inCod.style.width='100%';
+      inCod.style.fontSize='16px'; inCod.style.height='40px';
       inCod.addEventListener('input', function(){ li.codigo=inCod.value; if(typeof cfg.onChange==='function'){ cfg.onChange(); } }); tdCod.appendChild(inCod); tr.appendChild(tdCod);
 
       var tdDesc=document.createElement('td'); var inDesc=document.createElement('input'); inDesc.type='text'; inDesc.value=li.descripcion; inDesc.style.width='100%';
+      inDesc.style.fontSize='16px'; inDesc.style.height='40px';
       inDesc.addEventListener('input', function(){ li.descripcion=inDesc.value; if(typeof cfg.onChange==='function'){ cfg.onChange(); } }); tdDesc.appendChild(inDesc); tr.appendChild(tdDesc);
 
       var tdPz=document.createElement('td'); var inPz=document.createElement('input'); inPz.type='number'; inPz.step='1'; inPz.min='0'; inPz.value=li.piezas; inPz.style.width='100%';
+      inPz.placeholder='0.00'; inPz.style.fontSize='16px'; inPz.style.height='40px'; inPz.style.textAlign='right';
       inPz.addEventListener('input', function(){ li.piezas=parseFloat(inPz.value||'0'); if(typeof cfg.onChange==='function'){ cfg.onChange(); } }); tdPz.appendChild(inPz); tr.appendChild(tdPz);
 
       var tdGr=document.createElement('td'); var inGr=document.createElement('input'); inGr.type='number'; inGr.step='0.01'; inGr.min='0'; inGr.value=li.gramos; inGr.style.width='100%';
+      inGr.placeholder='0.00'; inGr.style.fontSize='16px'; inGr.style.height='40px'; inGr.style.textAlign='right';
       inGr.addEventListener('input', function(){ li.gramos=parseFloat(inGr.value||'0'); if(typeof cfg.onChange==='function'){ cfg.onChange(); } }); tdGr.appendChild(inGr); tr.appendChild(tdGr);
 
       var tdObs=document.createElement('td'); var inObs=document.createElement('input'); inObs.type='text'; inObs.value=li.obs||''; inObs.style.width='100%';
+      inObs.style.fontSize='16px'; inObs.style.height='40px';
       inObs.addEventListener('input', function(){ li.obs=inObs.value; if(typeof cfg.onChange==='function'){ cfg.onChange(); } }); tdObs.appendChild(inObs); tr.appendChild(tdObs);
 
       tbody.appendChild(tr);
     }
-    var r; for(r=0;r<cfg.lineas.length;r++){ renderRow(r); }
+
+    // Render inicial
+    rebuild();
+
+    bAdd.addEventListener('click', function(){
+      cfg.lineas.push({ codigo:'', descripcion:'', piezas:0, gramos:0, obs:'' });
+      rebuild();
+    });
+    bDel.addEventListener('click', function(){
+      if(cfg.lineas.length>1){ cfg.lineas.pop(); }
+      rebuild();
+    });
+
     table.appendChild(tbody);
     wrap.appendChild(table);
     return wrap;
@@ -919,11 +1028,9 @@
     reader.onload=function(e){
       try{
         var text=e.target.result;
-        // detecta delimitador
         var delim = (text.indexOf(';')>-1 && text.indexOf(',')===-1) ? ';' : ',';
         var rows=text.split(/\r?\n/).filter(function(l){ return l.trim().length>0; });
         if(rows.length===0){ toast('CSV vacío'); return; }
-        // mapea encabezados
         var header=rows[0].split(delim).map(function(h){ return h.trim().toLowerCase(); });
         function idxCampo(names){
           var i, j;
@@ -987,7 +1094,7 @@
     w.document.write(html.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
   }
 
-  // ===== Exponer mínimas funciones globales usadas por botones preexistentes (si aplica)
+  // ===== Exponer mínimas funciones globales usadas por botones preexistentes
   window.imprimirPDF = imprimirPDF;
   window.compartirWhatsApp = compartirWhatsApp;
 
