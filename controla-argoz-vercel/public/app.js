@@ -1,10 +1,18 @@
-/* CONTROL-A · app.js v2.4.2
-   Basado en tu v2.4 estable. Cambios integrados sin romper lógica existente:
-   - FIX: Agregar/Eliminar líneas funciona dentro del widget (sin re-render global)
-   - Panel de MERMA en SALIDA con umbrales: verde ≤2.5%, naranja >2.5% y <4.5%, rojo ≥4.5%
-   - Inputs móviles legibles (16px, ~40px, números a la derecha, placeholder 0.00)
-   - Se conserva todo v2.4 (PDF con folio rojo, evidencia, pedidos con botón Excel interno, estatus, etc.)
-   - Sin shorthand de propiedades, sin comas colgantes, sin errores de comillas
+/* CONTROL-A · app.js v2.5.0
+   Cambios clave solicitados:
+   1) Formato de "ciclo único" en TRASPASOS:
+      - Evidencia fotográfica y Estado Global (Entrada, Salida, Dif, Merma, Estado) al tope de la hoja.
+      - Botonera GLOBAL (Vista previa, PDF final/WhatsApp si cerrado, Guardar ENTRADA o Guardar SALIDA/Cerrar según fase).
+      - La merma/diferencia/estado son del ciclo completo (no solo “salida”).
+      - Si aún NO hay salida: NO mostrar gramos ni % de merma/diferencia (se ven como "—", sin colores).
+   2) Versión móvil:
+      - Botón flotante (⬅️) para ocultar/mostrar el submenú y permitir scroll cómodo.
+      - Estilos inyectados para móviles: scroll activado y layout más legible.
+   3) PDF:
+      - Evidencia fotográfica colocada arriba, como parte del ciclo.
+      - Si no hay salida todavía, el PDF NO muestra merma/diferencia (sin %/gr) ni estado con color.
+   Base previa (v2.4.2) conservada: folio rojo en PDF, tablas, firmas, CSV en pedidos, etc.
+   Sin shorthand, sin comas colgantes, sin errores de comillas.
 */
 
 (function(){
@@ -18,6 +26,30 @@
     t.textContent = msg; t.style.display='block';
     setTimeout(function(){ t.style.display='none'; }, 2200);
   }
+
+  // ===== Estilos inyectados (mejoras móvil + colapsado) =====
+  (function injectStyles(){
+    var css = ''
+      + '@media(max-width:768px){'
+      + '  body{overflow:auto;}'
+      + '  .mobile-toolbar{position:fixed;z-index:9999;bottom:16px;left:16px;}'
+      + '  .mobile-toolbar button{background:#0a2c4c;color:#fff;border:1px solid #0a2c4c;border-radius:28px;padding:10px 14px;font-size:16px;box-shadow:0 2px 6px rgba(0,0,0,0.2);}'
+      + '  #subpanel.collapsed{display:none !important;}'
+      + '  .card{padding:10px;}'
+      + '  input, select, textarea{font-size:16px !important;height:40px;}'
+      + '  textarea{height:80px;}'
+      + '}'
+      + '.estado-global{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}'
+      + '.estado-chip{background:#f1f5f9;border-radius:16px;padding:6px 10px;font-size:12px;}'
+      + '.estado-chip.bold{font-weight:700;}'
+      + '.barra-global{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;}'
+      + '.barra-global .btn-primary{background:#0a2c4c;color:#fff;border:1px solid #0a2c4c;}'
+      + '.barra-global .btn{background:#fff;border:1px solid #94a3b8;}';
+    var st = document.createElement('style');
+    st.type = 'text/css';
+    st.appendChild(document.createTextNode(css));
+    document.head.appendChild(st);
+  })();
 
   // ===== Persistencia (localStorage) =====
   var STORAGE_KEY = 'CONTROL_A_DB';
@@ -147,7 +179,7 @@
 
     var view = document.createElement('div');
     view.className = 'view active';
-    view.id = 'view-'+id; // CORRECTO
+    view.id = 'view-'+id;
     qsa('.view', viewsHost).forEach(function(v){ v.classList.remove('active'); });
     viewsHost.appendChild(view);
 
@@ -157,6 +189,7 @@
   // ===== Submenús =====
   function renderSubmenu(root){
     var host = qs('#subpanel');
+    if(!host){ return; }
     host.innerHTML = '';
     var card = document.createElement('div');
     card.className = 'card';
@@ -189,6 +222,7 @@
       card.appendChild(acciones);
       host.appendChild(card);
       listarAbiertos(false);
+      ensureMobileToolbar();
       return;
     }
 
@@ -219,12 +253,39 @@
       card.appendChild(accionesP);
       host.appendChild(card);
       listarPedidosPendientes(false);
+      ensureMobileToolbar();
       return;
     }
 
     h2.textContent = 'Submenú';
     card.appendChild(h2);
     host.appendChild(card);
+    ensureMobileToolbar();
+  }
+
+  // ===== Móvil: toolbar para colapsar submenú y permitir scroll =====
+  function ensureMobileToolbar(){
+    var existing = qs('.mobile-toolbar');
+    if(existing){ return; }
+    var toolbar = document.createElement('div');
+    toolbar.className = 'mobile-toolbar';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = '⬅️ Menú';
+    btn.title = 'Ocultar/mostrar menú';
+    btn.addEventListener('click', function(){
+      var sp = qs('#subpanel');
+      if(!sp){ return; }
+      if(sp.classList.contains('collapsed')){
+        sp.classList.remove('collapsed');
+        btn.textContent = '⬅️ Menú';
+      }else{
+        sp.classList.add('collapsed');
+        btn.textContent = '➡️ Menú';
+      }
+    });
+    toolbar.appendChild(btn);
+    document.body.appendChild(toolbar);
   }
 
   // =====================================================================
@@ -329,11 +390,11 @@
       host.innerHTML = '';
       var card = document.createElement('div'); card.className = 'card';
 
-      // Encabezado ENTRADA
-      var grid1 = document.createElement('div'); grid1.className = 'grid';
+      // ===== Encabezado GLOBAL del ciclo =====
+      var head = document.createElement('div'); head.className = 'grid';
 
       var dvFolio = document.createElement('div'); var lbFo = document.createElement('label'); lbFo.textContent='Folio';
-      var inFol = document.createElement('input'); inFol.readOnly=true; inFol.value=String(tr.folio).padStart(3,'0'); dvFolio.appendChild(lbFo); dvFolio.appendChild(inFol);
+      var inFol = document.createElement('input'); inFol.readOnly=true; inFol.value=String(tr.folio).padStart(3,'0'); inFol.style.color='#b91c1c'; dvFolio.appendChild(lbFo); dvFolio.appendChild(inFol);
 
       var dvFecha = document.createElement('div'); var lbF = document.createElement('label'); lbF.textContent='Fecha';
       var inF = document.createElement('input'); inF.type='date'; inF.value=tr.fecha; inF.readOnly=!!modoProcesar; if(modoProcesar){ inF.classList.add('ro'); }
@@ -349,12 +410,9 @@
       selE.disabled=!!modoProcesar; selE.addEventListener('change', function(){ tr.entraA=selE.value; tr.tipo=(tr.saleDe==='caja' && tr.entraA==='prod')?'prod':'normal'; saveDB(DB); inDisp2.value=f2(calcDisponibles(tr.entraA)); });
       dvE.appendChild(lbE); dvE.appendChild(selE);
 
-      var dvC = document.createElement('div'); var lbC=document.createElement('label'); lbC.textContent='Comentarios';
+      var dvC = document.createElement('div'); var lbC=document.createElement('label'); lbC.textContent='Comentarios generales';
       var txC=document.createElement('textarea'); txC.value=tr.comentarios; txC.readOnly=!!modoProcesar; if(modoProcesar){ txC.classList.add('ro'); }
       txC.addEventListener('input', function(){ tr.comentarios=txC.value; saveDB(DB); }); dvC.appendChild(lbC); dvC.appendChild(txC);
-
-      var dvT = document.createElement('div'); var lbT=document.createElement('label'); lbT.textContent='Total GR. (entrada)';
-      var inT=document.createElement('input'); inT.readOnly=true; inT.value=f2(tr.totalGr); dvT.appendChild(lbT); dvT.appendChild(inT);
 
       var dvDisp=document.createElement('div'); var lbD=document.createElement('label'); lbD.textContent='Grs disponibles en almacén origen';
       var inDisp=document.createElement('input'); inDisp.readOnly=true; inDisp.value=f2(calcDisponibles(tr.saleDe)); dvDisp.appendChild(lbD); dvDisp.appendChild(inDisp);
@@ -362,11 +420,75 @@
       var dvDisp2=document.createElement('div'); var lbD2=document.createElement('label'); lbD2.textContent='Grs disponibles en almacén destino';
       var inDisp2=document.createElement('input'); inDisp2.readOnly=true; inDisp2.value=f2(calcDisponibles(tr.entraA)); dvDisp2.appendChild(lbD2); dvDisp2.appendChild(inDisp2);
 
-      grid1.appendChild(dvFolio); grid1.appendChild(dvFecha); grid1.appendChild(dvS); grid1.appendChild(dvE);
-      grid1.appendChild(dvC); grid1.appendChild(dvT); grid1.appendChild(dvDisp); grid1.appendChild(dvDisp2);
-      card.appendChild(grid1);
+      head.appendChild(dvFolio); head.appendChild(dvFecha); head.appendChild(dvS); head.appendChild(dvE);
+      head.appendChild(dvC); head.appendChild(dvDisp); head.appendChild(dvDisp2);
+      card.appendChild(head);
 
-      // Tabla ENTRADA (sin onAdd/onDel externos; el widget se autogestiona)
+      // ===== Evidencia GLOBAL (arriba, para todo el ciclo) =====
+      var divEv=document.createElement('div'); divEv.className='actions';
+      var cam=document.createElement('span'); cam.textContent='📷'; var lbl=document.createElement('span'); lbl.textContent=' Cargar evidencia fotográfica (aplica a TODA la hoja)';
+      var inFile=document.createElement('input'); inFile.type='file'; inFile.accept='image/*';
+      inFile.addEventListener('change', function(){ if(inFile.files && inFile.files[0]){ cargarEvidencia(inFile.files[0]); } });
+      divEv.appendChild(cam); divEv.appendChild(lbl); divEv.appendChild(inFile);
+      card.appendChild(divEv);
+
+      // ===== Estado GLOBAL (chips) =====
+      var estadoWrap = document.createElement('div'); estadoWrap.className = 'estado-global';
+      card.appendChild(estadoWrap);
+      actualizarEstadoGlobal(estadoWrap, tr);
+
+      // ===== Botonera GLOBAL (aplica a toda la hoja) =====
+      var barraGlobal = document.createElement('div'); barraGlobal.className = 'barra-global';
+      // Vista previa siempre disponible
+      var bVista = document.createElement('button'); bVista.className='btn'; bVista.textContent='Vista previa';
+      bVista.addEventListener('click', function(){ imprimirPDF(tr, true); });
+      barraGlobal.appendChild(bVista);
+
+      // Guardar ENTRADA si aún no procesas salida
+      if(!modoProcesar){
+        var bGuardarEntrada = document.createElement('button'); bGuardarEntrada.className='btn-primary'; bGuardarEntrada.textContent='Guardar ENTRADA';
+        bGuardarEntrada.addEventListener('click', function(){
+          if(!confirm('¿Seguro que deseas guardar la ENTRADA?')) return;
+          saveDB(DB);
+          toast('Traspaso de entrada creado exitosamente; puedes consultarlo en "Traspasos pendientes".');
+          var view = qs('#view-trasp-'+tr.id); if(view) view.remove();
+          var tabBtn = qs('[data-tab="trasp-'+tr.id+'"]'); if(tabBtn) tabBtn.remove();
+          renderSubmenu('inventarios');
+        });
+        barraGlobal.appendChild(bGuardarEntrada);
+      }
+
+      // PDF final y WhatsApp si ya está cerrado
+      if(tr.cerrado){
+        var bPdf = document.createElement('button'); bPdf.className='btn'; bPdf.textContent='PDF final';
+        bPdf.addEventListener('click', function(){ imprimirPDF(tr, false); });
+        barraGlobal.appendChild(bPdf);
+
+        var bWA = document.createElement('button'); bWA.className='btn'; bWA.title='Enviar PDF por WhatsApp'; bWA.innerHTML='📱 WhatsApp';
+        bWA.addEventListener('click', function(){ compartirWhatsApp(tr); });
+        barraGlobal.appendChild(bWA);
+      }
+
+      // Guardar SALIDA / Cerrar folio cuando estás en modo procesar
+      if(modoProcesar && !tr.cerrado){
+        var inJust=document.createElement('input'); inJust.type='text'; inJust.placeholder='Justificación (si regresas menos gramos — opcional)'; inJust.style.minWidth='280px';
+        barraGlobal.appendChild(inJust);
+        var bCerrar=document.createElement('button'); bCerrar.className='btn-primary'; bCerrar.textContent='Guardar SALIDA / Cerrar folio';
+        bCerrar.addEventListener('click', function(){ cerrarFolio(tr, inJust.value || ''); });
+        barraGlobal.appendChild(bCerrar);
+      }
+
+      card.appendChild(barraGlobal);
+
+      // ===== Bloque ENTRADA =====
+      var gridEntrada = document.createElement('div'); gridEntrada.className = 'grid';
+
+      var dvT = document.createElement('div'); var lbT=document.createElement('label'); lbT.textContent='Total GR. (entrada)';
+      var inT=document.createElement('input'); inT.readOnly=true; inT.value=f2(tr.totalGr); dvT.appendChild(lbT); dvT.appendChild(inT);
+
+      gridEntrada.appendChild(dvT);
+      card.appendChild(gridEntrada);
+
       card.appendChild(tablaLineasWidget({
         titulo: 'ENTRADA',
         bloqueado: !!modoProcesar,
@@ -375,29 +497,11 @@
           tr.totalGr = sumaSubtotales(tr.lineasEntrada);
           inT.value = f2(tr.totalGr);
           saveDB(DB);
+          actualizarEstadoGlobal(estadoWrap, tr);
         }
       }));
 
-      // Acciones ENTRADA (solo si NO procesando)
-      if(!modoProcesar){
-        var acts = document.createElement('div'); acts.className='actions';
-        var btnGuardar = document.createElement('button'); btnGuardar.className='btn-primary'; btnGuardar.textContent='Guardar entrada';
-        btnGuardar.addEventListener('click', function(){
-          if(!confirm('¿Seguro que deseas guardar la ENTRADA?')) return;
-          saveDB(DB);
-          toast('Traspaso de entrada creado exitosamente; puedes consultarlo en "Traspasos pendientes".');
-          var view = qs('#view-trasp-'+tr.id); if(view) view.remove();
-          var tabBtn = qs('[data-tab="trasp-'+tr.id+'"]'); if(tabBtn) tabBtn.remove();
-          renderSubmenu('inventarios');
-        });
-        acts.appendChild(btnGuardar);
-        var btnVista=document.createElement('button'); btnVista.className='btn'; btnVista.textContent='Vista previa';
-        btnVista.addEventListener('click', function(){ imprimirPDF(tr, true); });
-        acts.appendChild(btnVista);
-        card.appendChild(acts);
-      }
-
-      // SALIDA
+      // ===== Bloque SALIDA =====
       var bar=document.createElement('div'); bar.className='card';
       var h3=document.createElement('h2'); h3.textContent = modoProcesar ? 'SALIDA (editable)' : 'SALIDA (bloqueada hasta procesar)'; bar.appendChild(h3);
 
@@ -422,16 +526,6 @@
       var inTS=document.createElement('input'); inTS.readOnly=true; inTS.value=f2(tr.salida.totalGr); dvTS.appendChild(lbTS); dvTS.appendChild(inTS); g2.appendChild(dvTS);
       bar.appendChild(g2);
 
-      // Panel MERMA con umbrales fijos
-      var mermaPanel = document.createElement('div');
-      mermaPanel.className = 'actions';
-      mermaPanel.style.border = '1px dashed #cbd5e1';
-      mermaPanel.style.borderRadius = '10px';
-      mermaPanel.style.padding = '8px';
-      actualizarMermaPanel(mermaPanel, tr);
-      bar.appendChild(mermaPanel);
-
-      // Tabla SALIDA (widget autogestionado)
       bar.appendChild(tablaLineasWidget({
         titulo: 'SALIDA',
         bloqueado: !modoProcesar,
@@ -440,77 +534,54 @@
           tr.salida.totalGr = sumaSubtotales(tr.salida.lineas);
           inTS.value = f2(tr.salida.totalGr);
           saveDB(DB);
-          actualizarMermaPanel(mermaPanel, tr);
+          actualizarEstadoGlobal(estadoWrap, tr);
         }
       }));
 
-      if(modoProcesar){
-        var acts2=document.createElement('div'); acts2.className='actions';
-        var inJust=document.createElement('input'); inJust.type='text'; inJust.placeholder='Justificación (si regresas menos gramos — opcional)'; inJust.style.minWidth='280px'; acts2.appendChild(inJust);
-        var btnCerrar=document.createElement('button'); btnCerrar.className='btn-primary'; btnCerrar.textContent='Guardar SALIDA / Cerrar folio';
-        btnCerrar.addEventListener('click', function(){ cerrarFolio(tr, inJust.value || ''); }); acts2.appendChild(btnCerrar);
-
-        var btnPdf=document.createElement('button'); btnPdf.className='btn'; btnPdf.textContent='PDF';
-        btnPdf.addEventListener('click', function(){ if(tr.cerrado){ imprimirPDF(tr, false); } else { toast('Cierra el folio para generar PDF final.'); } });
-        acts2.appendChild(btnPdf);
-
-        var btnWA=document.createElement('button'); btnWA.className='btn'; btnWA.title='Enviar PDF por WhatsApp'; btnWA.innerHTML='📱 WhatsApp';
-        btnWA.addEventListener('click', function(){ if(!tr.cerrado){ toast('Disponible después de cerrar el folio.'); return; } compartirWhatsApp(tr); });
-        acts2.appendChild(btnWA);
-        bar.appendChild(acts2);
-      }
-
       card.appendChild(bar);
-
-      // Evidencia global
-      var divEv=document.createElement('div'); divEv.className='actions';
-      var cam=document.createElement('span'); cam.textContent='📷'; var lbl=document.createElement('span'); lbl.textContent=' Cargar evidencia en foto';
-      var inFile=document.createElement('input'); inFile.type='file'; inFile.accept='image/*';
-      inFile.addEventListener('change', function(){ if(inFile.files && inFile.files[0]){ cargarEvidencia(inFile.files[0]); } });
-      divEv.appendChild(cam); divEv.appendChild(lbl); divEv.appendChild(inFile);
-      card.appendChild(divEv);
-
       host.appendChild(card);
     });
   }
 
-  // ===== Panel de merma (umbrales fijos) =====
-  function actualizarMermaPanel(panel, tr){
+  // ===== Estado Global (Entrada/Salida/Dif/Merma/Estado con reglas) =====
+  function actualizarEstadoGlobal(wrap, tr){
     var ent = parseFloat(tr.totalGr || 0);
-    var sal = parseFloat(tr.salida.totalGr || 0);
-    var dif = sal - ent;
-    var mermaAbs = Math.max(0, ent - sal);
-    var mermaPct = ent > 0 ? (mermaAbs/ent)*100 : 0;
+    var sal = parseFloat(tr.salida && tr.salida.totalGr ? tr.salida.totalGr : 0);
+    var tieneSalida = sal > 0;
+    var dif = tieneSalida ? (sal - ent) : 0;
+    var mermaAbs = tieneSalida ? Math.max(0, ent - sal) : 0;
+    var mermaPct = tieneSalida && ent > 0 ? (mermaAbs/ent)*100 : 0;
 
-    var color = '#065f46';
-    var estado = 'OK';
-    if(mermaPct > 2.5 && mermaPct < 4.5){
-      color = '#b45309';
-      estado = 'Atento';
-    }
-    if(mermaPct >= 4.5){
-      color = '#b91c1c';
-      estado = 'Excede';
+    var estado = 'Pendiente de salida';
+    var color = '#334155'; // neutro
+    if(tieneSalida){
+      estado = 'OK';
+      color = '#065f46';
+      if(mermaPct > 2.5 && mermaPct < 4.5){
+        estado = 'Atento';
+        color = '#b45309';
+      }
+      if(mermaPct >= 4.5){
+        estado = 'Excede';
+        color = '#b91c1c';
+      }
     }
 
-    panel.innerHTML = '';
-    var chips = [
-      'Entrada: ' + f2(ent) + ' g',
-      'Salida: ' + f2(sal) + ' g',
-      'Dif: ' + (dif>=0?'+':'') + f2(dif) + ' g',
-      'Merma: ' + f2(mermaAbs) + ' g (' + mermaPct.toFixed(1) + '%)',
-      'Estado: ' + estado
-    ];
+    wrap.innerHTML = '';
+    var chips = [];
+    chips.push({ t: 'Entrada: '+f2(ent)+' g', bold:false, c:'' });
+    chips.push({ t: 'Salida: '+(tieneSalida?f2(sal)+' g':'—'), bold:false, c:'' });
+    chips.push({ t: 'Dif: '+(tieneSalida?(dif>=0?'+':'')+f2(dif)+' g':'—'), bold:false, c:'' });
+    chips.push({ t: 'Merma: '+(tieneSalida?(f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)'):'—'), bold:false, c:'' });
+    chips.push({ t: 'Estado: '+estado, bold:true, c:color });
+
     var i;
     for(i=0;i<chips.length;i++){
       var chip = document.createElement('span');
-      chip.style.background = '#f1f5f9';
-      chip.style.borderRadius = '16px';
-      chip.style.padding = '6px 10px';
-      chip.style.marginRight = '6px';
-      chip.textContent = chips[i];
-      if(chips[i].indexOf('Estado:')===0){ chip.style.color = color; chip.style.fontWeight = '700'; }
-      panel.appendChild(chip);
+      chip.className = 'estado-chip' + (chips[i].bold ? ' bold' : '');
+      chip.textContent = chips[i].t;
+      if(chips[i].bold && chips[i].c){ chip.style.color = chips[i].c; }
+      wrap.appendChild(chip);
     }
   }
 
@@ -688,6 +759,11 @@
       if(mat && mat.tolMerma>tol){ tol=mat.tolMerma; }
     });
 
+    if(sal<=0){
+      alert('No puedes cerrar el folio sin capturar SALIDA.');
+      return;
+    }
+
     if(mermaPct>tol){
       alert('Según la información cargada se registra una merma superior al '+String((tol*100).toFixed(0))+'%.\nNo es posible cerrar este folio. Revisa tu línea de producción.');
       return;
@@ -703,19 +779,31 @@
   function imprimirPDF(tr, isDraft){
     var w = window.open('', '_blank', 'width=840,height=900');
     if(!w){ alert('Permite pop-ups para imprimir.'); return; }
-    var dif = parseFloat(tr.salida.totalGr||0) - parseFloat(tr.totalGr||0);
-    var mermaAbs = Math.max(0, parseFloat(tr.totalGr||0) - parseFloat(tr.salida.totalGr||0));
-    var mermaPct = (parseFloat(tr.totalGr||0)>0) ? (mermaAbs/parseFloat(tr.totalGr||0))*100 : 0;
 
-    var headCss='@page{size:5.5in 8.5in;margin:10mm;}'+
-      'body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}'+
-      'h1.red{color:#b91c1c;} h2{margin:2px 0 6px 0;color:#0a2c4c;}'+
-      'table{width:100%;border-collapse:collapse;table-layout:fixed;}'+
-      'th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left;word-break:break-word;}'+
-      'thead tr{background:#e7effa;}'+
-      '.row{display:flex;gap:8px;margin:6px 0;}.col{flex:1;}'+
-      '.signs{display:flex;justify-content:space-between;margin-top:18px;} .signs div{width:45%;border-top:1px solid #94a3b8;padding-top:6px;text-align:center;}'+
-      '.water{position:fixed;top:40%;left:15%;font-size:48px;color:#94a3b880;transform:rotate(-20deg);}';
+    var ent = parseFloat(tr.totalGr||0);
+    var sal = parseFloat(tr.salida && tr.salida.totalGr ? tr.salida.totalGr : 0);
+    var tieneSalida = sal > 0;
+    var dif = tieneSalida ? (sal - ent) : 0;
+    var mermaAbs = tieneSalida ? Math.max(0, ent - sal) : 0;
+    var mermaPct = tieneSalida && ent>0 ? (mermaAbs/ent)*100 : 0;
+
+    var estado = 'Pendiente de salida';
+    if(tieneSalida){
+      estado = 'OK';
+      if(mermaPct > 2.5 && mermaPct < 4.5){ estado = 'Atento'; }
+      if(mermaPct >= 4.5){ estado = 'Excede'; }
+    }
+
+    var headCss='@page{size:5.5in 8.5in;margin:10mm;}'
+      + 'body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}'
+      + 'h1.red{color:#b91c1c;} h2{margin:2px 0 6px 0;color:#0a2c4c;}'
+      + 'table{width:100%;border-collapse:collapse;table-layout:fixed;}'
+      + 'th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left;word-break:break-word;}'
+      + 'thead tr{background:#e7effa;}'
+      + '.row{display:flex;gap:8px;margin:6px 0;}.col{flex:1;}'
+      + '.signs{display:flex;justify-content:space-between;margin-top:18px;} .signs div{width:45%;border-top:1px solid #94a3b8;padding-top:6px;text-align:center;}'
+      + '.water{position:fixed;top:40%;left:15%;font-size:48px;color:#94a3b880;transform:rotate(-20deg);}'
+      + '.chips{margin:8px 0;} .chip{background:#f1f5f9;border-radius:16px;padding:6px 10px;margin-right:6px;font-size:12px;font-weight:600;}';
 
     var html=[];
     html.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Folio '+String(tr.folio).padStart(3,'0')+'</title><style>'+headCss+'</style></head><body>');
@@ -723,7 +811,22 @@
 
     html.push('<h1 class="red">Traspaso '+String(tr.folio).padStart(3,'0')+'</h1>');
     html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.fecha+' '+tr.hora+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.entraA)+'</div></div>');
-    html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(tr.comentarios)+'</div><div class="col"><b>Total GR (entrada):</b> '+f2(tr.totalGr)+'</div></div>');
+    html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(tr.comentarios)+'</div><div class="col"><b>Total GR (entrada):</b> '+f2(ent)+'</div></div>');
+
+    // Evidencia global arriba, para reforzar ciclo único
+    if(DB.evidencia){ html.push('<h3>Evidencia fotográfica</h3><img src="'+DB.evidencia+'" style="max-width:100%;max-height:300px;border:1px solid #ccc">'); }
+
+    // Chips de estado global
+    html.push('<div class="chips">');
+    html.push('<span class="chip">Entrada: '+f2(ent)+' g</span>');
+    html.push('<span class="chip">Salida: '+(tieneSalida?f2(sal)+' g':'—')+'</span>');
+    html.push('<span class="chip">Dif: '+(tieneSalida?(dif>=0?'+':'')+f2(dif)+' g':'—')+'</span>');
+    html.push('<span class="chip">Merma: '+(tieneSalida?(f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)'):'—')+'</span>');
+    html.push('<span class="chip">Estado: '+estado+'</span>');
+    html.push('</div>');
+
+    // ENTRADA
+    html.push('<h2>Entrada</h2>');
     html.push('<table><thead><tr><th style="width:6%">#</th><th style="width:22%">Material</th><th style="width:28%">Detalle</th><th style="width:12%">Gr</th><th style="width:14%">Aleación</th><th style="width:18%">Subtotal</th></tr></thead><tbody>');
     var i;
     for(i=0;i<tr.lineasEntrada.length;i++){
@@ -733,13 +836,16 @@
     html.push('</tbody></table>');
     html.push('<div class="signs"><div>Entregó (entrada)</div><div>Recibió (entrada)</div></div>');
 
+    // SALIDA
     html.push('<h2>Salida</h2>');
-    html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.salida.fecha+' '+tr.salida.hora+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.salida.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.salida.entraA)+'</div></div>');
-    html.push('<div class="row"><div class="col"><b>Comentarios salida:</b> '+escapeHTML(tr.salida.comentarios)+'</div><div class="col"><b>Total GR (salida):</b> '+f2(tr.salida.totalGr)+'</div></div>');
+    html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.salida.fecha+' '+(tr.salida.hora||'')+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.salida.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.salida.entraA)+'</div></div>');
+    html.push('<div class="row"><div class="col"><b>Comentarios salida:</b> '+escapeHTML(tr.salida.comentarios||'')+'</div><div class="col"><b>Total GR (salida):</b> '+f2(sal)+'</div></div>');
 
-    var signo = dif>=0 ? '+' : '';
-    var difClass = dif<0 ? 'bad' : 'ok';
-    html.push('<div class="row"><div class="col"><b>MERMA:</b> '+f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)</div><div class="col '+difClass+'"><b>DIF:</b> '+signo+f2(dif)+'</div></div>');
+    // Solo mostrar dif/merma si hay salida capturada
+    if(tieneSalida){
+      var signo = dif>=0 ? '+' : '';
+      html.push('<div class="row"><div class="col"><b>MERMA:</b> '+f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)</div><div class="col"><b>DIF:</b> '+signo+f2(dif)+'</div></div>');
+    }
 
     html.push('<table><thead><tr><th style="width:6%">#</th><th style="width:22%">Material</th><th style="width:28%">Detalle</th><th style="width:12%">Gr</th><th style="width:14%">Aleación</th><th style="width:18%">Subtotal</th></tr></thead><tbody>');
     for(i=0;i<tr.salida.lineas.length;i++){
@@ -748,8 +854,6 @@
     }
     html.push('</tbody></table>');
     html.push('<div class="signs"><div>Entregó (salida)</div><div>Recibió (salida)</div></div>');
-
-    if(DB.evidencia){ html.push('<h3>Evidencia fotográfica</h3><img src="'+DB.evidencia+'" style="max-width:100%;max-height:300px;border:1px solid #ccc">'); }
 
     html.push('</body></html>');
     w.document.write(html.join(''));
