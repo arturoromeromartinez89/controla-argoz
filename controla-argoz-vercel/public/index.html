@@ -1,131 +1,66 @@
 <!DOCTYPE html>
-<html lang="es-MX">
+<html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CONTROL-A v2.0 — argozmx · Guadalajara, Jalisco</title>
-  <link rel="icon" href="data:," />
-  <style>
-    /* ====== Base ====== */
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    :root{
-      --azul:#0a2c4c; --azul-2:#0f3a66; --b:#e5e7eb; --card:#fff; --bg:#f4f6f8;
-      --rojo:#b91c1c; --ok:#064e3b; --naranja:#ea580c;
-      --editable:#fff7e6; --readonly:#eef2f7;
-      --fs:13px; --h:34px;
-    }
-    body{margin:0; background:var(--bg); color:#0f172a; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; font-size:var(--fs);}
-    header{background:var(--azul); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:12px}
-    .brand{font-weight:800}
-    .right-act{margin-left:auto; display:flex; gap:8px}
-    .btn{border:1px solid #cbd5e1; padding:6px 10px; border-radius:8px; background:#fff; cursor:pointer}
-    .btn:hover{background:#f8fafc}
-    .btn-primary{background:#0a3a74;color:#fff;border-color:#0a3a74}
-    .btn-outline{background:#fff;border:1px dashed #cbd5e1}
-    .btn-warn{background:#ffedd5;color:#9a3412;border:1px solid #f59e0b}
-    .btn-orange{background:var(--naranja);color:#fff;border:1px solid var(--naranja)}
-    .app{display:grid; grid-template-columns:180px 220px 1fr; gap:8px; padding:10px}
-    .left{background:#08223b;color:#cbd5e1;border-radius:14px;padding:10px}
-    .left h3{margin:8px 10px}
-    .side-item{display:block;width:100%;text-align:left;color:#cbd5e1;background:transparent;border:0;padding:10px 12px;border-radius:10px;cursor:pointer}
-    .side-item:hover,.side-item.active{background:#0d3a66;color:#fff}
-    .mid{}
-    .card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:12px;margin-bottom:10px;overflow-x:auto}
-    .card h2{margin:0 0 10px 0;color:var(--azul)}
-    .content{min-height:60vh;overflow-x:hidden}
-    #tabs{display:flex;gap:6px;flex-wrap:wrap;padding:0 6px}
-    .tab{background:#e2e8f0;padding:6px 10px;border-radius:10px;cursor:pointer}
-    .tab.active{background:#0a3a74;color:#fff}
-    .tab .x{margin-left:6px;opacity:.7}
-    #views .view{display:none}
-    #views .view.active{display:block}
-    label{display:block;font-size:12px;color:#334155;margin-bottom:2px}
-    input,select,textarea{height:var(--h);padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:var(--fs);outline:none}
-    textarea{min-height:var(--h);height:auto}
-    input:not([readonly]):not(.ro), select:not([disabled]):not(.ro), textarea{background:var(--editable)}
-    input[readonly], select[disabled], .ro{background:var(--readonly)!important;color:#475569}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
-    .actions{display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap}
-    .hint{color:#64748b;font-size:12px}
-    .pill{background:#f1f5f9;border-radius:20px;padding:6px 10px;font-weight:700}
-    .pill.orange{background:#fed7aa;color:#9a3412}
-    .pill .num{font-size:16px}
-    table{width:100%;border-collapse:collapse;table-layout:fixed}
-    th,td{border-bottom:1px solid #e5e7eb;padding:4px 6px;text-align:left;vertical-align:middle;word-break:break-word}
-    thead tr{background:#e7effa}
-    .preview img{max-width:92px;border-radius:8px;border:1px solid #e5e7eb;margin:2px}
-    #toast{position:fixed;bottom:14px;right:14px;background:#0a3a74;color:#fff;padding:10px 14px;border-radius:10px;display:none;z-index:9999}
-    #diag{position:fixed;bottom:14px;left:14px;background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:10px;display:none;max-width:70vw;z-index:9999}
-
-    /* ===== Logo animado (oscilación 180°; 3s animación + 7s pausa) ===== */
-    .logo-wrap{display:flex;align-items:center;gap:8px}
-    .logo-oscila{
-      width:28px; height:28px; display:inline-block;
-      transform-origin:center center;
-      will-change:transform;
-      image-rendering:-webkit-optimize-contrast;
-      animation: argozOscila 10s ease-in-out infinite;
-    }
-    /* 0–70% quieto; 70–85% gira a 180°; 85–100% regresa a 0° */
-    @keyframes argozOscila{
-      0%   { transform: rotate(0deg); }
-      70%  { transform: rotate(0deg); }
-      85%  { transform: rotate(180deg); }
-      100% { transform: rotate(0deg); }
-    }
-
-    @media print{ header,.left,.mid,#tabs{display:none!important} .card{border:none} }
-    @page{size:5.5in 8.5in;margin:10mm}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CONTROL-A · ARGOZMX</title>
+<style>
+  :root{
+    --azul:#0a2c4c; --cafe:#5b3b27; --beige:#edcdb7; --borde:#e5e7eb; --gris:#94a3b8;
+  }
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;background:#f8fafc;color:#0f172a;}
+  header{background:var(--azul);color:#fff;padding:10px 14px;font-weight:700;}
+  .layout{display:flex;height:calc(100vh - 48px);overflow:hidden;}
+  #subpanel{width:300px;background:#fff;border-right:1px solid var(--borde);padding:12px;overflow:auto;}
+  #main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+  #tabs{display:flex;gap:6px;border-bottom:1px solid var(--borde);background:#fff;padding:8px;}
+  .tab{padding:6px 10px;border:1px solid var(--borde);border-bottom:none;border-radius:8px 8px 0 0;background:#eef2f7;cursor:pointer}
+  .tab.active{background:#fff;font-weight:700}
+  #views{flex:1;overflow:auto;padding:12px;}
+  .view{display:none}
+  .view.active{display:block}
+  .tree{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+  .tree-btn{padding:8px 10px;border:1px solid var(--borde);border-radius:8px;background:#fff;cursor:pointer;text-align:left}
+  .tree-btn.active{background:#e7effa;border-color:#93c5fd}
+  .card{background:#fff;border:1px solid var(--borde);border-radius:12px;padding:14px;margin-bottom:12px}
+  .actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}
+  .btn,.btn-primary,.btn-outline,.btn-orange{padding:8px 12px;border-radius:10px;border:1px solid var(--gris);background:#fff;cursor:pointer}
+  .btn-primary{background:var(--azul);color:#fff;border-color:var(--azul)}
+  .btn-outline{background:#fff;color:#0f172a}
+  .btn-orange{background:#f97316;color:#fff;border-color:#ea580c}
+  .pill{background:#e2e8f0;border-radius:999px;padding:4px 10px}
+  .pill.orange{background:#fed7aa;color:#9a3412}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  label{display:block;font-size:12px;color:#475569;margin-bottom:4px}
+  input,select,textarea{width:100%;box-sizing:border-box;border:1px solid var(--borde);border-radius:8px;padding:8px}
+  textarea{min-height:80px}
+  input.ro,textarea.ro,select.ro{background:#f1f5f9}
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th,td{border:1px solid var(--borde);padding:6px;word-break:break-word}
+  thead tr{background:#e7effa}
+  #toast{position:fixed;bottom:14px;right:14px;background:#0f172a;color:#fff;padding:10px 12px;border-radius:10px;display:none;z-index:99999}
+  /* móvil */
+  @media(max-width:1024px){ .grid{grid-template-columns:repeat(2,1fr)} }
+  @media(max-width:640px){ .grid{grid-template-columns:1fr} }
+</style>
 </head>
 <body>
-<header>
-  <div class="logo-wrap">
-    <!-- Asegúrate de tener este archivo en /public/logo.webp (fondo transparente) -->
-    <img src="/logo.webp" alt="argozmx" class="logo-oscila" />
-    <div class="brand">CONTROL-A · argozmx — Guadalajara, Jalisco</div>
-  </div>
-  <div class="hint">v2.0 · <span id="jsok">JS cargando...</span></div>
-  <div class="right-act">
-    <button class="btn" id="btn-toggle-mid">Submenú</button>
-    <button class="btn" id="btn-backup">💾 Respaldo</button>
-    <button class="btn" id="btn-restore">🗂️ Restaurar</button>
-  </div>
-</header>
-
-<div class="app">
-  <aside class="left">
-    <h3>Menú</h3>
-    <button class="side-item tree-btn active" data-root="inicio">🏠 Inicio</button>
-    <button class="side-item tree-btn" data-root="ventas">🧾 Ventas</button>
-    <button class="side-item tree-btn" data-root="inventarios">📦 Inventarios</button>
-    <button class="side-item tree-btn" data-root="pedidos">🗂️ Pedidos</button>
-    <button class="side-item tree-btn" data-root="catalogo">📇 Catálogo</button>
+<header>CONTROL-A · ARGOZMX</header>
+<div class="layout">
+  <aside id="subpanel">
+    <div class="tree">
+      <button class="tree-btn" data-root="inventarios">Inventarios</button>
+      <button class="tree-btn" data-root="pedidos">Pedidos</button>
+      <button class="tree-btn" data-root="produccion">Producción</button>
+    </div>
+    <div id="subcontent"></div>
   </aside>
-
-  <section class="mid" id="subpanel"></section>
-
-  <main class="content">
+  <main id="main">
     <div id="tabs"></div>
     <div id="views"></div>
   </main>
 </div>
-
 <div id="toast"></div>
-<div id="diag"></div>
-
-<script>
-  window.addEventListener('error', function(e){
-    const d=document.getElementById('diag'); if(!d) return;
-    d.style.display='block';
-    d.textContent = 'ERROR JS: ' + (e.message || e.type);
-  });
-</script>
-
-<script src="/app.js?v=2000" defer
-  onload="document.getElementById('jsok').textContent='JS OK'"
-  onerror="document.getElementById('jsok').textContent='JS NO CARGÓ (404)'; document.getElementById('diag').style.display='block'; document.getElementById('diag').textContent='No se encontró /app.js en la carpeta pública.'">
-</script>
+<script src="app.js?v=2.6.0"></script>
 </body>
 </html>
