@@ -122,7 +122,7 @@
   }
   function escapeHTML(s){
     return String(s||'').replace(/[&<>"']/g,function(m){
-      var map = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' };
+      var map = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":"&#039;" };
       return map[m];
     });
   }
@@ -439,12 +439,10 @@
 
       // ===== Botonera GLOBAL (aplica a toda la hoja) =====
       var barraGlobal = document.createElement('div'); barraGlobal.className = 'barra-global';
-      // Vista previa siempre disponible
       var bVista = document.createElement('button'); bVista.className='btn'; bVista.textContent='Vista previa';
       bVista.addEventListener('click', function(){ imprimirPDF(tr, true); });
       barraGlobal.appendChild(bVista);
 
-      // Guardar ENTRADA si aún no procesas salida
       if(!modoProcesar){
         var bGuardarEntrada = document.createElement('button'); bGuardarEntrada.className='btn-primary'; bGuardarEntrada.textContent='Guardar ENTRADA';
         bGuardarEntrada.addEventListener('click', function(){
@@ -458,7 +456,6 @@
         barraGlobal.appendChild(bGuardarEntrada);
       }
 
-      // PDF final y WhatsApp si ya está cerrado
       if(tr.cerrado){
         var bPdf = document.createElement('button'); bPdf.className='btn'; bPdf.textContent='PDF final';
         bPdf.addEventListener('click', function(){ imprimirPDF(tr, false); });
@@ -469,7 +466,6 @@
         barraGlobal.appendChild(bWA);
       }
 
-      // Guardar SALIDA / Cerrar folio cuando estás en modo procesar
       if(modoProcesar && !tr.cerrado){
         var inJust=document.createElement('input'); inJust.type='text'; inJust.placeholder='Justificación (si regresas menos gramos — opcional)'; inJust.style.minWidth='280px';
         barraGlobal.appendChild(inJust);
@@ -553,7 +549,7 @@
     var mermaPct = tieneSalida && ent > 0 ? (mermaAbs/ent)*100 : 0;
 
     var estado = 'Pendiente de salida';
-    var color = '#334155'; // neutro
+    var color = '#334155';
     if(tieneSalida){
       estado = 'OK';
       color = '#065f46';
@@ -692,10 +688,8 @@
       tbody.appendChild(tr);
     }
 
-    // render inicial
     rebuild();
 
-    // botones internos
     if(bAdd){
       bAdd.addEventListener('click', function(){
         cfg.lineas.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0 });
@@ -813,10 +807,8 @@
     html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.fecha+' '+tr.hora+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.entraA)+'</div></div>');
     html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(tr.comentarios)+'</div><div class="col"><b>Total GR (entrada):</b> '+f2(ent)+'</div></div>');
 
-    // Evidencia global arriba, para reforzar ciclo único
     if(DB.evidencia){ html.push('<h3>Evidencia fotográfica</h3><img src="'+DB.evidencia+'" style="max-width:100%;max-height:300px;border:1px solid #ccc">'); }
 
-    // Chips de estado global
     html.push('<div class="chips">');
     html.push('<span class="chip">Entrada: '+f2(ent)+' g</span>');
     html.push('<span class="chip">Salida: '+(tieneSalida?f2(sal)+' g':'—')+'</span>');
@@ -825,7 +817,6 @@
     html.push('<span class="chip">Estado: '+estado+'</span>');
     html.push('</div>');
 
-    // ENTRADA
     html.push('<h2>Entrada</h2>');
     html.push('<table><thead><tr><th style="width:6%">#</th><th style="width:22%">Material</th><th style="width:28%">Detalle</th><th style="width:12%">Gr</th><th style="width:14%">Aleación</th><th style="width:18%">Subtotal</th></tr></thead><tbody>');
     var i;
@@ -836,12 +827,10 @@
     html.push('</tbody></table>');
     html.push('<div class="signs"><div>Entregó (entrada)</div><div>Recibió (entrada)</div></div>');
 
-    // SALIDA
     html.push('<h2>Salida</h2>');
     html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.salida.fecha+' '+(tr.salida.hora||'')+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.salida.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.salida.entraA)+'</div></div>');
     html.push('<div class="row"><div class="col"><b>Comentarios salida:</b> '+escapeHTML(tr.salida.comentarios||'')+'</div><div class="col"><b>Total GR (salida):</b> '+f2(sal)+'</div></div>');
 
-    // Solo mostrar dif/merma si hay salida capturada
     if(tieneSalida){
       var signo = dif>=0 ? '+' : '';
       html.push('<div class="row"><div class="col"><b>MERMA:</b> '+f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)</div><div class="col"><b>DIF:</b> '+signo+f2(dif)+'</div></div>');
@@ -1011,7 +1000,7 @@
       }
       card.appendChild(estBar);
 
-      // Importar Excel (CSV) — botón verde arriba de líneas
+      // Importar Excel (CSV)
       var importBar=document.createElement('div'); importBar.className='actions';
       var impBtn=document.createElement('button'); impBtn.className='btn'; impBtn.innerHTML='⬆️ 🟩 Excel (CSV)';
       impBtn.style.background='#16a34a'; impBtn.style.color='#fff'; impBtn.style.border='1px solid #16a34a';
@@ -1024,7 +1013,7 @@
       importBar.appendChild(impBtn); importBar.appendChild(fileIn);
       card.appendChild(importBar);
 
-      // Líneas del pedido (widget autogestionado, sin IVA)
+      // Líneas del pedido (sin IVA)
       card.appendChild(tablaLineasPedido({
         lineas: ped.lineas,
         onChange: function(){ saveDB(DB); }
@@ -1110,7 +1099,6 @@
       tbody.appendChild(tr);
     }
 
-    // Render inicial
     rebuild();
 
     bAdd.addEventListener('click', function(){
