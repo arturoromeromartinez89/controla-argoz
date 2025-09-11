@@ -1302,4 +1302,585 @@
         hora: horaStr(),
         comentarios: '',
         lineas: [
-          { concepto:'terminado', materialId:'terminado
+          { concepto:'terminado', materialId:'terminado', gramos:0, piezas:0, obs:'' },
+          { concepto:'sobrante_solid', materialId:'925', gramos:0, piezas:0, obs:'' },
+          { concepto:'limalla', materialId:'limalla', gramos:0, piezas:0, obs:'' }
+        ],
+        totalGr: 0
+      },
+      cerrada: false,
+      leyendaLegal: 'Yo, __NOMBRE DEL MAQUILADOR__, con domicilio señalado en este documento, reconozco haber recibido en resguardo los materiales descritos, obligándome a su devolución en especie y peso o, en su defecto, a pagar su equivalente a primera demanda. Autorizo a __LA EMPRESA__ a aplicar cobro por pérdidas no justificadas. Firmo de conformidad.'
+    };
+    DB.ot.push(obj);
+    saveDB(DB);
+    return obj.id;
+  }
+
+  function abrirOTNueva(){ var id = nuevaOTBase(); abrirOTExistente(id, false); }
+
+  function abrirOTExistente(id, modoEntrada){
+    var ot = DB.ot.find(function(x){ return x.id===id; });
+    if(!ot){ toast('OT no encontrada'); return; }
+
+    var titulo = 'OT ' + String(ot.folio).padStart(3,'0') + ' · ' + (ot.maquilador||'Maquilador');
+    openTab('ot-'+id, titulo, function(host){
+      host.innerHTML = '';
+      var card = document.createElement('div'); card.className='card';
+
+      // ===== Encabezado OT =====
+      var head = document.createElement('div'); head.className='grid';
+
+      // Folio y fecha/hora
+      var dvFolio=document.createElement('div'); var lbFo=document.createElement('label'); lbFo.textContent='Folio OT';
+      var inFo=document.createElement('input'); inFo.readOnly=true; inFo.value=String(ot.folio).padStart(3,'0'); inFo.style.color='#b91c1c';
+      dvFolio.appendChild(lbFo); dvFolio.appendChild(inFo);
+
+      var dvFecha=document.createElement('div'); var lbF=document.createElement('label'); lbF.textContent='Fecha';
+      var inF=document.createElement('input'); inF.type='date'; inF.value=ot.fecha; inF.readOnly=!!modoEntrada; if(modoEntrada){ inF.classList.add('ro'); }
+      inF.addEventListener('change', function(){ ot.fecha=inF.value; if(!ot.promesaFecha || ot.promesaFecha===''){ ot.promesaFecha=addDays(ot.fecha,15); inProm.value=ot.promesaFecha; } saveDB(DB); });
+      dvFecha.appendChild(lbF); dvFecha.appendChild(inF);
+
+      var dvHora=document.createElement('div'); var lbH=document.createElement('label'); lbH.textContent='Hora';
+      var inH=document.createElement('input'); inH.type='time'; inH.value=ot.hora; inH.readOnly=!!modoEntrada; if(modoEntrada){ inH.classList.add('ro'); }
+      inH.addEventListener('change', function(){ ot.hora=inH.value; saveDB(DB); });
+      dvHora.appendChild(lbH); dvHora.appendChild(inH);
+
+      // Maquilador + domicilio
+      var dvMq=document.createElement('div'); var lbMq=document.createElement('label'); lbMq.textContent='Maquilador (nombre completo)';
+      var inMq=document.createElement('input'); inMq.type='text'; inMq.value=ot.maquilador; inMq.readOnly=!!modoEntrada; if(modoEntrada){ inMq.classList.add('ro'); }
+      inMq.addEventListener('input', function(){ ot.maquilador=inMq.value; saveDB(DB); });
+      dvMq.appendChild(lbMq); dvMq.appendChild(inMq);
+
+      var dvDom=document.createElement('div'); var lbDom=document.createElement('label'); lbDom.textContent='Domicilio';
+      var inDom=document.createElement('input'); inDom.type='text'; inDom.value=ot.domicilio; inDom.readOnly=!!modoEntrada; if(modoEntrada){ inDom.classList.add('ro'); }
+      inDom.addEventListener('input', function(){ ot.domicilio=inDom.value; saveDB(DB); });
+      dvDom.appendChild(lbDom); dvDom.appendChild(inDom);
+
+      // Promesa fecha/hora
+      var dvPromF=document.createElement('div'); var lbPF=document.createElement('label'); lbPF.textContent='Fecha promesa (+15 por default)';
+      var inProm=document.createElement('input'); inProm.type='date'; inProm.value=ot.promesaFecha; inProm.addEventListener('change', function(){ ot.promesaFecha=inProm.value; saveDB(DB); });
+      dvPromF.appendChild(lbPF); dvPromF.appendChild(inProm);
+
+      var dvPromH=document.createElement('div'); var lbPH=document.createElement('label'); lbPH.textContent='Hora compromiso';
+      var inPromH=document.createElement('input'); inPromH.type='time'; inPromH.value=ot.promesaHora; inPromH.addEventListener('change', function(){ ot.promesaHora=inPromH.value; saveDB(DB); });
+      dvPromH.appendChild(lbPH); dvPromH.appendChild(inPromH);
+
+      // Merma global
+      var dvMer=document.createElement('div'); var lbMer=document.createElement('label'); lbMer.textContent='Merma pactada GLOBAL (%)';
+      var inMer=document.createElement('input'); inMer.type='number'; inMer.step='0.01'; inMer.min='0'; inMer.value=ot.mermaGlobalPct;
+      inMer.readOnly=!!modoEntrada; if(modoEntrada){ inMer.classList.add('ro'); }
+      inMer.addEventListener('input', function(){ ot.mermaGlobalPct=parseFloat(inMer.value||'0'); saveDB(DB); renderResumenOT(); });
+      dvMer.appendChild(lbMer); dvMer.appendChild(inMer);
+
+      head.appendChild(dvFolio); head.appendChild(dvFecha); head.appendChild(dvHora);
+      head.appendChild(dvMq); head.appendChild(dvDom);
+      head.appendChild(dvPromF); head.appendChild(dvPromH);
+      head.appendChild(dvMer);
+      card.appendChild(head);
+
+      // Adjuntos comp dom / INE
+      var adjs=document.createElement('div'); adjs.className='actions';
+      var lblC=document.createElement('span'); lblC.textContent='📎 Comprobante domicilio:'; adjs.appendChild(lblC);
+      var inC=document.createElement('input'); inC.type='file'; inC.accept='image/*';
+      inC.addEventListener('change', function(){ if(inC.files && inC.files[0]){ fileToDataURL(inC.files[0], function(b64){ ot.compDomicilio=b64; saveDB(DB); toast('Comprobante cargado'); }); } });
+      adjs.appendChild(inC);
+      var lblI=document.createElement('span'); lblI.textContent='INE:'; adjs.appendChild(lblI);
+      var inI=document.createElement('input'); inI.type='file'; inI.accept='image/*';
+      inI.addEventListener('change', function(){ if(inI.files && inI.files[0]){ fileToDataURL(inI.files[0], function(b64){ ot.ine=b64; saveDB(DB); toast('INE cargada'); }); } });
+      adjs.appendChild(inI);
+      card.appendChild(adjs);
+
+      // ===== SALIDA OT (primera parte) =====
+      var barS=document.createElement('div'); barS.className='card';
+      var hS=document.createElement('h2'); hS.textContent = modoEntrada ? 'SALIDA OT (bloqueada)' : 'SALIDA OT (editable)'; barS.appendChild(hS);
+
+      // Comentarios salida
+      var gS=document.createElement('div'); gS.className='grid';
+      var dvCS=document.createElement('div'); var lbCS=document.createElement('label'); lbCS.textContent='Comentarios (largos/detalles por línea dentro de la tabla)';
+      var txCS=document.createElement('textarea'); txCS.value=ot.salida.comentarios; txCS.readOnly=!!modoEntrada; if(modoEntrada){ txCS.classList.add('ro'); }
+      txCS.addEventListener('input', function(){ ot.salida.comentarios=txCS.value; saveDB(DB); });
+      dvCS.appendChild(lbCS); dvCS.appendChild(txCS);
+      var dvTotSG=document.createElement('div'); var lbTotSG=document.createElement('label'); lbTotSG.textContent='Total GR. salida (auto)';
+      var inTotSG=document.createElement('input'); inTotSG.readOnly=true; inTotSG.value=f2(ot.salida.totalGr);
+      dvTotSG.appendChild(lbTotSG); dvTotSG.appendChild(inTotSG);
+      var dvTotCost=document.createElement('div'); var lbTotC=document.createElement('label'); lbTotC.textContent='Costo estimado (auto)';
+      var inTotCost=document.createElement('input'); inTotCost.readOnly=true; inTotCost.value=f2(ot.salida.totalPrecioEstimado);
+      dvTotCost.appendChild(lbTotC); dvTotCost.appendChild(inTotCost);
+      gS.appendChild(dvCS); gS.appendChild(dvTotSG); gS.appendChild(dvTotCost);
+      barS.appendChild(gS);
+
+      // Tabla SALIDA
+      barS.appendChild(tablaLineasSalidaOT({
+        bloqueado: !!modoEntrada,
+        lineas: ot.salida.lineas,
+        onChange: function(){
+          recalcularSalida(ot);
+          inTotSG.value = f2(ot.salida.totalGr);
+          inTotCost.value = f2(ot.salida.totalPrecioEstimado);
+          saveDB(DB);
+          renderResumenOT();
+        }
+      }));
+
+      card.appendChild(barS);
+
+      // ===== ENTRADA OT (segunda parte) =====
+      var barE=document.createElement('div'); barE.className='card';
+      var hE=document.createElement('h2'); hE.textContent = modoEntrada ? 'ENTRADA OT (editable)' : 'ENTRADA OT (bloqueada hasta procesar)'; barE.appendChild(hE);
+
+      var gE=document.createElement('div'); gE.className='grid';
+      var dvFE=document.createElement('div'); var lbFE=document.createElement('label'); lbFE.textContent='Fecha entrada';
+      var inFE=document.createElement('input'); inFE.type='date'; inFE.value=ot.entrada.fecha; inFE.readOnly=!modoEntrada; if(!modoEntrada){ inFE.classList.add('ro'); }
+      inFE.addEventListener('change', function(){ ot.entrada.fecha=inFE.value; saveDB(DB); });
+      dvFE.appendChild(lbFE); dvFE.appendChild(inFE);
+
+      var dvHE=document.createElement('div'); var lbHE=document.createElement('label'); lbHE.textContent='Hora entrada';
+      var inHE=document.createElement('input'); inHE.type='time'; inHE.value=ot.entrada.hora; inHE.readOnly=!modoEntrada; if(!modoEntrada){ inHE.classList.add('ro'); }
+      inHE.addEventListener('change', function(){ ot.entrada.hora=inHE.value; saveDB(DB); });
+      dvHE.appendChild(lbHE); dvHE.appendChild(inHE);
+
+      var dvCE=document.createElement('div'); var lbCE=document.createElement('label'); lbCE.textContent='Comentarios entrada';
+      var txCE=document.createElement('textarea'); txCE.value=ot.entrada.comentarios; txCE.readOnly=!modoEntrada; if(!modoEntrada){ txCE.classList.add('ro'); }
+      txCE.addEventListener('input', function(){ ot.entrada.comentarios=txCE.value; saveDB(DB); });
+      dvCE.appendChild(lbCE); dvCE.appendChild(txCE);
+
+      var dvTotEG=document.createElement('div'); var lbTotEG=document.createElement('label'); lbTotEG.textContent='Total GR. entrada (auto)';
+      var inTotEG=document.createElement('input'); inTotEG.readOnly=true; inTotEG.value=f2(ot.entrada.totalGr);
+      dvTotEG.appendChild(lbTotEG); dvTotEG.appendChild(inTotEG);
+
+      gE.appendChild(dvFE); gE.appendChild(dvHE); gE.appendChild(dvCE); gE.appendChild(dvTotEG);
+      barE.appendChild(gE);
+
+      // Tabla ENTRADA
+      barE.appendChild(tablaLineasEntradaOT({
+        bloqueado: !modoEntrada,
+        lineas: ot.entrada.lineas,
+        onChange: function(){
+          recalcularEntrada(ot);
+          inTotEG.value = f2(ot.entrada.totalGr);
+          saveDB(DB);
+          renderResumenOT();
+        }
+      }));
+
+      card.appendChild(barE);
+
+      // ===== Resumen/Merma real =====
+      var resumen = document.createElement('div'); resumen.className='card'; resumen.id='ot-resumen-'+ot.id;
+      card.appendChild(resumen);
+      function renderResumenOT(){
+        var salG = parseFloat(ot.salida.totalGr||0);
+        var entG = parseFloat(ot.entrada.totalGr||0);
+        var dif = salG - entG;
+        if(dif < 0){ dif = 0; } // si entró más, no contamos merma negativa
+        var permitido = mermaPermitidaGr(ot);
+        var pctReal = salG>0 ? (dif/salG)*100 : 0;
+        var pctPerm = salG>0 ? (permitido/salG)*100 : 0;
+        var estado = 'OK';
+        if(dif > permitido && salG>0){ estado = 'Excede'; }
+
+        resumen.innerHTML = '';
+        var row = document.createElement('div'); row.className='estado-global';
+        [
+          'Salida: '+f2(salG)+' g',
+          'Entrada: '+f2(entG)+' g',
+          'Merma real: '+f2(dif)+' g ('+f1(pctReal)+'%)',
+          'Permitida: '+f2(permitido)+' g ('+f1(pctPerm)+'%)',
+          'Estado: '+estado
+        ].forEach(function(t,i){
+          var chip=document.createElement('span'); chip.className='estado-chip'+(i===4?' bold':'');
+          if(i===4){ chip.style.color = (estado==='OK'?'#065f46':'#b91c1c'); }
+          chip.textContent=t; row.appendChild(chip);
+        });
+        resumen.appendChild(row);
+      }
+      renderResumenOT();
+
+      // ===== Leyenda legal editable =====
+      var legal = document.createElement('div'); legal.className='card';
+      var hL=document.createElement('h2'); hL.textContent='Leyenda legal (resguardo/pagaré)'; legal.appendChild(hL);
+      var txL=document.createElement('textarea'); txL.value=ot.leyendaLegal; txL.addEventListener('input', function(){ ot.leyendaLegal=txL.value; saveDB(DB); });
+      legal.appendChild(txL);
+      card.appendChild(legal);
+
+      // ===== Botonera global OT =====
+      var barra=document.createElement('div'); barra.className='barra-global';
+
+      var bPrev=document.createElement('button'); bPrev.className='btn'; bPrev.textContent='Vista previa PDF';
+      bPrev.addEventListener('click', function(){ imprimirPDFOT(ot, true); });
+      barra.appendChild(bPrev);
+
+      if(!modoEntrada){
+        var bGuardarSalida=document.createElement('button'); bGuardarSalida.className='btn-primary'; bGuardarSalida.textContent='Guardar SALIDA OT';
+        bGuardarSalida.addEventListener('click', function(){
+          if(!ot.maquilador){ alert('Captura el nombre del maquilador.'); return; }
+          saveDB(DB);
+          toast('Salida OT guardada. Puedes procesarla en "OT pendientes".');
+          var view = qs('#view-ot-'+ot.id); if(view) view.remove();
+          var tabBtn = qs('[data-tab="ot-'+ot.id+'"]'); if(tabBtn) tabBtn.remove();
+          renderSubmenu('produccion');
+        });
+        barra.appendChild(bGuardarSalida);
+      }
+
+      if(modoEntrada && !ot.cerrada){
+        var bCerrar=document.createElement('button'); bCerrar.className='btn-primary'; bCerrar.textContent='Guardar ENTRADA / Cerrar OT';
+        bCerrar.addEventListener('click', function(){
+          // Validaciones básicas
+          if(parseFloat(ot.entrada.totalGr||0) <= 0){
+            alert('Captura al menos algún regreso en ENTRADA OT.');
+            return;
+          }
+          ot.cerrada = true;
+          saveDB(DB);
+          toast('OT cerrada');
+          imprimirPDFOT(ot, false);
+          var view = qs('#view-ot-'+ot.id); if(view) view.remove();
+          var tabBtn = qs('[data-tab="ot-'+ot.id+'"]'); if(tabBtn) tabBtn.remove();
+          renderSubmenu('produccion');
+        });
+        barra.appendChild(bCerrar);
+      }
+
+      if(ot.cerrada){
+        var bPDF=document.createElement('button'); bPDF.className='btn'; bPDF.textContent='PDF final';
+        bPDF.addEventListener('click', function(){ imprimirPDFOT(ot, false); });
+        barra.appendChild(bPDF);
+      }
+
+      card.appendChild(barra);
+      host.appendChild(card);
+    });
+  }
+
+  function tablaLineasSalidaOT(cfg){
+    // cfg: { bloqueado, lineas, onChange }
+    var wrap=document.createElement('div');
+    var top=document.createElement('div'); top.className='actions';
+    var h=document.createElement('h2'); h.textContent='Líneas de SALIDA'; top.appendChild(h);
+    var sp=document.createElement('div'); sp.style.flex='1'; top.appendChild(sp);
+    var bAdd, bDel;
+    if(!cfg.bloqueado){
+      bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea';
+      bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última';
+      top.appendChild(bAdd); top.appendChild(bDel);
+    }
+    wrap.appendChild(top);
+
+    var table=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    var headers=[
+      {t:'#',w:'5%'},{t:'Material',w:'18%'},{t:'Detalle / comentarios',w:'34%'},{t:'Gr',w:'10%'},
+      {t:'Pzs',w:'8%'},{t:'Tarifa',w:'12%'},{t:'Modo',w:'8%'}
+    ];
+    var i;
+    for(i=0;i<headers.length;i++){ var th=document.createElement('th'); th.textContent=headers[i].t; th.style.width=headers[i].w; trh.appendChild(th); }
+    thead.appendChild(trh); table.appendChild(thead);
+    var tbody=document.createElement('tbody');
+
+    function rebuild(){
+      tbody.innerHTML='';
+      var r;
+      for(r=0;r<cfg.lineas.length;r++){ renderRow(r); }
+      if(typeof cfg.onChange==='function'){ cfg.onChange(); }
+    }
+
+    function renderRow(idx){
+      var li=cfg.lineas[idx];
+      var tr=document.createElement('tr');
+
+      var td0=document.createElement('td'); td0.textContent=(idx+1); tr.appendChild(td0);
+
+      var tdMat=document.createElement('td');
+      var sel=document.createElement('select'); sel.style.width='100%';
+      MATERIALES.forEach(function(m){ var op=document.createElement('option'); op.value=m.id; op.textContent=m.nombre; if(m.id===li.materialId) op.selected=true; sel.appendChild(op); });
+      sel.disabled=!!cfg.bloqueado;
+      sel.addEventListener('change', function(){ li.materialId=sel.value; saveDB(DB); if(typeof cfg.onChange==='function'){ cfg.onChange(); } });
+      tdMat.appendChild(sel); tr.appendChild(tdMat);
+
+      var tdDet=document.createElement('td');
+      var inDet=document.createElement('input'); inDet.type='text'; inDet.value=li.detalle; inDet.style.width='100%'; inDet.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inDet.classList.add('ro'); }
+      inDet.addEventListener('input', function(){ li.detalle=inDet.value; saveDB(DB); });
+      tdDet.appendChild(inDet); tr.appendChild(tdDet);
+
+      var tdGr=document.createElement('td');
+      var inGr=document.createElement('input'); inGr.type='number'; inGr.step='0.01'; inGr.min='0'; inGr.value=li.gramos; inGr.style.width='100%'; inGr.style.textAlign='right';
+      inGr.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inGr.classList.add('ro'); }
+      inGr.addEventListener('input', function(){ li.gramos=parseFloat(inGr.value||'0'); saveDB(DB); if(typeof cfg.onChange==='function'){ cfg.onChange(); } });
+      tdGr.appendChild(inGr); tr.appendChild(tdGr);
+
+      var tdPz=document.createElement('td');
+      var inPz=document.createElement('input'); inPz.type='number'; inPz.step='1'; inPz.min='0'; inPz.value=li.piezas; inPz.style.width='100%'; inPz.style.textAlign='right';
+      inPz.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inPz.classList.add('ro'); }
+      inPz.addEventListener('input', function(){ li.piezas=parseFloat(inPz.value||'0'); saveDB(DB); if(typeof cfg.onChange==='function'){ cfg.onChange(); } });
+      tdPz.appendChild(inPz); tr.appendChild(tdPz);
+
+      var tdTar=document.createElement('td');
+      var inTar=document.createElement('input'); inTar.type='number'; inTar.step='0.01'; inTar.min='0'; inTar.value=li.precio; inTar.style.width='100%'; inTar.style.textAlign='right';
+      inTar.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inTar.classList.add('ro'); }
+      inTar.addEventListener('input', function(){ li.precio=parseFloat(inTar.value||'0'); saveDB(DB); if(typeof cfg.onChange==='function'){ cfg.onChange(); } });
+      tdTar.appendChild(inTar); tr.appendChild(tdTar);
+
+      var tdModo=document.createElement('td');
+      var selModo=document.createElement('select');
+      ['gramo','pieza'].forEach(function(m){
+        var op=document.createElement('option'); op.value=m; op.textContent=(m==='gramo'?'Por gr':'Por pieza'); if(li.modoTarifa===m) op.selected=true; selModo.appendChild(op);
+      });
+      selModo.disabled=!!cfg.bloqueado;
+      selModo.addEventListener('change', function(){ li.modoTarifa=selModo.value; saveDB(DB); if(typeof cfg.onChange==='function'){ cfg.onChange(); } });
+      tdModo.appendChild(selModo); tr.appendChild(tdModo);
+
+      // Config avanzada de merma por línea (no se imprime ni se muestra en tabla principal)
+      if(!cfg.bloqueado){
+        var tr2=document.createElement('tr');
+        var tdAdv=document.createElement('td'); tdAdv.colSpan=7;
+        var wrapAdv=document.createElement('div'); wrapAdv.className='actions';
+        var sp=document.createElement('span'); sp.className='hint'; sp.textContent='Merma inferior por línea (opcional, %). Si se define, NO aplica la merma global a esta línea.';
+        var inMerL=document.createElement('input'); inMerL.type='number'; inMerL.step='0.01'; inMerL.min='0'; inMerL.placeholder='Merma % línea';
+        inMerL.value = (li.mermaLineaPct===null || typeof li.mermaLineaPct==='undefined') ? '' : String(li.mermaLineaPct);
+        inMerL.addEventListener('input', function(){
+          var v = inMerL.value.trim();
+          li.mermaLineaPct = v==='' ? null : parseFloat(v||'0');
+          saveDB(DB);
+        });
+        wrapAdv.appendChild(sp); wrapAdv.appendChild(inMerL);
+        tdAdv.appendChild(wrapAdv);
+        tr2.appendChild(tdAdv);
+        tbody.appendChild(tr2);
+      }
+
+      tbody.appendChild(tr);
+    }
+
+    if(bAdd){
+      bAdd.addEventListener('click', function(){
+        cfg.lineas.push({ materialId:'925', detalle:'', gramos:0, piezas:0, modoTarifa:'gramo', precio:0, mermaLineaPct:null });
+        rebuild();
+      });
+    }
+    if(bDel){
+      bDel.addEventListener('click', function(){
+        if(cfg.lineas.length>1){ cfg.lineas.pop(); rebuild(); }
+      });
+    }
+
+    rebuild();
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
+  }
+
+  function tablaLineasEntradaOT(cfg){
+    // cfg: { bloqueado, lineas, onChange }
+    var wrap=document.createElement('div');
+    var top=document.createElement('div'); top.className='actions';
+    var h=document.createElement('h2'); h.textContent='Líneas de ENTRADA (terminado y sobrantes)'; top.appendChild(h);
+    var sp=document.createElement('div'); sp.style.flex='1'; top.appendChild(sp);
+    var bAdd, bDel;
+    if(!cfg.bloqueado){
+      bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea';
+      bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última';
+      top.appendChild(bAdd); top.appendChild(bDel);
+    }
+    wrap.appendChild(top);
+
+    var table=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    var headers=[{t:'#',w:'6%'},{t:'Concepto',w:'18%'},{t:'Material',w:'18%'},{t:'Detalle',w:'28%'},{t:'Gr',w:'10%'},{t:'Pzs',w:'10%'}];
+    var i;
+    for(i=0;i<headers.length;i++){ var th=document.createElement('th'); th.textContent=headers[i].t; th.style.width=headers[i].w; trh.appendChild(th); }
+    thead.appendChild(trh); table.appendChild(thead);
+    var tbody=document.createElement('tbody');
+
+    function rebuild(){
+      tbody.innerHTML='';
+      var r;
+      for(r=0;r<cfg.lineas.length;r++){ renderRow(r); }
+      if(typeof cfg.onChange==='function'){ cfg.onChange(); }
+    }
+
+    function renderRow(idx){
+      var li=cfg.lineas[idx];
+      var tr=document.createElement('tr');
+
+      var td0=document.createElement('td'); td0.textContent=(idx+1); tr.appendChild(td0);
+
+      var tdC=document.createElement('td');
+      var selC=document.createElement('select');
+      var conceptos=[{id:'terminado',t:'Terminado'},{id:'sobrante_solid',t:'Sobrante sólido'},{id:'limalla',t:'Limalla'},{id:'otros',t:'Otros'}];
+      conceptos.forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.t; if(c.id===li.concepto) op.selected=true; selC.appendChild(op); });
+      selC.disabled=!!cfg.bloqueado;
+      selC.addEventListener('change', function(){ li.concepto=selC.value; saveDB(DB); });
+      tdC.appendChild(selC); tr.appendChild(tdC);
+
+      var tdM=document.createElement('td');
+      var selM=document.createElement('select'); MATERIALES.forEach(function(m){ var op=document.createElement('option'); op.value=m.id; op.textContent=m.nombre; if(m.id===li.materialId) op.selected=true; selM.appendChild(op); });
+      selM.disabled=!!cfg.bloqueado;
+      selM.addEventListener('change', function(){ li.materialId=selM.value; saveDB(DB); });
+      tdM.appendChild(selM); tr.appendChild(tdM);
+
+      var tdD=document.createElement('td');
+      var inD=document.createElement('input'); inD.type='text'; inD.value=li.obs||''; inD.style.width='100%'; inD.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inD.classList.add('ro'); }
+      inD.addEventListener('input', function(){ li.obs=inD.value; saveDB(DB); });
+      tdD.appendChild(inD); tr.appendChild(tdD);
+
+      var tdG=document.createElement('td');
+      var inG=document.createElement('input'); inG.type='number'; inG.step='0.01'; inG.min='0'; inG.value=li.gramos||0; inG.style.width='100%'; inG.style.textAlign='right';
+      inG.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inG.classList.add('ro'); }
+      inG.addEventListener('input', function(){ li.gramos=parseFloat(inG.value||'0'); saveDB(DB); if(typeof cfg.onChange==='function'){ cfg.onChange(); } });
+      tdG.appendChild(inG); tr.appendChild(tdG);
+
+      var tdP=document.createElement('td');
+      var inP=document.createElement('input'); inP.type='number'; inP.step='1'; inP.min='0'; inP.value=li.piezas||0; inP.style.width='100%'; inP.style.textAlign='right';
+      inP.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inP.classList.add('ro'); }
+      inP.addEventListener('input', function(){ li.piezas=parseFloat(inP.value||'0'); saveDB(DB); if(typeof cfg.onChange==='function'){ cfg.onChange(); } });
+      tdP.appendChild(inP); tr.appendChild(tdP);
+
+      tbody.appendChild(tr);
+    }
+
+    if(bAdd){
+      bAdd.addEventListener('click', function(){
+        cfg.lineas.push({ concepto:'terminado', materialId:'terminado', gramos:0, piezas:0, obs:'' });
+        rebuild();
+      });
+    }
+    if(bDel){
+      bDel.addEventListener('click', function(){
+        if(cfg.lineas.length>1){ cfg.lineas.pop(); rebuild(); }
+      });
+    }
+
+    rebuild();
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
+  }
+
+  function fileToDataURL(file, cb){
+    var r=new FileReader();
+    r.onload=function(e){ cb(e.target.result); };
+    r.readAsDataURL(file);
+  }
+
+  function recalcularSalida(ot){
+    var tGr=0, tCosto=0;
+    ot.salida.lineas.forEach(function(li){
+      var gr = parseFloat(li.gramos||0);
+      var pz = parseFloat(li.piezas||0);
+      var pr = parseFloat(li.precio||0);
+      tGr += gr;
+      if(li.modoTarifa==='gramo'){ tCosto += pr * gr; } else { tCosto += pr * pz; }
+    });
+    ot.salida.totalGr = tGr;
+    ot.salida.totalPrecioEstimado = tCosto;
+  }
+
+  function recalcularEntrada(ot){
+    var tGr=0;
+    ot.entrada.lineas.forEach(function(li){
+      tGr += parseFloat(li.gramos||0);
+    });
+    ot.entrada.totalGr = tGr;
+  }
+
+  function mermaPermitidaGr(ot){
+    // Suma por línea: aplica mermaLineaPct si existe y es menor a global; si no, usa global. Se calcula sobre gramos de SALIDA por línea.
+    var global = parseFloat(ot.mermaGlobalPct||0);
+    var total = 0;
+    ot.salida.lineas.forEach(function(li){
+      var base = parseFloat(li.gramos||0);
+      var mLinea = (li.mermaLineaPct===null || typeof li.mermaLineaPct==='undefined') ? null : parseFloat(li.mermaLineaPct||0);
+      var pct = (mLinea!==null && !isNaN(mLinea) && mLinea < global) ? mLinea : global;
+      total += base * (pct/100);
+    });
+    return total;
+  }
+
+  function imprimirPDFOT(ot, isDraft){
+    var w = window.open('', '_blank', 'width=840,height=900');
+    if(!w){ alert('Permite pop-ups para imprimir.'); return; }
+
+    var css='@page{size:5.5in 8.5in;margin:10mm;}'
+      + 'body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}'
+      + 'h1.red{color:#b91c1c;} h2{margin:6px 0;color:#0a2c4c;}'
+      + 'table{width:100%;border-collapse:collapse;table-layout:fixed;}'
+      + 'th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left;vertical-align:top;word-break:break-word;}'
+      + 'thead tr{background:#e7effa;}'
+      + '.row{display:flex;gap:8px;margin:6px 0}.col{flex:1}'
+      + '.chips{margin:8px 0}.chip{background:#f1f5f9;border-radius:16px;padding:6px 10px;margin-right:6px;font-size:12px;font-weight:600;}'
+      + '.signs{display:flex;justify-content:space-between;margin-top:18px}.signs div{width:45%;border-top:1px solid #94a3b8;padding-top:6px;text-align:center;}'
+      + '.water{position:fixed;top:40%;left:15%;font-size:48px;color:#94a3b880;transform:rotate(-20deg);}';
+
+    var salG=parseFloat(ot.salida.totalGr||0);
+    var entG=parseFloat(ot.entrada.totalGr||0);
+    var dif = salG - entG; if(dif < 0){ dif = 0; }
+    var permitido = mermaPermitidaGr(ot);
+    var pctReal = salG>0 ? (dif/salG)*100 : 0;
+    var pctPerm = salG>0 ? (permitido/salG)*100 : 0;
+
+    var html=[];
+    html.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>OT '+String(ot.folio).padStart(3,'0')+'</title><style>'+css+'</style></head><body>');
+    if(isDraft){ html.push('<div class="water">BORRADOR</div>'); }
+
+    html.push('<h1 class="red">Orden de Trabajo (OT) '+String(ot.folio).padStart(3,'0')+'</h1>');
+    html.push('<div class="row"><div class="col"><b>Fecha:</b> '+escapeHTML(ot.fecha)+' '+escapeHTML(ot.hora||'')+'</div><div class="col"><b>Maquilador:</b> '+escapeHTML(ot.maquilador||'')+'</div><div class="col"><b>Domicilio:</b> '+escapeHTML(ot.domicilio||'')+'</div></div>');
+    html.push('<div class="row"><div class="col"><b>Promesa:</b> '+escapeHTML(ot.promesaFecha||'')+' '+escapeHTML(ot.promesaHora||'')+'</div><div class="col"><b>Merma GLOBAL pactada:</b> '+f1(ot.mermaGlobalPct||0)+'%</div><div class="col"><b>Costo estimado:</b> $'+f2(ot.salida.totalPrecioEstimado||0)+'</div></div>');
+
+    // Resumen
+    html.push('<div class="chips">');
+    html.push('<span class="chip">Salida: '+f2(salG)+' g</span>');
+    html.push('<span class="chip">Entrada: '+f2(entG)+' g</span>');
+    html.push('<span class="chip">Merma real: '+f2(dif)+' g ('+f1(pctReal)+'%)</span>');
+    html.push('<span class="chip">Permitida: '+f2(permitido)+' g ('+f1(pctPerm)+'%)</span>');
+    html.push('</div>');
+
+    // SALIDA
+    html.push('<h2>SALIDA OT</h2>');
+    if(ot.salida.comentarios){ html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(ot.salida.comentarios)+'</div></div>'); }
+    html.push('<table><thead><tr><th style="width:5%">#</th><th style="width:18%">Material</th><th style="width:34%">Detalle</th><th style="width:10%">Gr</th><th style="width:8%">Pzs</th><th style="width:12%">Tarifa</th><th style="width:13%">Modo</th></tr></thead><tbody>');
+    var i;
+    for(i=0;i<ot.salida.lineas.length;i++){
+      var li=ot.salida.lineas[i];
+      html.push('<tr><td>'+(i+1)+'</td><td>'+escapeHTML(nombreMaterial(li.materialId))+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+f2(li.gramos||0)+'</td><td>'+f2(li.piezas||0)+'</td><td>$'+f2(li.precio||0)+'</td><td>'+(li.modoTarifa==='gramo'?'Por gramo':'Por pieza')+'</td></tr>');
+    }
+    html.push('</tbody></table>');
+
+    // ENTRADA
+    html.push('<h2>ENTRADA OT</h2>');
+    if(ot.entrada.comentarios){ html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(ot.entrada.comentarios)+'</div></div>'); }
+    html.push('<table><thead><tr><th style="width:6%">#</th><th style="width:18%">Concepto</th><th style="width:18%">Material</th><th style="width:28%">Detalle</th><th style="width:10%">Gr</th><th style="width:10%">Pzs</th></tr></thead><tbody>');
+    for(i=0;i<ot.entrada.lineas.length;i++){
+      var le=ot.entrada.lineas[i];
+      var nombreC = le.concepto==='terminado'?'Terminado':(le.concepto==='sobrante_solid'?'Sobrante sólido':(le.concepto==='limalla'?'Limalla':'Otros'));
+      html.push('<tr><td>'+(i+1)+'</td><td>'+escapeHTML(nombreC)+'</td><td>'+escapeHTML(nombreMaterial(le.materialId))+'</td><td>'+escapeHTML(le.obs||'')+'</td><td>'+f2(le.gramos||0)+'</td><td>'+f2(le.piezas||0)+'</td></tr>');
+    }
+    html.push('</tbody></table>');
+
+    // Adjuntos miniaturas
+    if(ot.compDomicilio || ot.ine){
+      html.push('<h2>Adjuntos</h2><div class="row">');
+      if(ot.compDomicilio){ html.push('<div class="col"><b>Comprobante domicilio:</b><br><img src="'+ot.compDomicilio+'" style="max-width:100%;max-height:220px;border:1px solid #cbd5e1"></div>'); }
+      if(ot.ine){ html.push('<div class="col"><b>INE:</b><br><img src="'+ot.ine+'" style="max-width:100%;max-height:220px;border:1px solid #cbd5e1"></div>'); }
+      html.push('</div>');
+    }
+
+    // Leyenda y firmas
+    html.push('<h2>Responsivas y firmas</h2>');
+    html.push('<div class="row"><div class="col"><b>Leyenda legal:</b><br>'+escapeHTML(ot.leyendaLegal||'')+'</div></div>');
+    html.push('<div class="signs"><div>Entregó (empresa)</div><div>Recibió — '+escapeHTML(ot.maquilador||'')+'</div></div>');
+
+    html.push('</body></html>');
+    w.document.write(html.join(''));
+    w.document.close();
+    try{ w.focus(); w.print(); }catch(e){}
+  }
+
+  // ===== Exponer mínimas funciones globales =====
+  window.imprimirPDFOT = imprimirPDFOT;
+
+  // ===== Submenú inicial =====
+  renderSubmenu('inicio');
+
+})();
+
