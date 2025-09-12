@@ -101,6 +101,7 @@
     <button class="side-item tree-btn" data-root="ventas">🧾 Ventas</button>
     <button class="side-item tree-btn" data-root="inventarios">📦 Inventarios</button>
     <button class="side-item tree-btn" data-root="pedidos">🗂️ Pedidos</button>
+    <button class="side-item tree-btn" data-root="maquiladores">⚒️ Maquiladores</button>
     <button class="side-item tree-btn" data-root="catalogo">📇 Catálogo</button>
   </aside>
 
@@ -115,17 +116,6 @@
 <div id="toast"></div>
 <div id="diag"></div>
 
-<script>
-  window.addEventListener('error', function(e){
-    const d=document.getElementById('diag'); if(!d) return;
-    d.style.display='block';
-    d.textContent = 'ERROR JS: ' + (e.message || e.type);
-  });
-</script>
-
-<script src="/app.js?v=2000" defer
-  onload="document.getElementById('jsok').textContent='JS OK'"
-  onerror="document.getElementById('jsok').textContent='JS NO CARGÓ (404)'; document.getElementById('diag').style.display='block'; document.getElementById('diag').textContent='No se encontró /app.js en la carpeta pública.'">
-</script>
+<script src="app.js"></script>
 </body>
 </html>
