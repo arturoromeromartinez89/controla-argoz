@@ -122,7 +122,7 @@
   }
   function escapeHTML(s){
     return String(s||'').replace(/[&<>"']/g,function(m){
-      var map = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":"&#039;" };
+      var map = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' };
       return map[m];
     });
   }
@@ -185,6 +185,7 @@
 
     renderFn(view);
   }
+
   // ===== Submenús =====
   function renderSubmenu(root){
     var host = qs('#subpanel');
@@ -371,6 +372,7 @@
     return obj.id;
   }
   function abrirTraspasoNuevo(){ var id = nuevoTraspasoBase(); abrirTraspasoExistente(id, false); }
+
   function abrirTraspasoExistente(id, modoProcesar){
     var tr = DB.traspasos.find(function(x){ return x.id === id; });
     if(!tr){ toast('No encontrado'); return; }
@@ -437,10 +439,12 @@
 
       // ===== Botonera GLOBAL (aplica a toda la hoja) =====
       var barraGlobal = document.createElement('div'); barraGlobal.className = 'barra-global';
+      // Vista previa siempre disponible
       var bVista = document.createElement('button'); bVista.className='btn'; bVista.textContent='Vista previa';
       bVista.addEventListener('click', function(){ imprimirPDF(tr, true); });
       barraGlobal.appendChild(bVista);
 
+      // Guardar ENTRADA si aún no procesas salida
       if(!modoProcesar){
         var bGuardarEntrada = document.createElement('button'); bGuardarEntrada.className='btn-primary'; bGuardarEntrada.textContent='Guardar ENTRADA';
         bGuardarEntrada.addEventListener('click', function(){
@@ -454,6 +458,7 @@
         barraGlobal.appendChild(bGuardarEntrada);
       }
 
+      // PDF final y WhatsApp si ya está cerrado
       if(tr.cerrado){
         var bPdf = document.createElement('button'); bPdf.className='btn'; bPdf.textContent='PDF final';
         bPdf.addEventListener('click', function(){ imprimirPDF(tr, false); });
@@ -464,6 +469,7 @@
         barraGlobal.appendChild(bWA);
       }
 
+      // Guardar SALIDA / Cerrar folio cuando estás en modo procesar
       if(modoProcesar && !tr.cerrado){
         var inJust=document.createElement('input'); inJust.type='text'; inJust.placeholder='Justificación (si regresas menos gramos — opcional)'; inJust.style.minWidth='280px';
         barraGlobal.appendChild(inJust);
@@ -547,7 +553,7 @@
     var mermaPct = tieneSalida && ent > 0 ? (mermaAbs/ent)*100 : 0;
 
     var estado = 'Pendiente de salida';
-    var color = '#334155';
+    var color = '#334155'; // neutro
     if(tieneSalida){
       estado = 'OK';
       color = '#065f46';
@@ -686,8 +692,10 @@
       tbody.appendChild(tr);
     }
 
+    // render inicial
     rebuild();
 
+    // botones internos
     if(bAdd){
       bAdd.addEventListener('click', function(){
         cfg.lineas.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0 });
@@ -727,6 +735,7 @@
     });
     return sum;
   }
+
   function cerrarFolio(tr, justificacion){
     if(tr.tipo==='prod'){
       var hayTerminado = tr.salida.lineas.some(function(li){
@@ -804,8 +813,10 @@
     html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.fecha+' '+tr.hora+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.entraA)+'</div></div>');
     html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(tr.comentarios)+'</div><div class="col"><b>Total GR (entrada):</b> '+f2(ent)+'</div></div>');
 
+    // Evidencia global arriba, para reforzar ciclo único
     if(DB.evidencia){ html.push('<h3>Evidencia fotográfica</h3><img src="'+DB.evidencia+'" style="max-width:100%;max-height:300px;border:1px solid #ccc">'); }
 
+    // Chips de estado global
     html.push('<div class="chips">');
     html.push('<span class="chip">Entrada: '+f2(ent)+' g</span>');
     html.push('<span class="chip">Salida: '+(tieneSalida?f2(sal)+' g':'—')+'</span>');
@@ -814,6 +825,7 @@
     html.push('<span class="chip">Estado: '+estado+'</span>');
     html.push('</div>');
 
+    // ENTRADA
     html.push('<h2>Entrada</h2>');
     html.push('<table><thead><tr><th style="width:6%">#</th><th style="width:22%">Material</th><th style="width:28%">Detalle</th><th style="width:12%">Gr</th><th style="width:14%">Aleación</th><th style="width:18%">Subtotal</th></tr></thead><tbody>');
     var i;
@@ -824,10 +836,12 @@
     html.push('</tbody></table>');
     html.push('<div class="signs"><div>Entregó (entrada)</div><div>Recibió (entrada)</div></div>');
 
+    // SALIDA
     html.push('<h2>Salida</h2>');
     html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.salida.fecha+' '+(tr.salida.hora||'')+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.salida.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.salida.entraA)+'</div></div>');
     html.push('<div class="row"><div class="col"><b>Comentarios salida:</b> '+escapeHTML(tr.salida.comentarios||'')+'</div><div class="col"><b>Total GR (salida):</b> '+f2(sal)+'</div></div>');
 
+    // Solo mostrar dif/merma si hay salida capturada
     if(tieneSalida){
       var signo = dif>=0 ? '+' : '';
       html.push('<div class="row"><div class="col"><b>MERMA:</b> '+f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)</div><div class="col"><b>DIF:</b> '+signo+f2(dif)+'</div></div>');
@@ -997,7 +1011,7 @@
       }
       card.appendChild(estBar);
 
-      // Importar Excel (CSV)
+      // Importar Excel (CSV) — botón verde arriba de líneas
       var importBar=document.createElement('div'); importBar.className='actions';
       var impBtn=document.createElement('button'); impBtn.className='btn'; impBtn.innerHTML='⬆️ 🟩 Excel (CSV)';
       impBtn.style.background='#16a34a'; impBtn.style.color='#fff'; impBtn.style.border='1px solid #16a34a';
@@ -1010,7 +1024,7 @@
       importBar.appendChild(impBtn); importBar.appendChild(fileIn);
       card.appendChild(importBar);
 
-      // Líneas del pedido (sin IVA)
+      // Líneas del pedido (widget autogestionado, sin IVA)
       card.appendChild(tablaLineasPedido({
         lineas: ped.lineas,
         onChange: function(){ saveDB(DB); }
@@ -1096,6 +1110,7 @@
       tbody.appendChild(tr);
     }
 
+    // Render inicial
     rebuild();
 
     bAdd.addEventListener('click', function(){
@@ -1189,589 +1204,7 @@
 
   // ===== Submenú inicial
   renderSubmenu('inicio');
-// === v2.6 · Campos para Maquiladores (OT) ===
-/*
-- maquilaOT: lista de OTs
-- folioMaquila: folio incremental
-- evidenciaMaquila: evidencia global por ciclo (cada OT tendrá su propia si así se decide)
-*/
-function migrateDB(db){
-  if(!db) db = {};
-  if(!Array.isArray(db.traspasos)) db.traspasos = [];
-  if(typeof db.folio !== 'number') db.folio = 0;
-  if(typeof db.evidencia !== 'string') db.evidencia = '';
-  if(!Array.isArray(db.pedidos)) db.pedidos = [];
-  if(typeof db.folioPedidos !== 'number') db.folioPedidos = 0;
-
-  // nuevos (maquila)
-  if(!Array.isArray(db.maquilaOT)) db.maquilaOT = [];
-  if(typeof db.folioMaquila !== 'number') db.folioMaquila = 0;
-  if(typeof db.evidenciaMaquila !== 'string') db.evidenciaMaquila = '';
-  return db;
-}
-function loadDB(){
-  try{
-    var raw = localStorage.getItem(STORAGE_KEY);
-    var obj = raw ? JSON.parse(raw) : {};
-    return migrateDB(obj);
-  }catch(e){
-    return migrateDB({});
-  }
-}
-if(root === 'produccion'){
-  var host = qs('#subpanel');
-  host.innerHTML = '';
-  var card = document.createElement('div'); card.className = 'card';
-  var h2 = document.createElement('h2'); h2.textContent = 'Producción'; card.appendChild(h2);
-
-  var acc = document.createElement('div'); acc.className = 'actions';
-
-  // sub-submenú Maquiladores
-  var title = document.createElement('div'); title.className='pill'; title.textContent='Maquiladores'; acc.appendChild(title);
-
-  var btnNew = document.createElement('button'); btnNew.className='btn-primary'; btnNew.textContent='+ Nueva OT';
-  btnNew.addEventListener('click', function(){ abrirNuevaOTMaquila(); }); acc.appendChild(btnNew);
-
-  var btnPend = document.createElement('button'); btnPend.className='btn-outline'; btnPend.textContent='OT pendientes';
-  btnPend.addEventListener('click', function(){ listarOTMaquilaPendientes(true); }); acc.appendChild(btnPend);
-
-  var btnCerr = document.createElement('button'); btnCerr.className='btn-outline'; btnCerr.textContent='OT cerradas';
-  btnCerr.addEventListener('click', function(){ listarOTMaquilaCerradas(); }); acc.appendChild(btnCerr);
-
-  card.appendChild(acc);
-  host.appendChild(card);
-  listarOTMaquilaPendientes(false);
-  ensureMobileToolbar();
-  return;
-}
-// ====== Maquila: constructor base de OT ======
-function nuevaOTMaquilaBase(){
-  DB.folioMaquila += 1;
-  var id = 'M' + Date.now();
-  var fecha = hoyStr();
-  var prom = addDays(fecha, 15);
-  var lineas = [];
-  var i;
-  for(i=0;i<3;i++){
-    lineas.push({
-      materialId:'925',
-      detalle:'',
-      unidad:'g',           // 'g' (default) | 'pza'
-      cant:0,
-      precioTipo:'por_gramo', // 'por_gramo'|'por_pieza'|'proceso_fijo'
-      precio:0,
-      mermaPactada:null,    // { tipo:'%', valor:4 } | { tipo:'g', valor:10 } | { tipo:'pza', valor:5 } | null
-      comentariosLinea:'',  // detalles largos en comentarios de la línea
-      subtotalEstimado:0
-    });
-  }
-  var devLineas = [];
-  for(i=0;i<3;i++){
-    devLineas.push({
-      materialId:'terminado', // o '925'/'limalla' etc. según retorno
-      unidad:'g',
-      cant:0,
-      precioTipo:'por_pieza', // útil cuando cobras por pieza terminada
-      precio:0
-    });
-  }
-
-  var obj = {
-    id:id,
-    folio:DB.folioMaquila,
-    fecha:fecha,
-    hora:horaStr(),
-    saleDe:'caja',
-    maquilador:'',            // texto libre por ahora
-    domicilio:'',             // texto libre
-    evidenciaINE:'',          // dataURL imagen
-    promesa:prom,
-    promesaHora: '12:00',
-    comentarios:'',
-    mermaPactadaDefault:{ tipo:'%', valor:4.0 }, // global de la hoja; líneas pueden usar valor menor
-    lineasSalida:lineas,      // “salida” de OT: lo que enviamos al maquilador
-    totalSalida:0,
-
-    devolucion:{
-      fecha:fecha,
-      hora:horaStr(),
-      comentarios:'',
-      lineas:devLineas,       // “entrada” de OT: lo que devuelve el maquilador
-      totalEntrada:0,
-      totales:{ estimado:0, real:0 }
-    },
-    cerrada:false
-  };
-
-  DB.maquilaOT.push(obj);
-  saveDB(DB);
-  return obj.id;
-}
-function abrirNuevaOTMaquila(){ var id = nuevaOTMaquilaBase(); abrirOTMaquilaExistente(id, false); }
-function listarOTMaquilaPendientes(mostrarTitulo){
-  var host = qs('#subpanel');
-  var card = document.createElement('div'); card.className='card';
-  if(mostrarTitulo){ var h=document.createElement('h2'); h.textContent='OT pendientes (maquila)'; card.appendChild(h); }
-
-  var lst = DB.maquilaOT.filter(function(m){ return !m.cerrada; }).sort(function(a,b){ return b.folio - a.folio; });
-  if(lst.length===0){
-    var p=document.createElement('p'); p.textContent='Sin OT pendientes.'; card.appendChild(p);
-  }else{
-    lst.forEach(function(m){
-      var row=document.createElement('div'); row.className='actions';
-      var pill=document.createElement('span'); pill.className='pill orange'; pill.textContent='OT '+String(m.folio).padStart(3,'0')+' · '+(m.maquilador||'—');
-      row.appendChild(pill);
-      var btn=document.createElement('button'); btn.className='btn-orange'; btn.textContent='Procesar devolución';
-      btn.addEventListener('click', function(){ abrirOTMaquilaExistente(m.id, true); });
-      row.appendChild(btn);
-      card.appendChild(row);
-    });
-  }
-  host.appendChild(card);
-}
-function listarOTMaquilaCerradas(){
-  var host = qs('#subpanel');
-  var card = document.createElement('div'); card.className='card';
-  var h=document.createElement('h2'); h.textContent='OT cerradas (maquila)'; card.appendChild(h);
-
-  var lst = DB.maquilaOT.filter(function(m){ return !!m.cerrada; }).sort(function(a,b){ return b.folio - a.folio; });
-  if(lst.length===0){
-    var p=document.createElement('p'); p.textContent='Aún no hay OT cerradas.'; card.appendChild(p);
-  }else{
-    lst.forEach(function(m){
-      var row=document.createElement('div'); row.className='actions';
-      var pill=document.createElement('span'); pill.className='pill'; pill.textContent='OT '+String(m.folio).padStart(3,'0')+' · '+(m.maquilador||'—'); row.appendChild(pill);
-      var btn=document.createElement('button'); btn.className='btn'; btn.textContent='Abrir PDF';
-      btn.addEventListener('click', function(){ imprimirPDF_OT(m, false); });
-      row.appendChild(btn);
-      card.appendChild(row);
-    });
-  }
-  host.appendChild(card);
-}
-function abrirOTMaquilaExistente(id, modoRecepcion){
-  var m = DB.maquilaOT.find(function(x){ return x.id===id; });
-  if(!m){ toast('OT no encontrada'); return; }
-
-  var titulo = 'OT Maquila ' + String(m.folio).padStart(3,'0');
-  openTab('otm-'+id, titulo, function(host){
-    host.innerHTML = '';
-    var card = document.createElement('div'); card.className='card';
-
-    // Encabezado
-    var grid = document.createElement('div'); grid.className='grid';
-
-    var dvFolio=document.createElement('div'); var lbFo=document.createElement('label'); lbFo.textContent='Folio';
-    var inFo=document.createElement('input'); inFo.readOnly=true; inFo.value=String(m.folio).padStart(3,'0');
-    dvFolio.appendChild(lbFo); dvFolio.appendChild(inFo);
-
-    var dvFecha=document.createElement('div'); var lbF=document.createElement('label'); lbF.textContent='Fecha';
-    var inF=document.createElement('input'); inF.type='date'; inF.value=m.fecha; inF.readOnly=!!modoRecepcion; if(modoRecepcion){ inF.classList.add('ro'); }
-    inF.addEventListener('change', function(){ m.fecha=inF.value; saveDB(DB); });
-    dvFecha.appendChild(lbF); dvFecha.appendChild(inF);
-
-    var dvSale=document.createElement('div'); var lbS=document.createElement('label'); lbS.textContent='Sale de';
-    var selS=document.createElement('select'); ['caja','prod'].forEach(function(a){
-      var op=document.createElement('option'); op.value=a; op.textContent=(a==='caja'?'Caja fuerte':'Producción');
-      if(a===m.saleDe) op.selected=true; selS.appendChild(op);
-    });
-    selS.disabled=!!modoRecepcion; selS.addEventListener('change', function(){ m.saleDe=selS.value; saveDB(DB); });
-    dvSale.appendChild(lbS); dvSale.appendChild(selS);
-
-    var dvMaq=document.createElement('div'); var lbM=document.createElement('label'); lbM.textContent='Maquilador (nombre completo)';
-    var inM=document.createElement('input'); inM.type='text'; inM.value=m.maquilador||''; inM.readOnly=!!modoRecepcion; if(modoRecepcion){ inM.classList.add('ro'); }
-    inM.addEventListener('input', function(){ m.maquilador=inM.value; saveDB(DB); });
-    dvMaq.appendChild(lbM); dvMaq.appendChild(inM);
-
-    var dvDom=document.createElement('div'); var lbD=document.createElement('label'); lbD.textContent='Domicilio del maquilador';
-    var inD=document.createElement('input'); inD.type='text'; inD.value=m.domicilio||''; inD.readOnly=!!modoRecepcion; if(modoRecepcion){ inD.classList.add('ro'); }
-    inD.addEventListener('input', function(){ m.domicilio=inD.value; saveDB(DB); });
-    dvDom.appendChild(lbD); dvDom.appendChild(inD);
-
-    var dvINE=document.createElement('div'); var lbI=document.createElement('label'); lbI.textContent='Comprobante (INE/recibo) imagen';
-    var upI=document.createElement('input'); upI.type='file'; upI.accept='image/*'; upI.disabled=!!modoRecepcion;
-    upI.addEventListener('change', function(){ if(upI.files && upI.files[0]){ var r=new FileReader(); r.onload=function(e){ m.evidenciaINE=e.target.result; saveDB(DB); toast('Imagen cargada'); }; r.readAsDataURL(upI.files[0]); } });
-    dvINE.appendChild(lbI); dvINE.appendChild(upI);
-
-    var dvProm=document.createElement('div'); var lbPr=document.createElement('label'); lbPr.textContent='Fecha promesa';
-    var inPr=document.createElement('input'); inPr.type='date'; inPr.value=m.promesa||addDays(m.fecha,15); inPr.readOnly=!!modoRecepcion; if(modoRecepcion){ inPr.classList.add('ro'); }
-    inPr.addEventListener('change', function(){ m.promesa=inPr.value; saveDB(DB); });
-    dvProm.appendChild(lbPr); dvProm.appendChild(inPr);
-
-    var dvHora=document.createElement('div'); var lbH=document.createElement('label'); lbH.textContent='Hora compromiso';
-    var inH=document.createElement('input'); inH.type='time'; inH.value=m.promesaHora||'12:00'; inH.readOnly=!!modoRecepcion; if(modoRecepcion){ inH.classList.add('ro'); }
-    inH.addEventListener('change', function(){ m.promesaHora=inH.value; saveDB(DB); });
-    dvHora.appendChild(lbH); dvHora.appendChild(inH);
-
-    var dvMermaG=document.createElement('div'); var lbMg=document.createElement('label'); lbMg.textContent='Merma pactada (global)';
-    var selTipo=document.createElement('select'); ['%','g','pza'].forEach(function(t){ var op=document.createElement('option'); op.value=t; op.textContent=t; if(m.mermaPactadaDefault && m.mermaPactadaDefault.tipo===t) op.selected=true; selTipo.appendChild(op); });
-    var inVal=document.createElement('input'); inVal.type='number'; inVal.step='0.01'; inVal.min='0'; inVal.value=m.mermaPactadaDefault ? m.mermaPactadaDefault.valor : 0;
-    selTipo.disabled=!!modoRecepcion; inVal.readOnly=!!modoRecepcion; if(modoRecepcion){ inVal.classList.add('ro'); }
-    selTipo.addEventListener('change', function(){ m.mermaPactadaDefault.tipo=selTipo.value; saveDB(DB); });
-    inVal.addEventListener('input', function(){ m.mermaPactadaDefault.valor=parseFloat(inVal.value||'0'); saveDB(DB); });
-    var wrapMg=document.createElement('div'); wrapMg.className='actions'; wrapMg.appendChild(selTipo); wrapMg.appendChild(inVal);
-    dvMermaG.appendChild(lbMg); dvMermaG.appendChild(wrapMg);
-
-    var dvCom=document.createElement('div'); var lbC=document.createElement('label'); lbC.textContent='Comentarios generales';
-    var txC=document.createElement('textarea'); txC.value=m.comentarios||''; txC.readOnly=!!modoRecepcion; if(modoRecepcion){ txC.classList.add('ro'); }
-    txC.addEventListener('input', function(){ m.comentarios=txC.value; saveDB(DB); });
-    dvCom.appendChild(lbC); dvCom.appendChild(txC);
-
-    grid.appendChild(dvFolio); grid.appendChild(dvFecha); grid.appendChild(dvSale);
-    grid.appendChild(dvMaq); grid.appendChild(dvDom); grid.appendChild(dvINE);
-    grid.appendChild(dvProm); grid.appendChild(dvHora); grid.appendChild(dvMermaG);
-    grid.appendChild(dvCom);
-    card.appendChild(grid);
-
-    // Evidencia global (si quieres usar una independiente para maquila)
-    var divEv=document.createElement('div'); divEv.className='actions';
-    var cam=document.createElement('span'); cam.textContent='📷'; var lbl=document.createElement('span'); lbl.textContent=' Evidencia fotográfica del ciclo';
-    var inFile=document.createElement('input'); inFile.type='file'; inFile.accept='image/*'; inFile.disabled=false;
-    inFile.addEventListener('change', function(){ if(inFile.files && inFile.files[0]){ var r=new FileReader(); r.onload=function(e){ DB.evidenciaMaquila=e.target.result; saveDB(DB); toast('Foto cargada.'); }; r.readAsDataURL(inFile.files[0]); } });
-    divEv.appendChild(cam); divEv.appendChild(lbl); divEv.appendChild(inFile);
-    card.appendChild(divEv);
-
-    // Estado global (chips)
-    var estadoWrap = document.createElement('div'); estadoWrap.className='estado-global';
-    card.appendChild(estadoWrap);
-    actualizarEstadoGlobalOT(estadoWrap, m);
-
-    // Botonera GLOBAL
-    var barra = document.createElement('div'); barra.className='barra-global';
-    var bVista = document.createElement('button'); bVista.className='btn'; bVista.textContent='Vista previa';
-    bVista.addEventListener('click', function(){ imprimirPDF_OT(m, true); });
-    barra.appendChild(bVista);
-
-    if(!modoRecepcion){
-      var bGuardar = document.createElement('button'); bGuardar.className='btn-primary'; bGuardar.textContent='Guardar SALIDA (crear OT)';
-      bGuardar.addEventListener('click', function(){
-        saveDB(DB);
-        toast('OT creada; ver en “OT pendientes”.');
-        var v=qs('#view-otm-'+m.id); if(v) v.remove();
-        var tb=qs('[data-tab="otm-'+m.id+'"]'); if(tb) tb.remove();
-        renderSubmenu('produccion');
-      });
-      barra.appendChild(bGuardar);
-    }
-    if(modoRecepcion && !m.cerrada){
-      var just=document.createElement('input'); just.type='text'; just.placeholder='Justificación si faltan gramos/piezas (opcional)'; just.style.minWidth='280px';
-      barra.appendChild(just);
-      var bCerrar=document.createElement('button'); bCerrar.className='btn-primary'; bCerrar.textContent='Guardar DEVOLUCIÓN / Cerrar OT';
-      bCerrar.addEventListener('click', function(){ cerrarOTMaquila(m, just.value||''); });
-      barra.appendChild(bCerrar);
-    }
-    if(m.cerrada){
-      var bPdf=document.createElement('button'); bPdf.className='btn'; bPdf.textContent='PDF final';
-      bPdf.addEventListener('click', function(){ imprimirPDF_OT(m, false); });
-      barra.appendChild(bPdf);
-    }
-    card.appendChild(barra);
-
-    // === Bloque SALIDA a maquilador ===
-    var g1=document.createElement('div'); g1.className='grid';
-    var tS=document.createElement('div'); var lS=document.createElement('label'); lS.textContent='Total (salida)'; 
-    var inS=document.createElement('input'); inS.readOnly=true; inS.value=f2(m.totalSalida); tS.appendChild(lS); tS.appendChild(inS); g1.appendChild(tS);
-    card.appendChild(g1);
-
-    card.appendChild(tablaLineasOT({
-      titulo:'SALIDA a Maquilador (no mostrar merma por línea aquí)',
-      lineas:m.lineasSalida,
-      bloqueado: !!modoRecepcion,
-      mostrarMermaLinea:true,    // solo captura, en PDF se omite en bloque SALIDA
-      onChange:function(){
-        m.totalSalida = sumaCantidades(m.lineasSalida);
-        inS.value = f2(m.totalSalida);
-        saveDB(DB); actualizarEstadoGlobalOT(estadoWrap, m);
-      }
-    }));
-
-    // === Bloque DEVOLUCIÓN del maquilador ===
-    var bar=document.createElement('div'); bar.className='card';
-    var h3=document.createElement('h2'); h3.textContent = modoRecepcion ? 'DEVOLUCIÓN (editable)' : 'DEVOLUCIÓN (bloqueada hasta recepcionar)'; bar.appendChild(h3);
-
-    var g2=document.createElement('div'); g2.className='grid';
-    var dvFD=document.createElement('div'); var lbFD=document.createElement('label'); lbFD.textContent='Fecha devolución';
-    var inFD=document.createElement('input'); inFD.type='date'; inFD.value=m.devolucion.fecha; inFD.readOnly=!modoRecepcion; if(!modoRecepcion){ inFD.classList.add('ro'); }
-    inFD.addEventListener('change', function(){ m.devolucion.fecha=inFD.value; saveDB(DB); }); dvFD.appendChild(lbFD); dvFD.appendChild(inFD); g2.appendChild(dvFD);
-
-    var dvHD=document.createElement('div'); var lbHD=document.createElement('label'); lbHD.textContent='Hora devolución';
-    var inHD=document.createElement('input'); inHD.type='time'; inHD.value=m.devolucion.hora; inHD.readOnly=!modoRecepcion; if(!modoRecepcion){ inHD.classList.add('ro'); }
-    inHD.addEventListener('change', function(){ m.devolucion.hora=inHD.value; saveDB(DB); }); dvHD.appendChild(lbHD); dvHD.appendChild(inHD); g2.appendChild(dvHD);
-
-    var dvCD=document.createElement('div'); var lbCD=document.createElement('label'); lbCD.textContent='Comentarios devolución';
-    var txCD=document.createElement('textarea'); txCD.value=m.devolucion.comentarios||''; txCD.readOnly=!modoRecepcion; if(!modoRecepcion){ txCD.classList.add('ro'); }
-    txCD.addEventListener('input', function(){ m.devolucion.comentarios=txCD.value; saveDB(DB); }); dvCD.appendChild(lbCD); dvCD.appendChild(txCD); g2.appendChild(dvCD);
-
-    var dvTD=document.createElement('div'); var lbTD=document.createElement('label'); lbTD.textContent='Total (entrada)';
-    var inTD=document.createElement('input'); inTD.readOnly=true; inTD.value=f2(m.devolucion.totalEntrada); dvTD.appendChild(lbTD); dvTD.appendChild(inTD); g2.appendChild(dvTD);
-    bar.appendChild(g2);
-
-    bar.appendChild(tablaLineasOT({
-      titulo:'DEVOLUCIÓN del Maquilador',
-      lineas:m.devolucion.lineas,
-      bloqueado: !modoRecepcion,
-      mostrarMermaLinea:false,
-      onChange:function(){
-        m.devolucion.totalEntrada = sumaCantidades(m.devolucion.lineas);
-        inTD.value = f2(m.devolucion.totalEntrada);
-        saveDB(DB); actualizarEstadoGlobalOT(estadoWrap, m);
-      }
-    }));
-    card.appendChild(bar);
-
-    host.appendChild(card);
-  });
-}
-function actualizarEstadoGlobalOT(wrap, m){
-  var sal = parseFloat(m.totalSalida||0);
-  var ent = parseFloat(m.devolucion && m.devolucion.totalEntrada ? m.devolucion.totalEntrada : 0);
-  var tieneDev = ent > 0;
-  var dif = tieneDev ? (ent - sal) : 0; // positivo = devolvió más (normal si incluye terminado + sobrantes)
-  var mermaAbs = tieneDev ? Math.max(0, sal - ent) : 0; // faltante real vs lo enviado
-  var mermaPct = tieneDev && sal>0 ? (mermaAbs/sal)*100 : 0;
-
-  var estado = 'Pendiente de devolución';
-  var color = '#334155';
-  if(tieneDev){
-    estado = 'OK';
-    color = '#065f46';
-    if(mermaPct > 2.5 && mermaPct < 4.5){ estado='Atento'; color='#b45309'; }
-    if(mermaPct >= 4.5){ estado='Excede'; color='#b91c1c'; }
-  }
-
-  wrap.innerHTML='';
-  function chip(t, bold, c){ var s=document.createElement('span'); s.className='estado-chip'+(bold?' bold':''); s.textContent=t; if(c && bold){ s.style.color=c; } wrap.appendChild(s); }
-  chip('Entregado: '+f2(sal)+' g', false);
-  chip('Devuelto: '+(tieneDev?f2(ent)+' g':'—'), false);
-  chip('Dif: '+(tieneDev?(dif>=0?'+':'')+f2(dif)+' g':'—'), false);
-  chip('Merma: '+(tieneDev?(f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)'):'—'), false);
-  chip('Promesa: '+(m.promesa||'—')+' '+(m.promesaHora||''), false);
-  chip('Estado: '+estado, true, color);
-}
-function tablaLineasOT(cfg){
-  // cfg { titulo, lineas, bloqueado, mostrarMermaLinea, onChange? }
-  var wrap=document.createElement('div');
-
-  var top=document.createElement('div'); top.className='actions';
-  var h=document.createElement('h2'); h.textContent=cfg.titulo; top.appendChild(h);
-  var sp=document.createElement('div'); sp.style.flex='1'; top.appendChild(sp);
-  var bAdd, bDel;
-  if(!cfg.bloqueado){
-    bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea';
-    bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última';
-    top.appendChild(bAdd); top.appendChild(bDel);
-  }
-  wrap.appendChild(top);
-
-  var table=document.createElement('table');
-  var thead=document.createElement('thead');
-  var trh=document.createElement('tr');
-  ['#','Material','Detalle','Unidad','Cant','Precio tipo','Precio','Subtotal est.','Comentarios'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-  thead.appendChild(trh); table.appendChild(thead);
-  var tbody=document.createElement('tbody');
-
-  function rebuild(){
-    tbody.innerHTML='';
-    var i;
-    for(i=0;i<cfg.lineas.length;i++){ renderRow(i); }
-  }
-  function renderRow(idx){
-    var li=cfg.lineas[idx];
-    var tr=document.createElement('tr');
-
-    var td0=document.createElement('td'); td0.textContent=(idx+1); tr.appendChild(td0);
-
-    var tdMat=document.createElement('td');
-    var selM=document.createElement('select'); ['999','925','limalla','limalla_negra','tierras','terminado'].forEach(function(id){
-      var op=document.createElement('option'); op.value=id; op.textContent=nombreMaterial(id)||id; if(li.materialId===id) op.selected=true; selM.appendChild(op);
-    });
-    selM.disabled=!!cfg.bloqueado; selM.addEventListener('change', function(){ li.materialId=selM.value; saveDB(DB); });
-    tdMat.appendChild(selM); tr.appendChild(tdMat);
-
-    var tdDet=document.createElement('td');
-    var inDet=document.createElement('input'); inDet.type='text'; inDet.value=li.detalle||''; inDet.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inDet.classList.add('ro'); }
-    inDet.addEventListener('input', function(){ li.detalle=inDet.value; saveDB(DB); });
-    tdDet.appendChild(inDet); tr.appendChild(tdDet);
-
-    var tdUni=document.createElement('td');
-    var selU=document.createElement('select'); ['g','pza'].forEach(function(u){ var op=document.createElement('option'); op.value=u; op.textContent=u; if(li.unidad===u) op.selected=true; selU.appendChild(op); });
-    selU.disabled=!!cfg.bloqueado; selU.addEventListener('change', function(){ li.unidad=selU.value; saveDB(DB); }); tdUni.appendChild(selU); tr.appendChild(tdUni);
-
-    var tdCant=document.createElement('td');
-    var inC=document.createElement('input'); inC.type='number'; inC.step='0.01'; inC.min='0'; inC.value=li.cant||0; inC.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inC.classList.add('ro'); }
-    inC.addEventListener('input', function(){ li.cant=parseFloat(inC.value||'0'); recalc(); });
-    tdCant.appendChild(inC); tr.appendChild(tdCant);
-
-    var tdPT=document.createElement('td');
-    var selPT=document.createElement('select'); [['por_gramo','por gramo'],['por_pieza','por pieza'],['proceso_fijo','proceso fijo']].forEach(function(p){
-      var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(li.precioTipo===p[0]) op.selected=true; selPT.appendChild(op);
-    });
-    selPT.disabled=!!cfg.bloqueado; selPT.addEventListener('change', function(){ li.precioTipo=selPT.value; recalc(); });
-    tdPT.appendChild(selPT); tr.appendChild(tdPT);
-
-    var tdP=document.createElement('td');
-    var inP=document.createElement('input'); inP.type='number'; inP.step='0.01'; inP.min='0'; inP.value=li.precio||0; inP.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inP.classList.add('ro'); }
-    inP.addEventListener('input', function(){ li.precio=parseFloat(inP.value||'0'); recalc(); });
-    tdP.appendChild(inP); tr.appendChild(tdP);
-
-    var tdSub=document.createElement('td');
-    var inSub=document.createElement('input'); inSub.readOnly=true; inSub.value=f2(li.subtotalEstimado||0);
-    tdSub.appendChild(inSub); tr.appendChild(tdSub);
-
-    var tdCom=document.createElement('td');
-    var inCom=document.createElement('input'); inCom.type='text'; inCom.value=li.comentariosLinea||''; inCom.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inCom.classList.add('ro'); }
-    inCom.placeholder='Detalles largos aquí'; inCom.addEventListener('input', function(){ li.comentariosLinea=inCom.value; saveDB(DB); });
-    tdCom.appendChild(inCom); tr.appendChild(tdCom);
-
-    // merma por línea (captura opcional) — NO se muestra en PDF SALIDA
-    if(cfg.mostrarMermaLinea){
-      var tr2=document.createElement('tr'); var td2=document.createElement('td'); td2.colSpan=9;
-      var bar=document.createElement('div'); bar.className='actions';
-      var lab=document.createElement('span'); lab.className='hint'; lab.textContent='Merma pactada por línea (opcional; si es menor que la global, prevalece aquí)';
-      var selT=document.createElement('select'); ['','%','g','pza'].forEach(function(t){ var op=document.createElement('option'); op.value=t; op.textContent=(t===''?'(sin merma línea)':t); if(li.mermaPactada && li.mermaPactada.tipo===t) op.selected=true; selT.appendChild(op); });
-      var inV=document.createElement('input'); inV.type='number'; inV.step='0.01'; inV.min='0'; inV.value=(li.mermaPactada?li.mermaPactada.valor:0);
-      selT.disabled=!!cfg.bloqueado; inV.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inV.classList.add('ro'); }
-      selT.addEventListener('change', function(){
-        if(selT.value===''){ li.mermaPactada=null; } else { li.mermaPactada={ tipo:selT.value, valor:parseFloat(inV.value||'0') }; }
-        saveDB(DB);
-      });
-      inV.addEventListener('input', function(){
-        if(selT.value===''){ li.mermaPactada=null; } else { li.mermaPactada={ tipo:selT.value, valor:parseFloat(inV.value||'0') }; }
-        saveDB(DB);
-      });
-      bar.appendChild(lab); bar.appendChild(selT); bar.appendChild(inV);
-      td2.appendChild(bar); tr2.appendChild(td2);
-      tbody.appendChild(tr2);
-    }
-
-    function recalc(){
-      var base = (li.precioTipo==='por_gramo') ? (li.cant*li.precio) :
-                 (li.precioTipo==='por_pieza') ? (li.cant*li.precio) :
-                 (li.precio||0); // proceso fijo
-      li.subtotalEstimado = base||0;
-      inSub.value = f2(li.subtotalEstimado);
-      if(typeof cfg.onChange==='function'){ cfg.onChange(); }
-      saveDB(DB);
-    }
-    tbody.appendChild(tr);
-  }
-
-  rebuild();
-
-  if(bAdd){
-    bAdd.addEventListener('click', function(){
-      cfg.lineas.push({ materialId:'925', detalle:'', unidad:'g', cant:0, precioTipo:'por_gramo', precio:0, mermaPactada:null, comentariosLinea:'', subtotalEstimado:0 });
-      rebuild(); if(cfg.onChange) cfg.onChange();
-    });
-  }
-  if(bDel){
-    bDel.addEventListener('click', function(){
-      if(cfg.lineas.length>1){ cfg.lineas.pop(); rebuild(); if(cfg.onChange) cfg.onChange(); }
-    });
-  }
-
-  table.appendChild(tbody);
-  wrap.appendChild(table);
-  return wrap;
-}
-function sumaCantidades(arr){
-  var s=0, i; for(i=0;i<arr.length;i++){ s += parseFloat(arr[i].cant||0); } return s;
-}
-function cerrarOTMaquila(m, just){
-  var sal=parseFloat(m.totalSalida||0);
-  var ent=parseFloat(m.devolucion.totalEntrada||0);
-  if(ent<=0){
-    alert('No puedes cerrar sin capturar DEVOLUCIÓN.'); return;
-  }
-
-  // tolerancia por merma (usa el menor entre la global y cualquier merma por línea asignada)
-  // Nota: la merma pactada se usa para evaluar, pero **no** se imprime por línea en “SALIDA”.
-  var tol = { tipo:'%', valor: (m.mermaPactadaDefault && m.mermaPactadaDefault.valor) ? m.mermaPactadaDefault.valor : 0 };
-  // si alguna línea tiene merma menor, baja el % efectivo
-  m.lineasSalida.forEach(function(li){
-    if(li.mermaPactada && li.mermaPactada.tipo==='%' && li.mermaPactada.valor < tol.valor){ tol = { tipo:'%', valor: li.mermaPactada.valor }; }
-  });
-
-  var mermaAbs = Math.max(0, sal - ent);
-  var mermaPct = sal>0 ? (mermaAbs/sal)*100 : 0;
-  if(tol && tol.tipo==='%' && mermaPct > tol.valor){
-    alert('La merma real ('+mermaPct.toFixed(2)+'%) supera la pactada ('+tol.valor+'%). Revisa datos.');
-    return;
-  }
-
-  m.cerrada = true;
-  m.cierreJustificacion = just||'';
-  saveDB(DB);
-  toast('OT cerrada');
-  imprimirPDF_OT(m, false);
-}
-function imprimirPDF_OT(m, isDraft){
-  var w = window.open('', '_blank', 'width=840,height=900'); if(!w){ alert('Permite pop-ups'); return; }
-
-  var sal=parseFloat(m.totalSalida||0);
-  var ent=parseFloat(m.devolucion.totalEntrada||0);
-  var tieneDev = ent>0;
-  var dif = tieneDev ? (ent - sal) : 0;
-  var mermaAbs = tieneDev ? Math.max(0, sal - ent) : 0;
-  var mermaPct = tieneDev && sal>0 ? (mermaAbs/sal)*100 : 0;
-
-  var css='@page{size:5.5in 8.5in;margin:10mm}body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px}h1.red{color:#b91c1c}h2{margin:2px 0 6px 0;color:#0a2c4c}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #e5e7eb;padding:4px 6px;word-break:break-word}thead tr{background:#e7effa}.row{display:flex;gap:8px;margin:6px 0}.col{flex:1}.signs{display:flex;justify-content:space-between;margin-top:18px}.signs div{width:45%;border-top:1px solid #94a3b8;padding-top:6px;text-align:center}.water{position:fixed;top:40%;left:15%;font-size:48px;color:#94a3b880;transform:rotate(-20deg)}.chips{margin:8px 0}.chip{background:#f1f5f9;border-radius:16px;padding:6px 10px;margin-right:6px;font-size:12px;font-weight:600}';
-
-  var html=[];
-  html.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>OT '+String(m.folio).padStart(3,'0')+'</title><style>'+css+'</style></head><body>');
-  if(isDraft){ html.push('<div class="water">BORRADOR</div>'); }
-
-  html.push('<h1 class="red">OT Maquilador '+String(m.folio).padStart(3,'0')+'</h1>');
-  html.push('<div class="row"><div class="col"><b>Fecha:</b> '+m.fecha+' '+(m.hora||'')+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(m.saleDe)+'</div><div class="col"><b>Maquilador:</b> '+escapeHTML(m.maquilador||'')+'</div></div>');
-  html.push('<div class="row"><div class="col"><b>Domicilio:</b> '+escapeHTML(m.domicilio||'')+'</div><div class="col"><b>Promesa:</b> '+(m.promesa||'—')+' '+(m.promesaHora||'')+'</div></div>');
-  html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(m.comentarios||'')+'</div></div>');
-
-  if(DB.evidenciaMaquila){ html.push('<h3>Evidencia fotográfica</h3><img src="'+DB.evidenciaMaquila+'" style="max-width:100%;max-height:300px;border:1px solid #ccc">'); }
-  if(m.evidenciaINE){ html.push('<h3>Identificación/Comprobante</h3><img src="'+m.evidenciaINE+'" style="max-width:100%;max-height:240px;border:1px solid #ccc">'); }
-
-  html.push('<div class="chips">');
-  html.push('<span class="chip">Entregado: '+f2(sal)+' g</span>');
-  html.push('<span class="chip">Devuelto: '+(tieneDev?f2(ent)+' g':'—')+'</span>');
-  html.push('<span class="chip">Dif: '+(tieneDev?(dif>=0?'+':'')+f2(dif)+' g':'—')+'</span>');
-  html.push('<span class="chip">Merma: '+(tieneDev?(f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)'):'—')+'</span>');
-  html.push('<span class="chip">Merma pactada global: '+(m.mermaPactadaDefault? (m.mermaPactadaDefault.valor+(m.mermaPactadaDefault.tipo||'')) :'—')+'</span>');
-  html.push('</div>');
-
-  // SALIDA (NO listar merma por línea aquí)
-  html.push('<h2>Salida a maquilador</h2>');
-  html.push('<table><thead><tr><th>#</th><th>Material</th><th>Detalle</th><th>Unidad</th><th>Cant</th><th>Precio tipo</th><th>Precio</th><th>Subtotal est.</th><th>Comentarios</th></tr></thead><tbody>');
-  var i;
-  for(i=0;i<m.lineasSalida.length;i++){
-    var li=m.lineasSalida[i];
-    html.push('<tr><td>'+(i+1)+'</td><td>'+nombreMaterial(li.materialId)+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+li.unidad+'</td><td>'+f2(li.cant)+'</td><td>'+li.precioTipo.replace('_',' ')+'</td><td>'+f2(li.precio)+'</td><td>'+f2(li.subtotalEstimado||0)+'</td><td>'+escapeHTML(li.comentariosLinea||'')+'</td></tr>');
-  }
-  html.push('</tbody></table>');
-  html.push('<div class="signs"><div>Entregó (ARGOZMX)</div><div>Recibió (Maquilador)</div></div>');
-
-  // DEVOLUCIÓN
-  html.push('<h2>Devolución del maquilador</h2>');
-  html.push('<div class="row"><div class="col"><b>Fecha:</b> '+(m.devolucion.fecha||'')+' '+(m.devolucion.hora||'')+'</div><div class="col"><b>Comentarios:</b> '+escapeHTML(m.devolucion.comentarios||'')+'</div><div class="col"><b>Total (entrada):</b> '+f2(ent)+'</div></div>');
-  if(tieneDev){
-    var signo = dif>=0?'+':'';
-    html.push('<div class="row"><div class="col"><b>MERMA:</b> '+f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)</div><div class="col"><b>DIF:</b> '+signo+f2(dif)+'</div></div>');
-  }
-  html.push('<table><thead><tr><th>#</th><th>Material</th><th>Unidad</th><th>Cant</th><th>Precio tipo</th><th>Precio</th></tr></thead><tbody>');
-  for(i=0;i<m.devolucion.lineas.length;i++){
-    var lo=m.devolucion.lineas[i];
-    html.push('<tr><td>'+(i+1)+'</td><td>'+nombreMaterial(lo.materialId)+'</td><td>'+lo.unidad+'</td><td>'+f2(lo.cant)+'</td><td>'+lo.precioTipo.replace('_',' ')+'</td><td>'+f2(lo.precio)+'</td></tr>');
-  }
-  html.push('</tbody></table>');
-
-  // Leyenda legal (depósito + pena convencional; pagaré se genera al cierre si lo usas)
-  html.push('<h2>Reconocimiento y obligaciones</h2>');
-  html.push('<div class="row"><div class="col">RECONOCIMIENTO DE RECEPCIÓN Y OBLIGACIONES DEL MAQUILADOR. Yo, ___________________________, con domicilio en ______________________, declaro que recibí en depósito mercantil de ARGOZMX los materiales descritos en esta OT (Folio '+String(m.folio).padStart(3,'0')+'), obligándome a su conservación y devolución en la fecha promesa, en las cantidades y calidades indicadas, realizando únicamente los procesos descritos. Soy responsable por menoscabos, daños o pérdidas por mi malicia o negligencia conforme al Código de Comercio y al Código Civil Federal. En caso de faltante a la entrega (gramos o piezas no devueltos), pagaré su valor a $________ por gramo/pieza, además de una pena convencional equivalente al ______% del valor del faltante. Asimismo, reconozco adeudar a ARGOZMX el precio pactado por los procesos: $________ por (gramo/pieza/proceso fijo), pagadero a la entrega. Lugar y fecha: ______________________.</div></div>');
-
-  html.push('<div class="signs"><div>Nombre y firma del maquilador</div><div>Nombre y firma de quien entrega (ARGOZMX)</div></div>');
-
-  html.push('</body></html>');
-  w.document.write(html.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
-}
-   // =====================  MÓDULO: PRODUCCIÓN → MAQUILADORES  =====================
+// =====================  MÓDULO: PRODUCCIÓN → MAQUILADORES  =====================
   // Este bloque no reemplaza nada existente; extiende el sistema con PRODUCCIÓN → Maquiladores.
 
   // 1) Migración mínima en caliente para nuevos campos de BD
@@ -2282,4 +1715,5 @@ function imprimirPDF_OT(m, isDraft){
   function cargarEvidenciaOT(ot, file){ var r=new FileReader(); r.onload=function(e){ ot.evidencia=e.target.result; saveDB(DB); toast('Foto cargada.'); }; r.readAsDataURL(file); }
 
 // ===================  FIN MÓDULO: PRODUCCIÓN → MAQUILADORES  ===================
+
 })();
