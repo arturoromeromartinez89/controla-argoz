@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CONTROL-A v2.0 — argozmx · Guadalajara, Jalisco</title>
+  <title>CONTROL-A v2.6 — argozmx · Guadalajara, Jalisco</title>
   <link rel="icon" href="data:," />
   <style>
     /* ====== Base ====== */
@@ -58,22 +58,10 @@
     #toast{position:fixed;bottom:14px;right:14px;background:#0a3a74;color:#fff;padding:10px 14px;border-radius:10px;display:none;z-index:9999}
     #diag{position:fixed;bottom:14px;left:14px;background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:10px;display:none;max-width:70vw;z-index:9999}
 
-    /* ===== Logo animado (oscilación 180°; 3s animación + 7s pausa) ===== */
+    /* ===== Logo animado ===== */
     .logo-wrap{display:flex;align-items:center;gap:8px}
-    .logo-oscila{
-      width:28px; height:28px; display:inline-block;
-      transform-origin:center center;
-      will-change:transform;
-      image-rendering:-webkit-optimize-contrast;
-      animation: argozOscila 10s ease-in-out infinite;
-    }
-    /* 0–70% quieto; 70–85% gira a 180°; 85–100% regresa a 0° */
-    @keyframes argozOscila{
-      0%   { transform: rotate(0deg); }
-      70%  { transform: rotate(0deg); }
-      85%  { transform: rotate(180deg); }
-      100% { transform: rotate(0deg); }
-    }
+    .logo-oscila{width:28px;height:28px;display:inline-block;transform-origin:center center;will-change:transform;image-rendering:-webkit-optimize-contrast;animation:argozOscila 10s ease-in-out infinite}
+    @keyframes argozOscila{0%{transform:rotate(0deg)}70%{transform:rotate(0deg)}85%{transform:rotate(180deg)}100%{transform:rotate(0deg)}}
 
     @media print{ header,.left,.mid,#tabs{display:none!important} .card{border:none} }
     @page{size:5.5in 8.5in;margin:10mm}
@@ -82,11 +70,10 @@
 <body>
 <header>
   <div class="logo-wrap">
-    <!-- Asegúrate de tener este archivo en /public/logo.webp (fondo transparente) -->
     <img src="/logo.webp" alt="argozmx" class="logo-oscila" />
     <div class="brand">CONTROL-A · argozmx — Guadalajara, Jalisco</div>
   </div>
-  <div class="hint">v2.0 · <span id="jsok">JS cargando...</span></div>
+  <div class="hint">v2.6 · <span id="jsok">JS cargando...</span></div>
   <div class="right-act">
     <button class="btn" id="btn-toggle-mid">Submenú</button>
     <button class="btn" id="btn-backup">💾 Respaldo</button>
@@ -101,21 +88,33 @@
     <button class="side-item tree-btn" data-root="ventas">🧾 Ventas</button>
     <button class="side-item tree-btn" data-root="inventarios">📦 Inventarios</button>
     <button class="side-item tree-btn" data-root="pedidos">🗂️ Pedidos</button>
-    <button class="side-item tree-btn" data-root="maquiladores">⚒️ Maquiladores</button>
+    <button class="side-item tree-btn" data-root="produccion">🏭 Producción</button>
     <button class="side-item tree-btn" data-root="catalogo">📇 Catálogo</button>
   </aside>
 
   <section class="mid" id="subpanel"></section>
 
   <main class="content">
-    <div id="tabs"></div>
-    <div id="views"></div>
+    <div class="card">
+      <div id="tabs"></div>
+      <div id="views"></div>
+    </div>
   </main>
 </div>
 
 <div id="toast"></div>
 <div id="diag"></div>
 
-<script src="app.js"></script>
+<script>
+  // Botones superiores (visuales; la lógica de backup/restore vive en app.js)
+  document.getElementById('btn-toggle-mid').addEventListener('click', function(){
+    var sp = document.getElementById('subpanel');
+    if(!sp){return}
+    if(sp.classList.contains('collapsed')){ sp.classList.remove('collapsed'); }
+    else{ sp.classList.add('collapsed'); }
+  });
+  document.getElementById('jsok').textContent = 'JS listo';
+</script>
+<script src="/app.js"></script>
 </body>
 </html>
