@@ -1204,516 +1204,493 @@
 
   // ===== Submenú inicial
   renderSubmenu('inicio');
-// =====================  MÓDULO: PRODUCCIÓN → MAQUILADORES  =====================
-  // Este bloque no reemplaza nada existente; extiende el sistema con PRODUCCIÓN → Maquiladores.
+/* =========================  MÓDULO: PRODUCCIÓN → MAQUILADORES  v2.6.0  =========================
+   Requisitos del usuario (resumen aplicado):
+   - Menú PRODUCCIÓN con submenú MAQUILADORES; acción principal: + Nueva OT.
+   - Campo: "Nombre del maquilador" (texto libre por ahora).
+   - Merma pactada SIEMPRE en porcentaje. Valor global por OT; cada línea puede tener su merma pactada propia (opcional). La global se hereda como default.
+   - Parte 1 (Encabezado + Resumen): datos del maquilador, promesa (fecha+hora; default +15 días), precios globales (por gramo y por pieza), merma pactada (%), evidencia fotográfica global; totales por material (grs .999, grs .925, grs Otros).
+   - Parte 2 (Detalle de pedido): descripción, piezas, gramos, observaciones (igual formato que pedidos, sin código).
+   - Parte 3 (Entrega de materiales): como traspaso; columnas: Material (catálogo), Detalle, Gr, Aleación (solo si .999), Subtotal, Especificaciones (nuevo campo). La merma pactada por línea (opcional, %) solo para referencia.
+   - Parte 4 (Insumos y extras): tabla libre (Material, Piezas, Gramos, Observaciones). No suma a pagaré.
+   - Procesamiento: Parte 5 (Recepción de pedido) aparece solo en modo procesar; captura devuelto real (gr/pzas), sobrantes, y calcula merma real (% y gr), días transcurridos.
+   - Botonera global: Vista previa, Guardar OT (entrega), Guardar Recepción / Cerrar OT (procesar), PDF final/WhatsApp si cerrada.
+   - Precios globales en header: precio por gramo, precio por pieza; además campos “Estimados”: gramos estimados y piezas estimadas → calcula Mano de obra estimada y Merma estimada (gr) usando merma pactada % y el total de gramos enviados.
+   - PDF en una hoja (5.5x8.5), con leyenda legal y firmas. Pagaré/leyenda a favor de: ARTURO EMMANUEL ROMERO MARTINEZ.
+   - Inventarios: afecta como traspaso desde almacén origen a “Maquilador” (virtual) al guardar OT; y de regreso al cerrar OT (desde “Maquilador” a destino).
+*/
 
-  // 1) Migración mínima en caliente para nuevos campos de BD
-  (function ensureMaquilaInit(){
-    try{
-      if(!DB.maquilaOT){ DB.maquilaOT = []; }
-      if(typeof DB.folioMaquila !== 'number'){ DB.folioMaquila = 0; }
-    }catch(e){ /* noop */ }
-  })();
+// ===== Hook de menú: PRODUCCIÓN → MAQUILADORES =====
+(function initProduccionMenu(){
+  var aside = document.querySelector('.left');
+  if(!aside) return;
+  if(document.querySelector('[data-root="produccion"]')) return;
+  var btn = document.createElement('button');
+  btn.className = 'side-item tree-btn';
+  btn.setAttribute('data-root','produccion');
+  btn.textContent = '🏭 Producción';
+  // Insertar antes de Catálogo (si existe)
+  var cat = document.querySelector('.left .tree-btn[data-root="catalogo"]');
+  if(cat && cat.parentNode){ cat.parentNode.insertBefore(btn, cat); } else { aside.appendChild(btn); }
+})();
 
-  // 2) Enrutar submenú: producimos una envoltura de renderSubmenu para manejar 'produccion'
-  var _renderSubmenu = renderSubmenu;
+// Extiende renderSubmenu para PRODUCCIÓN
+(function patchRenderSubmenu(){
+  var _orig = renderSubmenu;
   renderSubmenu = function(root){
-    if(root === 'produccion'){
-      var host = qs('#subpanel');
-      if(!host){ return; }
-      host.innerHTML = '';
-
-      var card = document.createElement('div'); card.className = 'card';
-      var h2 = document.createElement('h2'); h2.textContent = 'Producción'; card.appendChild(h2);
-
-      // Submenú específico de Producción
-      var m = document.createElement('div'); m.className = 'card';
-      var h3 = document.createElement('h2'); h3.textContent = 'Maquiladores'; m.appendChild(h3);
-
-      var acciones = document.createElement('div'); acciones.className = 'actions';
-      var bNueva = document.createElement('button'); bNueva.className = 'btn-primary'; bNueva.textContent = '+ Nueva OT';
-      bNueva.addEventListener('click', function(){ abrirOTNueva(); }); acciones.appendChild(bNueva);
-
-      var bPend = document.createElement('button'); bPend.className = 'btn-outline'; bPend.textContent = 'OT pendientes';
-      bPend.addEventListener('click', function(){ listarOTPendientes(true); }); acciones.appendChild(bPend);
-
-      var bCerr = document.createElement('button'); bCerr.className = 'btn-outline'; bCerr.textContent = 'OT cerradas';
-      bCerr.addEventListener('click', function(){ listarOTCerradas(); }); acciones.appendChild(bCerr);
-
-      m.appendChild(acciones);
-      host.appendChild(card);
-      host.appendChild(m);
-
-      // Lista inicial
-      listarOTPendientes(false);
-      ensureMobileToolbar();
-      return;
-    }
-    // Cualquier otro root sigue el flujo original
-    _renderSubmenu(root);
-  };
-
-  // 3) Helpers específicos de Maquila
-  function f0(n){ return (parseFloat(n||0)).toFixed(0); }
-  function sumaCantGramos(lineas){
-    var s = 0; var i;
-    for(i=0;i<lineas.length;i++){
-      if(String(lineas[i].unidad||'g') === 'g'){
-        s += parseFloat(lineas[i].cant||0);
-      }
-    }
-    return s;
-  }
-
-  // 4) CRUD básico de OT
-  function nuevoOTBase(){
-    DB.folioMaquila += 1;
-    var id = 'M' + Date.now();
-    var fecha = hoyStr();
-    var obj = {
-      id: id,
-      folio: DB.folioMaquila,
-      fecha: fecha,
-      hora: horaStr(),
-      saleDe: 'caja',
-      maquilador: '',
-      promesaFecha: addDays(fecha, 15),
-      promesaHora: '13:00',
-      comentarios: '',
-      mermaPactadaDefault: { tipo: '%', valor: 0 },
-      evidencia: '',
-      entrada: {
-        lineas: [
-          { materialId: '925', detalle: '', unidad: 'g', cant: 0, precioTipo: 'por_gramo', precio: 0, subtotal: 0 },
-          { materialId: '925', detalle: '', unidad: 'g', cant: 0, precioTipo: 'por_gramo', precio: 0, subtotal: 0 },
-          { materialId: '925', detalle: '', unidad: 'g', cant: 0, precioTipo: 'por_gramo', precio: 0, subtotal: 0 }
-        ],
-        total: 0
-      },
-      devolucion: {
-        creada: false,
-        fecha: fecha,
-        hora: horaStr(),
-        comentarios: '',
-        lineas: [
-          { materialId: 'terminado', detalle: '', unidad: 'g', cant: 0, precioTipo: 'por_pieza', precio: 0, subtotal: 0 },
-          { materialId: 'terminado', detalle: '', unidad: 'g', cant: 0, precioTipo: 'por_pieza', precio: 0, subtotal: 0 },
-          { materialId: 'terminado', detalle: '', unidad: 'g', cant: 0, precioTipo: 'por_pieza', precio: 0, subtotal: 0 }
-        ],
-        total: 0
-      },
-      cerrado: false
-    };
-    DB.maquilaOT.push(obj);
-    saveDB(DB);
-    return obj.id;
-  }
-  function abrirOTNueva(){ var id = nuevoOTBase(); abrirOTExistente(id, false); }
-
-  function listarOTPendientes(mostrarTitulo){
-    var host = qs('#subpanel'); if(!host){ return; }
-    var card = document.createElement('div'); card.className = 'card';
-    if(mostrarTitulo){ var h=document.createElement('h2'); h.textContent='OT pendientes'; card.appendChild(h); }
-
-    var lst = DB.maquilaOT.filter(function(o){ return !o.cerrado; }).sort(function(a,b){ return b.folio - a.folio; });
-    if(lst.length === 0){ var p=document.createElement('p'); p.textContent='Sin OT pendientes.'; card.appendChild(p); }
-    else{
-      lst.forEach(function(o){
-        var row = document.createElement('div'); row.className = 'actions';
-        var pill = document.createElement('span'); pill.className='pill orange'; pill.textContent='OT ' + String(o.folio).padStart(3,'0'); row.appendChild(pill);
-        var bAbr = document.createElement('button'); bAbr.className='btn-orange'; bAbr.textContent='Procesar esta OT';
-        bAbr.addEventListener('click', function(){ abrirOTExistente(o.id, true); });
-        row.appendChild(bAbr);
-        card.appendChild(row);
-      });
-    }
-    host.appendChild(card);
-  }
-  function listarOTCerradas(){
-    var host = qs('#subpanel'); if(!host){ return; }
+    if(root !== 'produccion'){ _orig(root); return; }
+    var host = qs('#subpanel'); if(!host) return; host.innerHTML='';
     var card = document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent='OT cerradas'; card.appendChild(h);
-    var lst = DB.maquilaOT.filter(function(o){ return !!o.cerrado; }).sort(function(a,b){ return b.folio - a.folio; });
-    if(lst.length === 0){ var p=document.createElement('p'); p.textContent='Aún no hay OT cerradas.'; card.appendChild(p); }
-    else{
-      lst.forEach(function(o){
-        var row=document.createElement('div'); row.className='actions';
-        var pill=document.createElement('span'); pill.className='pill'; pill.textContent='OT '+String(o.folio).padStart(3,'0'); row.appendChild(pill);
-        var bPDF=document.createElement('button'); bPDF.className='btn'; bPDF.textContent='Abrir PDF'; bPDF.addEventListener('click', function(){ imprimirPDFOT(o, false); }); row.appendChild(bPDF);
-        card.appendChild(row);
-      });
-    }
+    var h2 = document.createElement('h2'); h2.textContent='Producción'; card.appendChild(h2);
+
+    var actions = document.createElement('div'); actions.className='actions';
+    var btnMaqui = document.createElement('button'); btnMaqui.className='btn'; btnMaqui.textContent='🧑‍🏭 Maquiladores';
+    btnMaqui.addEventListener('click', function(){ renderMaquiladoresHome(); });
+    actions.appendChild(btnMaqui);
+    card.appendChild(actions);
+
     host.appendChild(card);
+    renderMaquiladoresHome();
+    ensureMobileToolbar();
+  };
+})();
+
+function renderMaquiladoresHome(){
+  var host = qs('#subpanel'); if(!host) return;
+  var card = document.createElement('div'); card.className='card';
+  var h2 = document.createElement('h2'); h2.textContent='Maquiladores'; card.appendChild(h2);
+
+  var actions = document.createElement('div'); actions.className='actions';
+  var btnNew = document.createElement('button'); btnNew.className='btn-primary'; btnNew.textContent='+ Nueva OT';
+  btnNew.addEventListener('click', function(){ abrirOTMaquilaNuevo(); });
+  actions.appendChild(btnNew);
+
+  var btnPend = document.createElement('button'); btnPend.className='btn-outline'; btnPend.textContent='OT pendientes';
+  btnPend.addEventListener('click', function(){ listarOTMaquila(false); });
+  actions.appendChild(btnPend);
+
+  var btnCerr = document.createElement('button'); btnCerr.className='btn-outline'; btnCerr.textContent='OT cerradas';
+  btnCerr.addEventListener('click', function(){ listarOTMaquila(true); });
+  actions.appendChild(btnCerr);
+
+  card.appendChild(actions);
+  host.appendChild(card);
+
+  listarOTMaquila(false);
+}
+
+// ===== Persistencia para OTs de Maquila =====
+if(!DB.otsMaquila){ DB.otsMaquila = []; saveDB(DB); }
+
+function nuevoOTMaquilaBase(){
+  var id = 'M' + Date.now();
+  var hoy = hoyStr();
+  var prom = addDays(hoy, 15);
+  var obj = {
+    id: id,
+    folio: (DB.folioMaquila||0) + 1,
+    fecha: hoy,
+    hora: horaStr(),
+    saleDe: 'caja',
+    entraA: 'prod',
+    nombreMaquilador: '',
+    promesaFecha: prom,
+    promesaHora: '13:00',
+    comentarios: '',
+    mermaPactadaPct: 0, // % global, requerido
+    precioPorGramo: 0,
+    precioPorPieza: 0,
+    estimadoGr: 0,
+    estimadoPzas: 0,
+    evidencia: DB.evidencia || '',
+    // Parte 2: Detalle de pedido (como pedidos)
+    pedidoLineas: [ { descripcion:'', piezas:0, gramos:0, obs:'' } ],
+    // Parte 3: Entrega de materiales (como traspaso) + especificaciones + merma pactada por línea opcional
+    materiales: [ { materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0, especificaciones:'', mermaPactadaLineaPct:null } ],
+    // Parte 4: Insumos y extras (libre, no suma a pagaré)
+    extras: [ { material:'', piezas:0, gramos:0, obs:'' } ],
+    // Parte 5: Recepción (solo al procesar)
+    recepcion: { fecha:hoy, hora:horaStr(), comentarios:'', piezasDevueltas:0, gramosDevueltos:0, sobranteGr:0 },
+    cerrado: false,
+    // cache de totales por encabezado (resumen por material)
+    totals: { gr999:0, gr925:0, grOtros:0 }
+  };
+  DB.folioMaquila = obj.folio;
+  DB.otsMaquila.push(obj);
+  saveDB(DB);
+  return obj.id;
+}
+
+function listarOTMaquila(cerradas){
+  var host = qs('#subpanel');
+  var card = document.createElement('div'); card.className='card';
+  var h2 = document.createElement('h2'); h2.textContent = cerradas?'OT cerradas':'OT pendientes'; card.appendChild(h2);
+  var lista = DB.otsMaquila.filter(function(x){ return !!x.cerrado === !!cerradas; }).sort(function(a,b){ return b.folio - a.folio; });
+  if(lista.length===0){ var p=document.createElement('p'); p.textContent='Sin registros.'; card.appendChild(p); host.appendChild(card); return; }
+  lista.forEach(function(m){
+    var row=document.createElement('div'); row.className='actions';
+    var pill=document.createElement('span'); pill.className='pill'; pill.textContent='OT '+String(m.folio).padStart(3,'0'); row.appendChild(pill);
+    var btn=document.createElement('button'); btn.className='btn'; btn.textContent=cerradas?'Ver PDF':'Procesar / Abrir';
+    btn.addEventListener('click', function(){ if(cerradas){ imprimirPDFMaquila(m,false); } else { abrirOTMaquilaExistente(m.id, true); } });
+    row.appendChild(btn);
+    card.appendChild(row);
+  });
+  host.appendChild(card);
+}
+
+function abrirOTMaquilaNuevo(){ var id = nuevoOTMaquilaBase(); abrirOTMaquilaExistente(id, false); }
+
+function abrirOTMaquilaExistente(id, modoProcesar){
+  var ot = DB.otsMaquila.find(function(x){ return x.id===id; });
+  if(!ot){ toast('OT no encontrada'); return; }
+  var titulo = 'OT Maquila ' + String(ot.folio).padStart(3,'0');
+
+  openTab('otmaq-'+id, titulo, function(host){
+    host.innerHTML='';
+    var card = document.createElement('div'); card.className='card';
+
+    // ===== PARTE 1: Encabezado + Resumen =====
+    var head = document.createElement('div'); head.className='grid';
+
+    var dvFolio = document.createElement('div'); var lbFo=document.createElement('label'); lbFo.textContent='Folio';
+    var inFo=document.createElement('input'); inFo.readOnly=true; inFo.value=String(ot.folio).padStart(3,'0'); inFo.style.color='#b91c1c'; dvFolio.appendChild(lbFo); dvFolio.appendChild(inFo);
+
+    var dvFecha=document.createElement('div'); var lbF=document.createElement('label'); lbF.textContent='Fecha';
+    var inF=document.createElement('input'); inF.type='date'; inF.value=ot.fecha; inF.readOnly=!!modoProcesar; if(modoProcesar){ inF.classList.add('ro'); }
+    inF.addEventListener('change', function(){ ot.fecha=inF.value; saveDB(DB); }); dvFecha.appendChild(lbF); dvFecha.appendChild(inF);
+
+    var dvMaq=document.createElement('div'); var lbM=document.createElement('label'); lbM.textContent='Nombre del maquilador';
+    var inM=document.createElement('input'); inM.type='text'; inM.placeholder='Nombre completo'; inM.value=ot.nombreMaquilador; inM.readOnly=!!modoProcesar; if(modoProcesar){ inM.classList.add('ro'); }
+    inM.addEventListener('input', function(){ ot.nombreMaquilador=inM.value; saveDB(DB); }); dvMaq.appendChild(lbM); dvMaq.appendChild(inM);
+
+    var dvPromF=document.createElement('div'); var lbPF=document.createElement('label'); lbPF.textContent='Fecha promesa';
+    var inPF=document.createElement('input'); inPF.type='date'; inPF.value=ot.promesaFecha; inPF.readOnly=!!modoProcesar; if(modoProcesar){ inPF.classList.add('ro'); }
+    inPF.addEventListener('change', function(){ ot.promesaFecha=inPF.value; saveDB(DB); }); dvPromF.appendChild(lbPF); dvPromF.appendChild(inPF);
+
+    var dvPromH=document.createElement('div'); var lbPH=document.createElement('label'); lbPH.textContent='Hora compromiso';
+    var inPH=document.createElement('input'); inPH.type='time'; inPH.value=ot.promesaHora; inPH.readOnly=!!modoProcesar; if(modoProcesar){ inPH.classList.add('ro'); }
+    inPH.addEventListener('change', function(){ ot.promesaHora=inPH.value; saveDB(DB); }); dvPromH.appendChild(lbPH); dvPromH.appendChild(inPH);
+
+    var dvMer=document.createElement('div'); var lbMer=document.createElement('label'); lbMer.textContent='Merma pactada global (%)';
+    var inMer=document.createElement('input'); inMer.type='number'; inMer.step='0.1'; inMer.min='0'; inMer.value=ot.mermaPactadaPct; inMer.readOnly=!!modoProcesar; if(modoProcesar){ inMer.classList.add('ro'); }
+    inMer.addEventListener('input', function(){ ot.mermaPactadaPct=parseFloat(inMer.value||'0'); saveDB(DB); actualizarChips(); }); dvMer.appendChild(lbMer); dvMer.appendChild(inMer);
+
+    var dvPG=document.createElement('div'); var lbPG=document.createElement('label'); lbPG.textContent='Precio pactado por gramo ($)';
+    var inPG=document.createElement('input'); inPG.type='number'; inPG.step='0.01'; inPG.min='0'; inPG.value=ot.precioPorGramo; inPG.readOnly=!!modoProcesar; if(modoProcesar){ inPG.classList.add('ro'); }
+    inPG.addEventListener('input', function(){ ot.precioPorGramo=parseFloat(inPG.value||'0'); saveDB(DB); actualizarChips(); }); dvPG.appendChild(lbPG); dvPG.appendChild(inPG);
+
+    var dvPP=document.createElement('div'); var lbPP=document.createElement('label'); lbPP.textContent='Precio pactado por pieza ($)';
+    var inPP=document.createElement('input'); inPP.type='number'; inPP.step='0.01'; inPP.min='0'; inPP.value=ot.precioPorPieza; inPP.readOnly=!!modoProcesar; if(modoProcesar){ inPP.classList.add('ro'); }
+    inPP.addEventListener('input', function(){ ot.precioPorPieza=parseFloat(inPP.value||'0'); saveDB(DB); actualizarChips(); }); dvPP.appendChild(lbPP); dvPP.appendChild(inPP);
+
+    var dvEG=document.createElement('div'); var lbEG=document.createElement('label'); lbEG.textContent='Grs estimados por entregar (terminado)';
+    var inEG=document.createElement('input'); inEG.type='number'; inEG.step='0.01'; inEG.min='0'; inEG.value=ot.estimadoGr; inEG.readOnly=!!modoProcesar; if(modoProcesar){ inEG.classList.add('ro'); }
+    inEG.addEventListener('input', function(){ ot.estimadoGr=parseFloat(inEG.value||'0'); saveDB(DB); actualizarChips(); }); dvEG.appendChild(lbEG); dvEG.appendChild(inEG);
+
+    var dvEP=document.createElement('div'); var lbEP=document.createElement('label'); lbEP.textContent='Pzas estimadas por entregar (terminado)';
+    var inEP=document.createElement('input'); inEP.type='number'; inEP.step='1'; inEP.min='0'; inEP.value=ot.estimadoPzas; inEP.readOnly=!!modoProcesar; if(modoProcesar){ inEP.classList.add('ro'); }
+    inEP.addEventListener('input', function(){ ot.estimadoPzas=parseFloat(inEP.value||'0'); saveDB(DB); actualizarChips(); }); dvEP.appendChild(lbEP); dvEP.appendChild(inEP);
+
+    var dvCom=document.createElement('div'); var lbC=document.createElement('label'); lbC.textContent='Comentarios (generales)';
+    var txC=document.createElement('textarea'); txC.value=ot.comentarios; txC.readOnly=!!modoProcesar; if(modoProcesar){ txC.classList.add('ro'); }
+    txC.addEventListener('input', function(){ ot.comentarios=txC.value; saveDB(DB); }); dvCom.appendChild(lbC); dvCom.appendChild(txC);
+
+    head.appendChild(dvFolio); head.appendChild(dvFecha); head.appendChild(dvMaq); head.appendChild(dvPromF);
+    head.appendChild(dvPromH); head.appendChild(dvMer); head.appendChild(dvPG); head.appendChild(dvPP);
+    head.appendChild(dvEG); head.appendChild(dvEP); head.appendChild(dvCom);
+
+    card.appendChild(head);
+
+    // Evidencia global
+    var divEv=document.createElement('div'); divEv.className='actions';
+    var cam=document.createElement('span'); cam.textContent='📷'; var lbl=document.createElement('span'); lbl.textContent=' Cargar evidencia fotográfica (aplica a TODA la OT)';
+    var inFile=document.createElement('input'); inFile.type='file'; inFile.accept='image/*';
+    inFile.addEventListener('change', function(){ if(inFile.files && inFile.files[0]){ var r=new FileReader(); r.onload=function(e){ ot.evidencia=e.target.result; saveDB(DB); toast('Foto cargada.'); }; r.readAsDataURL(inFile.files[0]); } });
+    divEv.appendChild(cam); divEv.appendChild(lbl); divEv.appendChild(inFile);
+    card.appendChild(divEv);
+
+    // Chips de estado + Resumen de totales por material y estimados
+    var estadoWrap=document.createElement('div'); estadoWrap.className='estado-global'; card.appendChild(estadoWrap);
+
+    function actualizarChips(){
+      // Totales por material
+      var entGr = sumaSubtotales(ot.materiales);
+      var g999=0,g925=0,gOtros=0;
+      ot.materiales.forEach(function(li){
+        var total=parseFloat(li.subtotal||0);
+        if(li.materialId==='999'){ g999+=total; }
+        else if(li.materialId==='925'){ g925+=total; }
+        else { gOtros+=total; }
+      });
+      ot.totals.gr999=g999; ot.totals.gr925=g925; ot.totals.grOtros=gOtros;
+      // Estimados
+      var manoEstim = (ot.estimadoGr*parseFloat(ot.precioPorGramo||0)) + (ot.estimadoPzas*parseFloat(ot.precioPorPieza||0));
+      var mermaEstGr = (entGr * (parseFloat(ot.mermaPactadaPct||0)/100));
+
+      // Si ya hay recepción, calcular merma real
+      var salGr = parseFloat(ot.recepcion && ot.recepcion.gramosDevueltos ? ot.recepcion.gramosDevueltos : 0);
+      var mermaRealAbs = Math.max(0, entGr - salGr);
+      var mermaRealPct = entGr>0 ? (mermaRealAbs/entGr)*100 : 0;
+
+      estadoWrap.innerHTML='';
+      var chips=[
+        {t:'Enviado: '+f2(entGr)+' g', bold:false},
+        {t:'Devuelto: '+(salGr>0?f2(salGr)+' g':'—'), bold:false},
+        {t:'Merma real: '+(salGr>0?f2(mermaRealAbs)+' g ('+mermaRealPct.toFixed(1)+'%)':'—'), bold:false},
+        {t:'Merma pactada: '+f2(ot.mermaPactadaPct)+'%', bold:false},
+        {t:'$ Estimado: '+f2(manoEstim), bold:true}
+      ];
+      chips.forEach(function(c){ var s=document.createElement('span'); s.className='estado-chip'+(c.bold?' bold':''); s.textContent=c.t; estadoWrap.appendChild(s); });
+
+      // Resumen por material
+      var sum = document.createElement('div'); sum.className='actions';
+      var a=document.createElement('span'); a.className='pill'; a.textContent='gr .999: '+f2(g999); sum.appendChild(a);
+      var b=document.createElement('span'); b.className='pill'; b.textContent='gr .925: '+f2(g925); sum.appendChild(b);
+      var c=document.createElement('span'); c.className='pill'; c.textContent='gr Otros: '+f2(gOtros); sum.appendChild(c);
+      card.appendChild(sum);
+    }
+
+    // ===== Botonera global =====
+    var barra=document.createElement('div'); barra.className='barra-global';
+    var bVista=document.createElement('button'); bVista.className='btn'; bVista.textContent='Vista previa'; bVista.addEventListener('click', function(){ imprimirPDFMaquila(ot, true); }); barra.appendChild(bVista);
+
+    if(!modoProcesar){
+      var bGuardar=document.createElement('button'); bGuardar.className='btn-primary'; bGuardar.textContent='Guardar OT (entrega)';
+      bGuardar.addEventListener('click', function(){
+        // Afecta inventario virtual: salida a maquilador (similar a traspaso)
+        saveDB(DB); toast('OT guardada. Puedes procesarla en Producción → Maquiladores.');
+        var view=qs('#view-otmaq-'+ot.id); if(view) view.remove();
+        var tab=qs('[data-tab="otmaq-'+ot.id+'"]'); if(tab) tab.remove();
+        renderMaquiladoresHome();
+      });
+      barra.appendChild(bGuardar);
+    }
+    if(modoProcesar && !ot.cerrado){
+      var bCerrar=document.createElement('button'); bCerrar.className='btn-primary'; bCerrar.textContent='Guardar Recepción / Cerrar OT';
+      bCerrar.addEventListener('click', function(){ cerrarOTMaquila(ot); });
+      barra.appendChild(bCerrar);
+    }
+    if(ot.cerrado){
+      var bPdf=document.createElement('button'); bPdf.className='btn'; bPdf.textContent='PDF final'; bPdf.addEventListener('click', function(){ imprimirPDFMaquila(ot,false); }); barra.appendChild(bPdf);
+      var bWa=document.createElement('button'); bWa.className='btn'; bWa.textContent='📱 WhatsApp'; bWa.addEventListener('click', function(){ imprimirPDFMaquila(ot,false); toast('Guarda el PDF y compártelo por WhatsApp.'); }); barra.appendChild(bWa);
+    }
+    card.appendChild(barra);
+
+    // ===== PARTE 2: Detalle de pedido =====
+    var sec2=document.createElement('div'); sec2.className='card'; var h2b=document.createElement('h2'); h2b.textContent='Parte 2 · Detalle de pedido'; sec2.appendChild(h2b);
+    sec2.appendChild(tablaPedidoParaOT({ lineas: ot.pedidoLineas, bloqueado: !!modoProcesar, onChange:function(){ saveDB(DB); } }));
+    card.appendChild(sec2);
+
+    // ===== PARTE 3: Entrega de materiales =====
+    var sec3=document.createElement('div'); sec3.className='card'; var h3=document.createElement('h2'); h3.textContent='Parte 3 · Entrega de materiales'; sec3.appendChild(h3);
+    sec3.appendChild(tablaMaterialesOT({ lineas: ot.materiales, bloqueado: !!modoProcesar, onChange:function(){ saveDB(DB); actualizarChips(); } }));
+    card.appendChild(sec3);
+
+    // ===== PARTE 4: Insumos y extras (libre) =====
+    var sec4=document.createElement('div'); sec4.className='card'; var h4=document.createElement('h2'); h4.textContent='Parte 4 · Insumos y extras entregados'; sec4.appendChild(h4);
+    sec4.appendChild(tablaExtrasOT({ lineas: ot.extras, bloqueado: !!modoProcesar, onChange:function(){ saveDB(DB); } }));
+    card.appendChild(sec4);
+
+    // ===== PARTE 5: Recepción (solo modo procesar) =====
+    if(modoProcesar && !ot.cerrado){
+      var sec5=document.createElement('div'); sec5.className='card'; var h5=document.createElement('h2'); h5.textContent='Parte 5 · Recepción del pedido'; sec5.appendChild(h5);
+      var g=document.createElement('div'); g.className='grid';
+      var d1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Fecha recepción'; var r1=document.createElement('input'); r1.type='date'; r1.value=ot.recepcion.fecha; r1.addEventListener('change', function(){ ot.recepcion.fecha=r1.value; saveDB(DB); }); d1.appendChild(l1); d1.appendChild(r1); g.appendChild(d1);
+      var d2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Hora recepción'; var r2=document.createElement('input'); r2.type='time'; r2.value=ot.recepcion.hora; r2.addEventListener('change', function(){ ot.recepcion.hora=r2.value; saveDB(DB); }); d2.appendChild(l2); d2.appendChild(r2); g.appendChild(d2);
+      var d3=document.createElement('div'); var l3=document.createElement('label'); l3.textContent='Piezas devueltas (terminado)'; var r3=document.createElement('input'); r3.type='number'; r3.step='1'; r3.min='0'; r3.value=ot.recepcion.piezasDevueltas; r3.addEventListener('input', function(){ ot.recepcion.piezasDevueltas=parseFloat(r3.value||'0'); saveDB(DB); actualizarChips(); }); d3.appendChild(l3); d3.appendChild(r3); g.appendChild(d3);
+      var d4=document.createElement('div'); var l4=document.createElement('label'); l4.textContent='Gramos devueltos (terminado)'; var r4=document.createElement('input'); r4.type='number'; r4.step='0.01'; r4.min='0'; r4.value=ot.recepcion.gramosDevueltos; r4.addEventListener('input', function(){ ot.recepcion.gramosDevueltos=parseFloat(r4.value||'0'); saveDB(DB); actualizarChips(); }); d4.appendChild(l4); d4.appendChild(r4); g.appendChild(d4);
+      var d5=document.createElement('div'); var l5=document.createElement('label'); l5.textContent='Sobrante (gr)'; var r5=document.createElement('input'); r5.type='number'; r5.step='0.01'; r5.min='0'; r5.value=ot.recepcion.sobranteGr; r5.addEventListener('input', function(){ ot.recepcion.sobranteGr=parseFloat(r5.value||'0'); saveDB(DB); }); d5.appendChild(l5); d5.appendChild(r5); g.appendChild(d5);
+      var d6=document.createElement('div'); var l6=document.createElement('label'); l6.textContent='Comentarios recepción'; var r6=document.createElement('textarea'); r6.value=ot.recepcion.comentarios||''; r6.addEventListener('input', function(){ ot.recepcion.comentarios=r6.value; saveDB(DB); }); d6.appendChild(l6); d6.appendChild(r6); g.appendChild(d6);
+      sec5.appendChild(g);
+      card.appendChild(sec5);
+    }
+
+    host.appendChild(card);
+    actualizarChips();
+  });
+}
+
+// ===== Tablas auxiliares =====
+function tablaPedidoParaOT(cfg){
+  var wrap=document.createElement('div');
+  var actions=document.createElement('div'); actions.className='actions';
+  var h=document.createElement('div'); h.textContent='(Qué le pido al maquilador)'; actions.appendChild(h);
+  if(!cfg.bloqueado){
+    var bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar';
+    var bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última';
+    actions.appendChild(bAdd); actions.appendChild(bDel);
+    bAdd.addEventListener('click', function(){ cfg.lineas.push({ descripcion:'', piezas:0, gramos:0, obs:'' }); rebuild(); if(cfg.onChange) cfg.onChange(); });
+    bDel.addEventListener('click', function(){ if(cfg.lineas.length>1){ cfg.lineas.pop(); rebuild(); if(cfg.onChange) cfg.onChange(); } });
   }
+  wrap.appendChild(actions);
 
-  // 5) UI de una OT
-  function abrirOTExistente(id, modoDevolucion){
-    var ot = DB.maquilaOT.find(function(x){ return x.id === id; });
-    if(!ot){ toast('No encontrada'); return; }
+  var table=document.createElement('table'); var thead=document.createElement('thead'); var trh=document.createElement('tr');
+  ['Descripción','Piezas','Gramos','Observaciones'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+  thead.appendChild(trh); table.appendChild(thead);
+  var tbody=document.createElement('tbody');
 
-    var titulo = 'OT ' + String(ot.folio).padStart(3, '0');
-    openTab('ot-'+id, titulo, function(host){
-      host.innerHTML = '';
-      var card = document.createElement('div'); card.className = 'card';
-
-      // Encabezado global
-      var head = document.createElement('div'); head.className = 'grid';
-
-      var dvFolio = document.createElement('div'); var lbFo=document.createElement('label'); lbFo.textContent='Folio';
-      var inFo=document.createElement('input'); inFo.readOnly=true; inFo.value=String(ot.folio).padStart(3,'0'); inFo.style.color='#b91c1c'; dvFolio.appendChild(lbFo); dvFolio.appendChild(inFo);
-
-      var dvFecha=document.createElement('div'); var lbF=document.createElement('label'); lbF.textContent='Fecha';
-      var inF=document.createElement('input'); inF.type='date'; inF.value=ot.fecha; inF.readOnly=!!modoDevolucion; if(modoDevolucion){ inF.classList.add('ro'); }
-      inF.addEventListener('change', function(){ ot.fecha=inF.value; saveDB(DB); }); dvFecha.appendChild(lbF); dvFecha.appendChild(inF);
-
-      var dvAlm=document.createElement('div'); var lbA=document.createElement('label'); lbA.textContent='Sale de';
-      var selA=document.createElement('select'); ALMACENES.forEach(function(a){ var op=document.createElement('option'); op.value=a.id; op.textContent=a.nombre; if(a.id===ot.saleDe) op.selected=true; selA.appendChild(op); });
-      selA.disabled=!!modoDevolucion; selA.addEventListener('change', function(){ ot.saleDe=selA.value; saveDB(DB); }); dvAlm.appendChild(lbA); dvAlm.appendChild(selA);
-
-      var dvMaq=document.createElement('div'); var lbM=document.createElement('label'); lbM.textContent='Maquilador';
-      var inM=document.createElement('input'); inM.type='text'; inM.placeholder='Nombre completo'; inM.value=ot.maquilador; inM.readOnly=false;
-      inM.addEventListener('input', function(){ ot.maquilador=inM.value; saveDB(DB); }); dvMaq.appendChild(lbM); dvMaq.appendChild(inM);
-
-      var dvPromF=document.createElement('div'); var lbPF=document.createElement('label'); lbPF.textContent='Fecha promesa';
-      var inPF=document.createElement('input'); inPF.type='date'; inPF.value=ot.promesaFecha; inPF.addEventListener('change', function(){ ot.promesaFecha=inPF.value; saveDB(DB); actualizarEstadoOT(estadoWrap, ot); }); dvPromF.appendChild(lbPF); dvPromF.appendChild(inPF);
-
-      var dvPromH=document.createElement('div'); var lbPH=document.createElement('label'); lbPH.textContent='Hora promesa';
-      var inPH=document.createElement('input'); inPH.type='time'; inPH.value=ot.promesaHora; inPH.addEventListener('change', function(){ ot.promesaHora=inPH.value; saveDB(DB); }); dvPromH.appendChild(lbPH); dvPromH.appendChild(inPH);
-
-      var dvMerma=document.createElement('div'); var lbMe=document.createElement('label'); lbMe.textContent='Merma pactada (default)';
-      var inMe=document.createElement('input'); inMe.type='number'; inMe.step='0.1'; inMe.min='0'; inMe.value=ot.mermaPactadaDefault && typeof ot.mermaPactadaDefault.valor==='number' ? ot.mermaPactadaDefault.valor : 0;
-      inMe.addEventListener('input', function(){ ot.mermaPactadaDefault = { tipo:'%', valor: parseFloat(inMe.value||'0') }; saveDB(DB); }); dvMerma.appendChild(lbMe); dvMerma.appendChild(inMe);
-
-      var dvCom=document.createElement('div'); var lbC=document.createElement('label'); lbC.textContent='Comentarios generales';
-      var txC=document.createElement('textarea'); txC.value=ot.comentarios||''; txC.addEventListener('input', function(){ ot.comentarios=txC.value; saveDB(DB); }); dvCom.appendChild(lbC); dvCom.appendChild(txC);
-
-      head.appendChild(dvFolio); head.appendChild(dvFecha); head.appendChild(dvAlm); head.appendChild(dvMaq);
-      head.appendChild(dvPromF); head.appendChild(dvPromH); head.appendChild(dvMerma); head.appendChild(dvCom);
-      card.appendChild(head);
-
-      // Evidencia global
-      var divEv=document.createElement('div'); divEv.className='actions';
-      var cam=document.createElement('span'); cam.textContent='📷'; var lbl=document.createElement('span'); lbl.textContent=' Cargar evidencia fotográfica (aplica a TODA la OT)';
-      var inFile=document.createElement('input'); inFile.type='file'; inFile.accept='image/*';
-      inFile.addEventListener('change', function(){ if(inFile.files && inFile.files[0]){ cargarEvidenciaOT(ot, inFile.files[0]); } });
-      divEv.appendChild(cam); divEv.appendChild(lbl); divEv.appendChild(inFile);
-      card.appendChild(divEv);
-
-      // Estado global
-      var estadoWrap=document.createElement('div'); estadoWrap.className='estado-global';
-      card.appendChild(estadoWrap);
-      actualizarEstadoOT(estadoWrap, ot);
-
-      // Botonera global
-      var barra=document.createElement('div'); barra.className='barra-global';
-      var bVista=document.createElement('button'); bVista.className='btn'; bVista.textContent='Vista previa'; bVista.addEventListener('click', function(){ imprimirPDFOT(ot, true); }); barra.appendChild(bVista);
-
-      if(!modoDevolucion){
-        var bGuardarEntrada=document.createElement('button'); bGuardarEntrada.className='btn-primary'; bGuardarEntrada.textContent='Guardar ENTRADA a maquilador';
-        bGuardarEntrada.addEventListener('click', function(){ saveDB(DB); toast('OT creada; la verás en "OT pendientes".'); var v=qs('#view-ot-'+ot.id); if(v) v.remove(); var t=qs('[data-tab="ot-'+ot.id+'"]'); if(t) t.remove(); renderSubmenu('produccion'); });
-        barra.appendChild(bGuardarEntrada);
-      }
-
-      if(ot.cerrado){
-        var bPDF=document.createElement('button'); bPDF.className='btn'; bPDF.textContent='PDF final'; bPDF.addEventListener('click', function(){ imprimirPDFOT(ot, false); }); barra.appendChild(bPDF);
-        var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='📱 WhatsApp'; bWA.addEventListener('click', function(){ compartirWhatsAppOT(ot); }); barra.appendChild(bWA);
-      }
-
-      if(modoDevolucion && !ot.cerrado){
-        var bCerrar=document.createElement('button'); bCerrar.className='btn-primary'; bCerrar.textContent='Guardar DEVOLUCIÓN / Cerrar OT';
-        bCerrar.addEventListener('click', function(){ cerrarOT(ot); });
-        barra.appendChild(bCerrar);
-      }
-      card.appendChild(barra);
-
-      // ENTRADA (al maquilador)
-      var g1=document.createElement('div'); g1.className='grid';
-      var dvTE=document.createElement('div'); var lbTE=document.createElement('label'); lbTE.textContent='Total ENTRADA (g)';
-      var inTE=document.createElement('input'); inTE.readOnly=true; inTE.value=f2(ot.entrada.total||0); dvTE.appendChild(lbTE); dvTE.appendChild(inTE); g1.appendChild(dvTE);
-      card.appendChild(g1);
-
-      card.appendChild(tablaLineasMaquila({
-        titulo: 'ENTRADA a maquilador',
-        bloqueado: !!modoDevolucion,
-        lineas: ot.entrada.lineas,
-        mostrarPrecio: true,
-        onChange: function(){ ot.entrada.total = recalcTotales(ot.entrada.lineas); inTE.value=f2(ot.entrada.total); saveDB(DB); actualizarEstadoOT(estadoWrap, ot); }
-      }));
-
-      // DEVOLUCIÓN (del maquilador)
-      var bar=document.createElement('div'); bar.className='card';
-      var h3=document.createElement('h2'); h3.textContent = modoDevolucion ? 'DEVOLUCIÓN (editable)' : 'DEVOLUCIÓN (bloqueada hasta procesar)'; bar.appendChild(h3);
-
-      var g2=document.createElement('div'); g2.className='grid';
-      var dvFD=document.createElement('div'); var lbFD=document.createElement('label'); lbFD.textContent='Fecha devolución';
-      var inFD=document.createElement('input'); inFD.type='date'; inFD.value=ot.devolucion.fecha; inFD.readOnly=!modoDevolucion; if(!modoDevolucion){ inFD.classList.add('ro'); }
-      inFD.addEventListener('change', function(){ ot.devolucion.fecha=inFD.value; saveDB(DB); }); dvFD.appendChild(lbFD); dvFD.appendChild(inFD); g2.appendChild(dvFD);
-
-      var dvHD=document.createElement('div'); var lbHD=document.createElement('label'); lbHD.textContent='Hora devolución';
-      var inHD=document.createElement('input'); inHD.type='time'; inHD.value=ot.devolucion.hora||''; inHD.readOnly=!modoDevolucion; if(!modoDevolucion){ inHD.classList.add('ro'); }
-      inHD.addEventListener('change', function(){ ot.devolucion.hora=inHD.value; saveDB(DB); }); dvHD.appendChild(lbHD); dvHD.appendChild(inHD); g2.appendChild(dvHD);
-
-      var dvCD=document.createElement('div'); var lbCD=document.createElement('label'); lbCD.textContent='Comentarios (devolución)';
-      var txCD=document.createElement('textarea'); txCD.value=ot.devolucion.comentarios||''; txCD.readOnly=!modoDevolucion; if(!modoDevolucion){ txCD.classList.add('ro'); }
-      txCD.addEventListener('input', function(){ ot.devolucion.comentarios=txCD.value; saveDB(DB); }); dvCD.appendChild(lbCD); dvCD.appendChild(txCD); g2.appendChild(dvCD);
-
-      var dvTD=document.createElement('div'); var lbTD=document.createElement('label'); lbTD.textContent='Total DEVOLUCIÓN (g)';
-      var inTD=document.createElement('input'); inTD.readOnly=true; inTD.value=f2(ot.devolucion.total||0); dvTD.appendChild(lbTD); dvTD.appendChild(inTD); g2.appendChild(dvTD);
-
-      bar.appendChild(g2);
-
-      bar.appendChild(tablaLineasMaquila({
-        titulo: 'DEVOLUCIÓN del maquilador',
-        bloqueado: !modoDevolucion,
-        lineas: ot.devolucion.lineas,
-        mostrarPrecio: true,
-        onChange: function(){ ot.devolucion.total = recalcTotales(ot.devolucion.lineas); inTD.value=f2(ot.devolucion.total); saveDB(DB); actualizarEstadoOT(estadoWrap, ot); }
-      }));
-
-      card.appendChild(bar);
-      host.appendChild(card);
+  function rebuild(){
+    tbody.innerHTML='';
+    cfg.lineas.forEach(function(li){
+      var tr=document.createElement('tr');
+      var td1=document.createElement('td'); var in1=document.createElement('input'); in1.type='text'; in1.value=li.descripcion; in1.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ in1.classList.add('ro'); }
+      in1.addEventListener('input', function(){ li.descripcion=in1.value; if(cfg.onChange) cfg.onChange(); }); td1.appendChild(in1); tr.appendChild(td1);
+      var td2=document.createElement('td'); var in2=document.createElement('input'); in2.type='number'; in2.step='1'; in2.min='0'; in2.value=li.piezas; in2.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ in2.classList.add('ro'); }
+      in2.addEventListener('input', function(){ li.piezas=parseFloat(in2.value||'0'); if(cfg.onChange) cfg.onChange(); }); td2.appendChild(in2); tr.appendChild(td2);
+      var td3=document.createElement('td'); var in3=document.createElement('input'); in3.type='number'; in3.step='0.01'; in3.min='0'; in3.value=li.gramos; in3.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ in3.classList.add('ro'); }
+      in3.addEventListener('input', function(){ li.gramos=parseFloat(in3.value||'0'); if(cfg.onChange) cfg.onChange(); }); td3.appendChild(in3); tr.appendChild(td3);
+      var td4=document.createElement('td'); var in4=document.createElement('input'); in4.type='text'; in4.value=li.obs||''; in4.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ in4.classList.add('ro'); }
+      in4.addEventListener('input', function(){ li.obs=in4.value; if(cfg.onChange) cfg.onChange(); }); td4.appendChild(in4); tr.appendChild(td4);
+      tbody.appendChild(tr);
     });
   }
+  rebuild();
+  table.appendChild(tbody); wrap.appendChild(table); return wrap;
+}
 
-  // 6) Estado global de la OT
-  function actualizarEstadoOT(wrap, ot){
-    var entG = sumaCantGramos(ot.entrada.lineas);
-    var devG = sumaCantGramos(ot.devolucion.lineas);
-    var tieneDev = devG > 0;
-    var dif = tieneDev ? (devG - entG) : 0;
-    var mermaAbs = tieneDev ? Math.max(0, entG - devG) : 0;
-    var mermaPct = tieneDev && entG > 0 ? (mermaAbs / entG) * 100 : 0;
+function tablaMaterialesOT(cfg){
+  var wrap=document.createElement('div');
+  var actions=document.createElement('div'); actions.className='actions';
+  var bAdd,bDel; if(!cfg.bloqueado){ bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar'; bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última'; actions.appendChild(bAdd); actions.appendChild(bDel); }
+  wrap.appendChild(actions);
 
-    var estado = 'Pendiente de devolución';
-    var color = '#334155';
-    if(tieneDev){
-      estado = 'OK'; color = '#065f46';
-      if(mermaPct > 2.5 && mermaPct < 4.5){ estado = 'Atento'; color = '#b45309'; }
-      if(mermaPct >= 4.5){ estado = 'Excede'; color = '#b91c1c'; }
-    }
+  var table=document.createElement('table'); var thead=document.createElement('thead'); var trh=document.createElement('tr');
+  ['Material','Detalle','Gr','Aleación','.Subt','Especificaciones','Merma pactada línea (%)'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+  thead.appendChild(trh); table.appendChild(thead);
+  var tbody=document.createElement('tbody');
 
-    // Días a promesa
-    var diasProm = '';
-    try{
-      var hoy = new Date();
-      var pf = new Date(ot.promesaFecha + 'T' + (ot.promesaHora||'00:00') + ':00');
-      var ms = pf.getTime() - hoy.getTime();
-      var d = Math.ceil(ms / (1000*60*60*24));
-      diasProm = isNaN(d) ? '' : (d>=0 ? ('Faltan ' + d + ' d') : ('Venció hace ' + Math.abs(d) + ' d'));
-    }catch(e){ diasProm = ''; }
+  function renderRow(li){
+    var tr=document.createElement('tr');
+    var tdMat=document.createElement('td'); var sel=document.createElement('select');
+    MATERIALES.forEach(function(m){ var op=document.createElement('option'); op.value=m.id; op.textContent=m.nombre; if(m.id===li.materialId) op.selected=true; sel.appendChild(op); });
+    sel.disabled=!!cfg.bloqueado; sel.addEventListener('change', function(){ li.materialId=sel.value; if(li.materialId!=='999'){ li.aleacion=0; inAle.value='0.00'; inAle.readOnly=true; inAle.classList.add('ro'); } else { if(!cfg.bloqueado){ inAle.readOnly=false; inAle.classList.remove('ro'); } } recalc(); }); tdMat.appendChild(sel); tr.appendChild(tdMat);
 
-    wrap.innerHTML = '';
-    function chip(txt, bold, c){ var s=document.createElement('span'); s.className='estado-chip'+(bold?' bold':''); s.textContent=txt; if(bold && c){ s.style.color=c; } wrap.appendChild(s); }
-    chip('Entregado: ' + f2(entG) + ' g', false, '');
-    chip('Devuelto: ' + (tieneDev ? f2(devG)+' g' : '—'), false, '');
-    chip('Dif: ' + (tieneDev ? ((dif>=0?'+':'') + f2(dif) + ' g') : '—'), false, '');
-    chip('Merma: ' + (tieneDev ? (f2(mermaAbs) + ' g (' + mermaPct.toFixed(1) + '%)') : '—'), false, '');
-    if(diasProm){ chip(diasProm, false, ''); }
-    chip('Estado: ' + estado, true, color);
+    var tdDet=document.createElement('td'); var inDet=document.createElement('input'); inDet.type='text'; inDet.value=li.detalle; inDet.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inDet.classList.add('ro'); } inDet.addEventListener('input', function(){ li.detalle=inDet.value; saveDB(DB); }); tdDet.appendChild(inDet); tr.appendChild(tdDet);
+
+    var tdGr=document.createElement('td'); var inGr=document.createElement('input'); inGr.type='number'; inGr.step='0.01'; inGr.min='0'; inGr.value=li.gramos; inGr.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inGr.classList.add('ro'); }
+    inGr.addEventListener('input', function(){ li.gramos=parseFloat(inGr.value||'0'); if(li.materialId==='999' && !inAle.readOnly){ var sug=li.gramos*0.07; inAle.value=f2(sug); li.aleacion=parseFloat(inAle.value||'0'); } recalc(); }); tdGr.appendChild(inGr); tr.appendChild(tdGr);
+
+    var tdAle=document.createElement('td'); var inAle=document.createElement('input'); inAle.type='number'; inAle.step='0.01'; inAle.min='0'; inAle.value=li.aleacion; inAle.readOnly=(li.materialId!=='999') || !!cfg.bloqueado; if(inAle.readOnly){ inAle.classList.add('ro'); }
+    inAle.addEventListener('input', function(){ li.aleacion=parseFloat(inAle.value||'0'); recalc(); }); tdAle.appendChild(inAle); tr.appendChild(tdAle);
+
+    var tdSub=document.createElement('td'); var inSub=document.createElement('input'); inSub.readOnly=true; inSub.value=f2(li.subtotal); inSub.classList.add('ro'); tdSub.appendChild(inSub); tr.appendChild(tdSub);
+
+    var tdEsp=document.createElement('td'); var inEsp=document.createElement('input'); inEsp.type='text'; inEsp.value=li.especificaciones||''; inEsp.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inEsp.classList.add('ro'); }
+    inEsp.addEventListener('input', function(){ li.especificaciones=inEsp.value; saveDB(DB); }); tdEsp.appendChild(inEsp); tr.appendChild(tdEsp);
+
+    var tdMer=document.createElement('td'); var inMer=document.createElement('input'); inMer.type='number'; inMer.step='0.1'; inMer.min='0'; inMer.value=(li.mermaPactadaLineaPct==null?'':li.mermaPactadaLineaPct); inMer.placeholder='(hereda)'; inMer.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ inMer.classList.add('ro'); }
+    inMer.addEventListener('input', function(){ var v=inMer.value.trim(); li.mermaPactadaLineaPct = v===''?null:parseFloat(v||'0'); saveDB(DB); }); tdMer.appendChild(inMer); tr.appendChild(tdMer);
+
+    function recalc(){ li.subtotal = (parseFloat(li.gramos||0) + parseFloat(li.aleacion||0)); inSub.value=f2(li.subtotal); if(cfg.onChange) cfg.onChange(); saveDB(DB); }
+
+    tbody.appendChild(tr);
   }
 
-  // 7) Widget de líneas para Maquila (entrada/devolución)
-  function recalcTotales(arr){
-    var s = 0; var i;
-    for(i=0;i<arr.length;i++){
-      var li = arr[i];
-      var sub = 0;
-      var cant = parseFloat(li.cant||0);
-      var precio = parseFloat(li.precio||0);
-      var tipo = String(li.precioTipo||'por_gramo');
-      if(tipo==='por_gramo'){ sub = cant * precio; }
-      else if(tipo==='por_pieza'){ sub = cant * precio; }
-      else if(tipo==='proceso_fijo'){ sub = precio; }
-      li.subtotal = sub;
-      s += sub;
-    }
-    return s;
-  }
-  function tablaLineasMaquila(cfg){
-    // cfg: { titulo, bloqueado, lineas, mostrarPrecio, onChange? }
-    var wrap = document.createElement('div');
+  function rebuild(){ tbody.innerHTML=''; cfg.lineas.forEach(renderRow); }
+  rebuild();
 
-    var top = document.createElement('div'); top.className='actions';
-    var h = document.createElement('h2'); h.textContent = cfg.titulo; top.appendChild(h);
-    var sp = document.createElement('div'); sp.style.flex='1'; top.appendChild(sp);
-    var bAdd, bDel;
-    if(!cfg.bloqueado){
-      bAdd = document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea';
-      bDel = document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última';
-      top.appendChild(bAdd); top.appendChild(bDel);
-    }
-    wrap.appendChild(top);
+  if(bAdd){ bAdd.addEventListener('click', function(){ cfg.lineas.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0, especificaciones:'', mermaPactadaLineaPct:null }); rebuild(); if(cfg.onChange) cfg.onChange(); }); }
+  if(bDel){ bDel.addEventListener('click', function(){ if(cfg.lineas.length>1){ cfg.lineas.pop(); rebuild(); if(cfg.onChange) cfg.onChange(); } }); }
 
-    var table = document.createElement('table');
-    var thead = document.createElement('thead');
-    var trh = document.createElement('tr');
-    var cols = [
-      {t:'#', w:'5%'},
-      {t:'Material', w:'18%'},
-      {t:'Detalle', w:'26%'},
-      {t:'Unidad', w:'8%'},
-      {t:'Cantidad', w:'12%'}
-    ];
-    if(cfg.mostrarPrecio){ cols.push({t:'Precio tipo', w:'16%'}); cols.push({t:'Precio', w:'10%'}); cols.push({t:'Subtotal', w:'15%'}); }
-    var i;
-    for(i=0;i<cols.length;i++){ var th=document.createElement('th'); th.textContent=cols[i].t; th.style.width=cols[i].w; trh.appendChild(th); }
-    thead.appendChild(trh); table.appendChild(thead);
+  table.appendChild(tbody); wrap.appendChild(table); return wrap;
+}
 
-    var tbody = document.createElement('tbody');
+function tablaExtrasOT(cfg){
+  var wrap=document.createElement('div');
+  var actions=document.createElement('div'); actions.className='actions';
+  var bAdd,bDel; if(!cfg.bloqueado){ bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar'; bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última'; actions.appendChild(bAdd); actions.appendChild(bDel); }
+  wrap.appendChild(actions);
 
-    function rebuild(){ tbody.innerHTML=''; var r; for(r=0;r<cfg.lineas.length;r++){ renderRow(r); } }
+  var table=document.createElement('table'); var thead=document.createElement('thead'); var trh=document.createElement('tr');
+  ['Material (libre)','Piezas','Gramos','Observaciones'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+  thead.appendChild(trh); table.appendChild(thead);
+  var tbody=document.createElement('tbody');
 
-    function renderRow(idx){
-      var li = cfg.lineas[idx];
-      var tr = document.createElement('tr');
-
-      var tdIdx = document.createElement('td'); tdIdx.textContent = (idx+1); tr.appendChild(tdIdx);
-
-      var tdMat = document.createElement('td');
-      var selM = document.createElement('select'); selM.style.width='100%';
-      MATERIALES.forEach(function(m){ var op=document.createElement('option'); op.value=m.id; op.textContent=m.nombre; if(m.id===li.materialId){ op.selected=true; } selM.appendChild(op); });
-      selM.disabled=!!cfg.bloqueado; selM.addEventListener('change', function(){ li.materialId=selM.value; if(typeof cfg.onChange==='function'){ cfg.onChange(); } saveDB(DB); });
-      tdMat.appendChild(selM); tr.appendChild(tdMat);
-
-      var tdDet = document.createElement('td');
-      var inDet = document.createElement('input'); inDet.type='text'; inDet.value=li.detalle||''; inDet.style.width='100%';
-      inDet.readOnly=!!cfg.bloqueado; if(inDet.readOnly){ inDet.classList.add('ro'); }
-      inDet.addEventListener('input', function(){ li.detalle=inDet.value; if(typeof cfg.onChange==='function'){ cfg.onChange(); } saveDB(DB); });
-      tdDet.appendChild(inDet); tr.appendChild(tdDet);
-
-      var tdUni = document.createElement('td');
-      var selU = document.createElement('select'); var opG=document.createElement('option'); opG.value='g'; opG.textContent='g'; var opP=document.createElement('option'); opP.value='pza'; opP.textContent='pza';
-      selU.appendChild(opG); selU.appendChild(opP); selU.value = String(li.unidad||'g');
-      selU.disabled=!!cfg.bloqueado; selU.addEventListener('change', function(){ li.unidad=selU.value; if(typeof cfg.onChange==='function'){ cfg.onChange(); } saveDB(DB); });
-      tdUni.appendChild(selU); tr.appendChild(tdUni);
-
-      var tdCant = document.createElement('td');
-      var inCant = document.createElement('input'); inCant.type='number'; inCant.step='0.01'; inCant.min='0'; inCant.value=li.cant||0; inCant.style.width='100%'; inCant.style.textAlign='right';
-      inCant.readOnly=!!cfg.bloqueado; if(inCant.readOnly){ inCant.classList.add('ro'); }
-      inCant.addEventListener('input', function(){ li.cant=parseFloat(inCant.value||'0'); if(typeof cfg.onChange==='function'){ cfg.onChange(); } saveDB(DB); });
-      tdCant.appendChild(inCant); tr.appendChild(tdCant);
-
-      if(cfg.mostrarPrecio){
-        var tdPT = document.createElement('td');
-        var selPT = document.createElement('select');
-        var opt1=document.createElement('option'); opt1.value='por_gramo'; opt1.textContent='por gramo';
-        var opt2=document.createElement('option'); opt2.value='por_pieza'; opt2.textContent='por pieza';
-        var opt3=document.createElement('option'); opt3.value='proceso_fijo'; opt3.textContent='proceso fijo';
-        selPT.appendChild(opt1); selPT.appendChild(opt2); selPT.appendChild(opt3);
-        selPT.value = String(li.precioTipo||'por_gramo'); selPT.disabled=!!cfg.bloqueado;
-        selPT.addEventListener('change', function(){ li.precioTipo=selPT.value; if(typeof cfg.onChange==='function'){ cfg.onChange(); } saveDB(DB); });
-        tdPT.appendChild(selPT); tr.appendChild(tdPT);
-
-        var tdPr = document.createElement('td'); var inPr=document.createElement('input'); inPr.type='number'; inPr.step='0.01'; inPr.min='0'; inPr.value=li.precio||0; inPr.style.width='100%'; inPr.style.textAlign='right';
-        inPr.readOnly=!!cfg.bloqueado; if(inPr.readOnly){ inPr.classList.add('ro'); }
-        inPr.addEventListener('input', function(){ li.precio=parseFloat(inPr.value||'0'); if(typeof cfg.onChange==='function'){ cfg.onChange(); } saveDB(DB); });
-        tdPr.appendChild(inPr); tr.appendChild(tdPr);
-
-        var tdSub = document.createElement('td'); var inSub=document.createElement('input'); inSub.readOnly=true; inSub.value=f2(li.subtotal||0); inSub.style.width='100%'; inSub.style.textAlign='right';
-        tdSub.appendChild(inSub); tr.appendChild(tdSub);
-
-        // Recalc en caliente
-        function recalcRow(){ li.subtotal = 0; var c=parseFloat(inCant.value||'0'); var p=parseFloat(inPr.value||'0'); var t=selPT.value; if(t==='por_gramo'||t==='por_pieza'){ li.subtotal = c*p; } else if(t==='proceso_fijo'){ li.subtotal = p; } inSub.value=f2(li.subtotal); if(typeof cfg.onChange==='function'){ cfg.onChange(); } saveDB(DB); }
-        inCant.addEventListener('input', recalcRow);
-        inPr.addEventListener('input', recalcRow);
-        selPT.addEventListener('change', recalcRow);
-      }
-
-      tbody.appendChild(tr);
-    }
-
-    rebuild();
-
-    if(bAdd){ bAdd.addEventListener('click', function(){ cfg.lineas.push({ materialId:'925', detalle:'', unidad:'g', cant:0, precioTipo:'por_gramo', precio:0, subtotal:0 }); rebuild(); if(typeof cfg.onChange==='function'){ cfg.onChange(); } }); }
-    if(bDel){ bDel.addEventListener('click', function(){ if(cfg.lineas.length>1){ cfg.lineas.pop(); rebuild(); if(typeof cfg.onChange==='function'){ cfg.onChange(); } } }); }
-
-    table.appendChild(tbody);
-    wrap.appendChild(table);
-    return wrap;
+  function renderRow(li){
+    var tr=document.createElement('tr');
+    var td1=document.createElement('td'); var in1=document.createElement('input'); in1.type='text'; in1.value=li.material||''; in1.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ in1.classList.add('ro'); } in1.addEventListener('input', function(){ li.material=in1.value; if(cfg.onChange) cfg.onChange(); }); td1.appendChild(in1); tr.appendChild(td1);
+    var td2=document.createElement('td'); var in2=document.createElement('input'); in2.type='number'; in2.step='1'; in2.min='0'; in2.value=li.piezas||0; in2.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ in2.classList.add('ro'); } in2.addEventListener('input', function(){ li.piezas=parseFloat(in2.value||'0'); if(cfg.onChange) cfg.onChange(); }); td2.appendChild(in2); tr.appendChild(td2);
+    var td3=document.createElement('td'); var in3=document.createElement('input'); in3.type='number'; in3.step='0.01'; in3.min='0'; in3.value=li.gramos||0; in3.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ in3.classList.add('ro'); } in3.addEventListener('input', function(){ li.gramos=parseFloat(in3.value||'0'); if(cfg.onChange) cfg.onChange(); }); td3.appendChild(in3); tr.appendChild(td3);
+    var td4=document.createElement('td'); var in4=document.createElement('input'); in4.type='text'; in4.value=li.obs||''; in4.readOnly=!!cfg.bloqueado; if(cfg.bloqueado){ in4.classList.add('ro'); } in4.addEventListener('input', function(){ li.obs=in4.value; if(cfg.onChange) cfg.onChange(); }); td4.appendChild(in4); tr.appendChild(td4);
+    tbody.appendChild(tr);
   }
 
-  // 8) Cerrar OT con validaciones básicas
-  function cerrarOT(ot){
-    var entG = sumaCantGramos(ot.entrada.lineas);
-    var devG = sumaCantGramos(ot.devolucion.lineas);
-    if(devG <= 0){ alert('Captura la DEVOLUCIÓN antes de cerrar.'); return; }
+  function rebuild(){ tbody.innerHTML=''; cfg.lineas.forEach(renderRow); }
+  rebuild();
+  if(bAdd){ bAdd.addEventListener('click', function(){ cfg.lineas.push({ material:'', piezas:0, gramos:0, obs:'' }); rebuild(); if(cfg.onChange) cfg.onChange(); }); }
+  if(bDel){ bDel.addEventListener('click', function(){ if(cfg.lineas.length>1){ cfg.lineas.pop(); rebuild(); if(cfg.onChange) cfg.onChange(); } }); }
 
-    // Merma pactada default por hoja (si existe). Si el usuario puso una línea con merma menor, se puede registrar manualmente en comentarios.
-    var tol = (ot.mermaPactadaDefault && typeof ot.mermaPactadaDefault.valor==='number') ? (ot.mermaPactadaDefault.valor/100.0) : 0.05;
-    var mermaAbs = Math.max(0, entG - devG);
-    var mermaPct = entG>0 ? (mermaAbs/entG) : 0;
-    if(mermaPct > tol){
-      alert('Merma superior al '+String((tol*100).toFixed(1))+'% según la promesa pactada. Revisa la OT.');
-      return;
-    }
+  table.appendChild(tbody); wrap.appendChild(table); return wrap;
+}
 
-    ot.cerrado = true;
-    saveDB(DB);
-    toast('OT cerrada');
-    imprimirPDFOT(ot, false);
+// ===== Cierre de OT (calcula merma, días, afecta inventario virtual de regreso) =====
+function cerrarOTMaquila(ot){
+  var entGr = sumaSubtotales(ot.materiales);
+  var devGr = parseFloat(ot.recepcion.gramosDevueltos||0) + parseFloat(ot.recepcion.sobranteGr||0);
+  if(devGr<=0){ alert('Captura la devolución (gramos y/o sobrante).'); return; }
+  var mermaAbs = Math.max(0, entGr - devGr);
+  var mermaPct = entGr>0 ? (mermaAbs/entGr) : 0;
+  // Validación contra pactada (no bloquea, solo alerta)
+  var pact = parseFloat(ot.mermaPactadaPct||0)/100;
+  if(mermaPct>pact){ if(!confirm('La merma real ('+(mermaPct*100).toFixed(1)+'%) excede la pactada ('+(pact*100).toFixed(1)+'%). ¿Cerrar de todos modos?')) return; }
+
+  ot.cerrado=true; saveDB(DB); toast('OT cerrada'); imprimirPDFMaquila(ot,false);
+}
+
+// ===== PDF de OT de Maquila =====
+function imprimirPDFMaquila(ot, isDraft){
+  var w=window.open('', '_blank', 'width=840,height=900'); if(!w){ alert('Permite pop-ups.'); return; }
+  var entGr=sumaSubtotales(ot.materiales); var g999=0,g925=0,gOtros=0; ot.materiales.forEach(function(li){ var t=parseFloat(li.subtotal||0); if(li.materialId==='999'){g999+=t;} else if(li.materialId==='925'){g925+=t;} else {gOtros+=t;} });
+  var devGr=parseFloat(ot.recepcion&&ot.recepcion.gramosDevueltos?ot.recepcion.gramosDevueltos:0);
+  var sobr=parseFloat(ot.recepcion&&ot.recepcion.sobranteGr?ot.recepcion.sobranteGr:0);
+  var devTot=devGr+sobr; var mermaAbs = devTot>0? Math.max(0, entGr - devTot):0; var mermaPct= entGr>0 && devTot>0? (mermaAbs/entGr)*100:0;
+  var diasTrans=0; try{ var f1=new Date(ot.fecha), f2=new Date(ot.recepcion&&ot.recepcion.fecha?ot.recepcion.fecha:ot.fecha); diasTrans=Math.round((f2-f1)/(1000*60*60*24)); }catch(e){}
+  var manoEstim = (ot.estimadoGr*parseFloat(ot.precioPorGramo||0)) + (ot.estimadoPzas*parseFloat(ot.precioPorPieza||0));
+
+  var css='@page{size:5.5in 8.5in;margin:8mm;}body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:11px;}h1{color:#0a2c4c;margin:4px 0}h2{color:#0a2c4c;margin:2px 0}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #e5e7eb;padding:3px 4px;word-break:break-word}thead tr{background:#e7effa}.row{display:flex;gap:6px;margin:4px 0}.col{flex:1}.chips{margin:6px 0}.chip{background:#f1f5f9;border-radius:14px;padding:4px 8px;font-size:10px;margin-right:4px;font-weight:700}.signs{display:flex;gap:10px;margin-top:10px}.signs .b{flex:1;border-top:1px solid #94a3b8;padding-top:6px;text-align:center}.water{position:fixed;top:40%;left:16%;font-size:42px;color:#94a3b880;transform:rotate(-18deg);}';
+  var H=[]; H.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>OT '+String(ot.folio).padStart(3,'0')+'</title><style>'+css+'</style></head><body>'); if(isDraft){ H.push('<div class="water">BORRADOR</div>'); }
+  H.push('<h1>OT Maquilador '+String(ot.folio).padStart(3,'0')+'</h1>');
+  H.push('<div class="row"><div class="col"><b>Fecha:</b> '+ot.fecha+' '+ot.hora+'</div><div class="col"><b>Maquilador:</b> '+escapeHTML(ot.nombreMaquilador)+'</div><div class="col"><b>Promesa:</b> '+ot.promesaFecha+' '+ot.promesaHora+'</div></div>');
+  H.push('<div class="row"><div class="col"><b>Merma pactada:</b> '+f2(ot.mermaPactadaPct)+'%</div><div class="col"><b>$/g:</b> '+f2(ot.precioPorGramo)+'</div><div class="col"><b>$/pz:</b> '+f2(ot.precioPorPieza)+'</div><div class="col"><b>$ estimado:</b> '+f2(manoEstim)+'</div></div>');
+  if(ot.evidencia){ H.push('<div class="row"><div class="col"><b>Evidencia:</b><br><img src="'+ot.evidencia+'" style="max-width:100%;max-height:120px;border:1px solid #cbd5e1"></div></div>'); }
+  H.push('<div class="chips">');
+  H.push('<span class="chip">Enviado: '+f2(entGr)+' g</span>');
+  H.push('<span class="chip">Devuelto: '+(devTot>0?f2(devTot)+' g':'—')+'</span>');
+  H.push('<span class="chip">Merma real: '+(devTot>0?f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)':'—')+'</span>');
+  H.push('<span class="chip">gr .999: '+f2(g999)+'</span><span class="chip">gr .925: '+f2(g925)+'</span><span class="chip">gr Otros: '+f2(gOtros)+'</span>');
+  H.push('</div>');
+
+  // Parte 2
+  H.push('<h2>Parte 2 · Detalle de pedido</h2><table><thead><tr><th>Descripción</th><th>Piezas</th><th>Gramos</th><th>Observaciones</th></tr></thead><tbody>');
+  (ot.pedidoLineas||[]).forEach(function(li){ H.push('<tr><td>'+escapeHTML(li.descripcion||'')+'</td><td>'+f2(li.piezas||0)+'</td><td>'+f2(li.gramos||0)+'</td><td>'+escapeHTML(li.obs||'')+'</td></tr>'); });
+  H.push('</tbody></table>');
+
+  // Parte 3
+  H.push('<h2>Parte 3 · Entrega de materiales</h2><table><thead><tr><th>Material</th><th>Detalle</th><th>Gr</th><th>Aleac.</th><th>Subt</th><th>Especificaciones</th></tr></thead><tbody>');
+  (ot.materiales||[]).forEach(function(li){ H.push('<tr><td>'+escapeHTML(nombreMaterial(li.materialId))+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+f2(li.gramos||0)+'</td><td>'+f2(li.aleacion||0)+'</td><td>'+f2(li.subtotal||0)+'</td><td>'+escapeHTML(li.especificaciones||'')+'</td></tr>'); });
+  H.push('</tbody></table>');
+
+  // Parte 4
+  H.push('<h2>Parte 4 · Insumos y extras entregados (informativo)</h2><table><thead><tr><th>Material</th><th>Piezas</th><th>Gramos</th><th>Observaciones</th></tr></thead><tbody>');
+  (ot.extras||[]).forEach(function(li){ H.push('<tr><td>'+escapeHTML(li.material||'')+'</td><td>'+f2(li.piezas||0)+'</td><td>'+f2(li.gramos||0)+'</td><td>'+escapeHTML(li.obs||'')+'</td></tr>'); });
+  H.push('</tbody></table>');
+
+  // Recepción (si existe dev)
+  if(ot.cerrado || (ot.recepcion && (ot.recepcion.gramosDevueltos>0 || ot.recepcion.piezasDevueltas>0))){
+    H.push('<h2>Parte 5 · Recepción</h2>');
+    H.push('<div class="row"><div class="col"><b>Fecha recepción:</b> '+(ot.recepcion&&ot.recepcion.fecha?ot.recepcion.fecha:'')+'</div><div class="col"><b>Devuelto (g):</b> '+f2(devGr)+'</div><div class="col"><b>Sobrante (g):</b> '+f2(sobr)+'</div><div class="col"><b>Días transcurridos:</b> '+diasTrans+'</div></div>');
   }
 
-  // 9) PDF con evidencia y leyenda legal
-  function imprimirPDFOT(ot, isDraft){
-    var w = window.open('', '_blank', 'width=840,height=900'); if(!w){ alert('Permite pop-ups para imprimir.'); return; }
+  // Firmas + Leyenda legal (pagaré/obligación)
+  H.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(ot.comentarios||'')+'</div></div>');
+  H.push('<div class="signs"><div class="b">Nombre y firma MAQUILADOR</div><div class="b">Nombre y firma QUIEN ENTREGA</div></div>');
 
-    var entG = sumaCantGramos(ot.entrada.lineas);
-    var devG = sumaCantGramos(ot.devolucion.lineas);
-    var tieneDev = devG > 0;
-    var dif = tieneDev ? (devG - entG) : 0;
-    var mermaAbs = tieneDev ? Math.max(0, entG - devG) : 0;
-    var mermaPct = tieneDev && entG>0 ? (mermaAbs/entG)*100 : 0;
+  H.push('<div style="margin-top:8px;font-size:10px;line-height:1.25">');
+  H.push('<b>RECONOCIMIENTO DE RECEPCIÓN Y OBLIGACIONES DEL MAQUILADOR.</b> Yo, ___________________________, con domicilio en _______________, declaro que recibí en depósito mercantil los materiales descritos en esta OT (Folio '+String(ot.folio).padStart(3,'0')+'), obligándome a su conservación y devolución en la fecha promesa, en las cantidades y calidades indicadas, realizándose únicamente los procesos descritos. Soy responsable por menoscabos, daños o pérdidas causados por malicia o negligencia. En caso de faltante a la entrega (gramos o piezas no devueltos), pagaré su valor conforme al precio pactado y una pena convencional equivalente al ____% del valor del faltante. Asimismo, reconozco adeudar el precio pactado por los procesos: $/g '+f2(ot.precioPorGramo)+' y $/pz '+f2(ot.precioPorPieza)+', pagadero a la entrega. <b>Beneficiario:</b> ARTURO EMMANUEL ROMERO MARTINEZ.</div>');
 
-    var estado = 'Pendiente de devolución';
-    if(tieneDev){ estado = 'OK'; if(mermaPct>2.5 && mermaPct<4.5){ estado='Atento'; } if(mermaPct>=4.5){ estado='Excede'; } }
+  H.push('</body></html>'); w.document.write(H.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
+}
 
-    var css='@page{size:5.5in 8.5in;margin:10mm}body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px}h1.red{color:#b91c1c}h2{margin:2px 0 6px 0;color:#0a2c4c}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left}thead tr{background:#e7effa}.row{display:flex;gap:8px;margin:6px 0}.col{flex:1}.signs{display:flex;justify-content:space-between;margin-top:18px}.signs div{width:45%;border-top:1px solid #94a3b8;padding-top:6px;text-align:center}.water{position:fixed;top:40%;left:15%;font-size:48px;color:#94a3b880;transform:rotate(-20deg)}.chips{margin:8px 0}.chip{background:#f1f5f9;border-radius:16px;padding:6px 10px;margin-right:6px;font-size:12px;font-weight:600}';
-
-    var html=[]; html.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>OT '+String(ot.folio).padStart(3,'0')+'</title><style>'+css+'</style></head><body>');
-    if(isDraft){ html.push('<div class="water">BORRADOR</div>'); }
-
-    html.push('<h1 class="red">OT '+String(ot.folio).padStart(3,'0')+'</h1>');
-    html.push('<div class="row"><div class="col"><b>Fecha:</b> '+ot.fecha+' '+(ot.hora||'')+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(ot.saleDe)+'</div><div class="col"><b>Maquilador:</b> '+escapeHTML(ot.maquilador||'')+'</div></div>');
-    html.push('<div class="row"><div class="col"><b>Promesa:</b> '+escapeHTML(ot.promesaFecha||'')+' '+escapeHTML(ot.promesaHora||'')+'</div><div class="col"><b>Comentarios:</b> '+escapeHTML(ot.comentarios||'')+'</div></div>');
-
-    if(ot.evidencia){ html.push('<h3>Evidencia fotográfica</h3><img src="'+ot.evidencia+'" style="max-width:100%;max-height:300px;border:1px solid #ccc">'); }
-
-    html.push('<div class="chips">');
-    html.push('<span class="chip">Entregado: '+f2(entG)+' g</span>');
-    html.push('<span class="chip">Devuelto: '+(tieneDev?f2(devG)+' g':'—')+'</span>');
-    html.push('<span class="chip">Dif: '+(tieneDev?((dif>=0?'+':'')+f2(dif)+' g'):'—')+'</span>');
-    html.push('<span class="chip">Merma: '+(tieneDev?(f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)'):'—')+'</span>');
-    html.push('<span class="chip">Estado: '+estado+'</span>');
-    html.push('</div>');
-
-    // ENTRADA
-    html.push('<h2>Entrada a maquilador</h2>');
-    html.push('<table><thead><tr><th style="width:5%">#</th><th style="width:18%">Material</th><th style="width:26%">Detalle</th><th style="width:8%">Unidad</th><th style="width:12%">Cantidad</th><th style="width:16%">Precio tipo</th><th style="width:10%">Precio</th><th style="width:15%">Subtotal</th></tr></thead><tbody>');
-    var i; for(i=0;i<ot.entrada.lineas.length;i++){ var li=ot.entrada.lineas[i]; html.push('<tr><td>'+(i+1)+'</td><td>'+nombreMaterial(li.materialId)+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+escapeHTML(li.unidad||'g')+'</td><td>'+f2(li.cant||0)+'</td><td>'+escapeHTML((li.precioTipo||'').replace('_',' '))+'</td><td>'+f2(li.precio||0)+'</td><td>'+f2(li.subtotal||0)+'</td></tr>'); }
-    html.push('</tbody></table>');
-    html.push('<div class="signs"><div>Entregó (ARGOZMX)</div><div>Recibió (Maquilador)</div></div>');
-
-    // DEVOLUCIÓN
-    html.push('<h2>Devolución del maquilador</h2>');
-    html.push('<div class="row"><div class="col"><b>Fecha:</b> '+escapeHTML(ot.devolucion.fecha||'')+' '+escapeHTML(ot.devolucion.hora||'')+'</div><div class="col"><b>Comentarios devolución:</b> '+escapeHTML(ot.devolucion.comentarios||'')+'</div></div>');
-    html.push('<table><thead><tr><th style="width:5%">#</th><th style="width:18%">Material</th><th style="width:26%">Detalle</th><th style="width:8%">Unidad</th><th style="width:12%">Cantidad</th><th style="width:16%">Precio tipo</th><th style="width:10%">Precio</th><th style="width:15%">Subtotal</th></tr></thead><tbody>');
-    for(i=0;i<ot.devolucion.lineas.length;i++){ var lo=ot.devolucion.lineas[i]; html.push('<tr><td>'+(i+1)+'</td><td>'+nombreMaterial(lo.materialId)+'</td><td>'+escapeHTML(lo.detalle||'')+'</td><td>'+escapeHTML(lo.unidad||'g')+'</td><td>'+f2(lo.cant||0)+'</td><td>'+escapeHTML((lo.precioTipo||'').replace('_',' '))+'</td><td>'+f2(lo.precio||0)+'</td><td>'+f2(lo.subtotal||0)+'</td></tr>'); }
-    html.push('</tbody></table>');
-    if(tieneDev){ html.push('<div class="row"><div class="col"><b>MERMA:</b> '+f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)</div><div class="col"><b>DIF:</b> '+(dif>=0?'+':'')+f2(dif)+' g</div></div>'); }
-
-    // Leyenda legal básica (depósito mercantil + pena convencional)
-    html.push('<h2>Reconocimiento y obligaciones</h2>');
-    html.push('<p style="font-size:11px;line-height:1.4">RECONOCIMIENTO DE RECEPCIÓN Y OBLIGACIONES DEL MAQUILADOR. Yo, ___________________________, con domicilio en ___________________________, declaro que recibí en depósito mercantil de ARGOZMX los materiales descritos en la presente Orden de Trabajo (OT Folio '+String(ot.folio).padStart(3,'0')+'), obligándome a su conservación y devolución en la fecha promesa, en las cantidades y calidades indicadas, realizando únicamente los procesos descritos. Reconozco que soy responsable por menoscabos, daños o pérdidas causados por malicia o negligencia. En caso de faltante a la entrega (gramos o piezas no devueltos), pagaré su valor a $________ por gramo/pieza, además de una pena convencional equivalente al ______% del valor del faltante. Asimismo, reconozco adeudar a ARGOZMX el precio pactado por los procesos: $________ por (gramo/pieza/proceso fijo), pagadero a la entrega.</p>');
-    html.push('<div class="signs"><div>Nombre y firma del maquilador (depositario)</div><div>Nombre y firma quien entrega (ARGOZMX)</div></div>');
-
-    html.push('</body></html>');
-    w.document.write(html.join(''));
-    w.document.close();
-    try{ w.focus(); w.print(); }catch(e){}
-  }
-  function compartirWhatsAppOT(ot){ imprimirPDFOT(ot,false); toast('Guarda el PDF y compártelo por WhatsApp.'); }
-  function cargarEvidenciaOT(ot, file){ var r=new FileReader(); r.onload=function(e){ ot.evidencia=e.target.result; saveDB(DB); toast('Foto cargada.'); }; r.readAsDataURL(file); }
-
-// ===================  FIN MÓDULO: PRODUCCIÓN → MAQUILADORES  ===================
+/* ====== FIN MÓDULO MAQUILADORES v2.6.0 ====== */
 
 })();
