@@ -1940,7 +1940,7 @@ function imprimirPDFMaquila(ot, isDraft){
 /* ===== FIN MÓDULO MAQUILADORES v2.8.0 ===== */
 
 /* ================================================================
-   ADMINISTRACIÓN v1.5 — Gastos + Conciliación con semáforos globales
+   ADMINISTRACIÓN v1.6 — Gastos + Conciliación (negativos OK)
    ➜ Pegar DENTRO del IIFE de app.js, justo antes del último `})();`
 ================================================================ */
 
@@ -1968,9 +1968,9 @@ function imprimirPDFMaquila(ot, isDraft){
     DB.admin = {
       consecutivoGasto: 0,
       consecutivoConc: 0,
-      gastos: [],        // {id, folio, ts, tipo, fecha, cuentaId, cuentaContableId, monto, bloqueado, ...}
-      ingresos: [],      // {id, ts, fecha, cuentaId, concepto, monto, conciliado}
-      conciliaciones: [],// {id, folio, ts, cuentaId, desde, hasta, saldoInicial, ingresos, egresos, saldoEsperado, saldoReal, diferencia, bloqueado, movs...}
+      gastos: [],
+      ingresos: [],
+      conciliaciones: [],
       cuentas: [
         { id:'caja_plata',   nombre:'Caja de Plata', saldo:0 },
         { id:'caja_general', nombre:'Caja General',  saldo:0 },
@@ -2001,7 +2001,14 @@ function imprimirPDFMaquila(ot, isDraft){
 
 /* --------------------- Utilidades locales Admin --------------------- */
 function moneyFmt(n){ return '$ ' + (Number(n||0)).toFixed(2); }
-function moneyParse(s){ return isNaN(s) ? parseFloat(String(s||'').replace(/[^\d.-]/g,''))||0 : Number(s); }
+function moneyParse(s){
+  if(typeof s === 'number') return s;
+  var raw = String(s||'').replace(/\s/g,'');
+  // Permitir prefijo $ y coma como separador de miles; preservar signo negativo
+  raw = raw.replace(/^\$/, '').replace(/,/g,'');
+  var n = parseFloat(raw);
+  return isNaN(n) ? 0 : n;
+}
 function nextGastoId(){ DB.admin.consecutivoGasto+=1; saveDB(DB); return 'G'+Date.now()+'-'+DB.admin.consecutivoGasto; }
 function nextConcFolio(){ DB.admin.consecutivoConc+=1; saveDB(DB); return DB.admin.consecutivoConc; }
 function nextId(prefix){ return (prefix||'X')+Date.now()+Math.floor(Math.random()*1000); }
@@ -2010,7 +2017,7 @@ function ctaContNombre(id){ var c=DB.admin.cuentasContables.find(function(x){ret
 
 /* Semáforo (gasto): verde cuando campos obligatorios completos */
 function gastoSemaforo(g){
-  var okMonto = Number(g.monto||0) > 0;
+  var okMonto = Number(g.monto||0) !== 0; // permitir negativos, pero ≠ 0
   var okCC    = !!g.cuentaContableId;
   if(!okMonto || !okCC) return {icon:'🔴', color:'#ef4444', label:'Incompleto'};
   return {icon:'🟢', color:'#16a34a', label:'Completo'};
@@ -2265,7 +2272,7 @@ function adminGastoAbrir(id){
     }
     bGuardar.addEventListener('click', function(){
       if(!g.cuentaContableId){ alert('Selecciona la cuenta contable.'); return; }
-      if(Number(g.monto||0)<=0){ alert('Captura un monto mayor a cero.'); return; }
+      if(Number(g.monto||0)===0){ alert('Captura un monto distinto de cero (se permiten negativos).'); return; }
       if(g.tipo==='pagado' && !g.cuentaId){ alert('En “Pagado”, la cuenta de pago es obligatoria.'); return; }
       g.bloqueado=true; saveDB(DB);
       alert('Gasto guardado con éxito. Folio '+String(g.folio).toString().padStart(3,'0'));
@@ -2311,16 +2318,19 @@ function adminGastoAbrir(id){
     sCC.addEventListener('change', function(){ g.cuentaContableId=sCC.value; saveDB(DB); refreshSem(); });
     dCC.appendChild(lCC); dCC.appendChild(sCC); head.appendChild(dCC);
 
-    // Monto: formato vivo + verde
+    // Monto: acepta negativos; formatea SOLO en blur
     var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Monto';
     var iM=document.createElement('input'); iM.type='text'; iM.value=moneyFmt(g.monto||0); iM.style.fontWeight='800'; iM.style.color='#059669';
-    function formatLive(){
-      var val = moneyParse(iM.value);
-      if(isNaN(val)) val = 0;
-      iM.value = moneyFmt(val);
-    }
-    iM.addEventListener('input', function(){ formatLive(); g.monto=moneyParse(iM.value); saveDB(DB); refreshSem(); });
-    iM.addEventListener('blur', function(){ formatLive(); g.monto=moneyParse(iM.value); saveDB(DB); refreshSem(); });
+    iM.addEventListener('input', function(){
+      // No forzar formato; permitir "-", "-.", etc.
+      g.monto = moneyParse(iM.value);
+      saveDB(DB); refreshSem();
+    });
+    iM.addEventListener('blur', function(){
+      iM.value = moneyFmt(moneyParse(iM.value));
+      g.monto = moneyParse(iM.value);
+      saveDB(DB); refreshSem();
+    });
     dM.appendChild(lM); dM.appendChild(iM); head.appendChild(dM);
 
     headRow.appendChild(head);
@@ -2501,11 +2511,9 @@ function adminConciliacion(){
     var barra=document.createElement('div'); barra.className='actions';
     var saldoRealWrap=document.createElement('div'); var lSR=document.createElement('label'); lSR.textContent='Saldo real contado/estado bancario';
     var iSaldoReal=document.createElement('input'); iSaldoReal.type='text'; iSaldoReal.placeholder='$ 0.00';
-    function liveMoneyInput(inp){
-      inp.addEventListener('input', function(){ inp.value=moneyFmt(moneyParse(inp.value)); updateSemaforo(); });
-      inp.addEventListener('blur',  function(){ inp.value=moneyFmt(moneyParse(inp.value)); updateSemaforo(); });
-    }
-    liveMoneyInput(iSaldoReal);
+    // Aceptar negativos: NO formatear en input, SOLO en blur
+    iSaldoReal.addEventListener('input', function(){ /* permitir -, -., etc. */ updateSemaforo(); });
+    iSaldoReal.addEventListener('blur', function(){ iSaldoReal.value = moneyFmt(moneyParse(iSaldoReal.value)); updateSemaforo(); });
     saldoRealWrap.appendChild(lSR); saldoRealWrap.appendChild(iSaldoReal);
     barra.appendChild(saldoRealWrap);
 
@@ -2514,6 +2522,7 @@ function adminConciliacion(){
       if(canEdit){ right.appendChild(bGuardar); }
       else { right.appendChild(bEditar); }
     }
+    var current=null;
     bEditar.addEventListener('click', function(){
       if(!current){ return; }
       current.bloqueado=false; saveDB(DB);
@@ -2527,8 +2536,6 @@ function adminConciliacion(){
     card.appendChild(barra);
 
     host.appendChild(card);
-
-    var current=null; // conciliación en edición (si existe)
 
     function setTitle(conc){
       var title = 'Conciliación de caja / cuenta';
@@ -2584,12 +2591,10 @@ function adminConciliacion(){
       resumen.appendChild(chip('Egresos: '+moneyFmt(sumEg)));
       resumen.appendChild(chip('Saldo esperado: '+moneyFmt(saldoEsperado)));
 
-      // Guarda handler con cierre sobre cálculos
       bGuardar.onclick = function(){
         var real = moneyParse(iSaldoReal.value||'0');
         var dif = real - saldoEsperado;
 
-        // Marca conciliados al guardar (ingresos/gastos del periodo)
         ins.forEach(function(m){ m.conciliado=true; });
         egs.forEach(function(g){ g.conciliado=true; });
 
@@ -2621,7 +2626,6 @@ function adminConciliacion(){
         setConcSemaforo(dif===0?'#16a34a':'#f59e0b', dif===0?'Conciliado':'Por conciliar', dif===0?'🟢':'🟡');
       };
 
-      // Actualiza semáforo global en vivo según saldo real tipeado
       updateSemaforo = function(){
         var real = moneyParse(iSaldoReal.value||'0');
         var dif = real - saldoEsperado;
@@ -2629,7 +2633,6 @@ function adminConciliacion(){
         setConcSemaforo(dif===0?'#16a34a':'#f59e0b', dif===0?'Conciliado':'Por conciliar', dif===0?'🟢':'🟡');
       };
 
-      // si hay conciliación previa bloqueada cargada (no la cargamos auto; se crea al guardar)
       renderRight(true);
       lockUI(false);
       setTitle(null);
@@ -2670,6 +2673,6 @@ function adminConciliacion(){
 
 /* ======================= FIN MÓDULO ADMINISTRACIÓN ======================= */
 
-
+   
 })();
 
