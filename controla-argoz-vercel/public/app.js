@@ -2673,6 +2673,369 @@ function adminConciliacion(){
 
 /* ======================= FIN MÓDULO ADMINISTRACIÓN ======================= */
 
+/* ================================================================
+   MÓDULO: VENTAS v1.0
+   - Submenú (+ Nueva venta | Ventas abiertas | Historial)
+   - Hoja de trabajo de Venta con factor de plata (saldo en metal)
+   - PDF presentable para cliente
+   - Botonera: Nuevo | Imprimir | WhatsApp | Guardar/Editar (lock)
+   ➜ Pegar dentro del IIFE de app.js, antes del último "})();"
+=================================================================*/
+
+/* ---------- Estado en DB ---------- */
+(function ensureVentasState(){
+  if(!DB.ventas){ DB.ventas = []; }
+  if(typeof DB.folioVenta !== 'number'){ DB.folioVenta = 0; }
+  saveDB(DB);
+})();
+
+/* ---------- Inyector de botón lateral (si faltara) ---------- */
+(function injectVentasButton(){
+  var aside = document.querySelector('.left');
+  if(!aside) return;
+  if(aside.querySelector('[data-root="ventas"]')) return; // ya existe
+  var btn = document.createElement('button');
+  btn.className = 'side-item tree-btn';
+  btn.setAttribute('data-root','ventas');
+  btn.textContent = '🧾 Ventas';
+  // lo insertamos donde solía ir
+  var ref = aside.querySelector('.tree-btn[data-root="inventarios"]');
+  if(ref && ref.parentNode){ ref.parentNode.insertBefore(btn, ref.nextSibling); }
+  else { aside.appendChild(btn); }
+})();
+
+/* ---------- Hook al renderSubmenu para VENTAS ---------- */
+(function patchRenderSubmenu_Ventas(){
+  var _orig = renderSubmenu;
+  renderSubmenu = function(root){
+    if(String(root||'').toLowerCase()!=='ventas'){ _orig(root); return; }
+
+    var host = qs('#subpanel'); if(!host) return;
+    host.innerHTML = '';
+
+    var card = document.createElement('div'); card.className='card';
+    var h2 = document.createElement('h2'); h2.textContent = 'Ventas'; card.appendChild(h2);
+
+    var list = document.createElement('div'); list.className='actions'; list.style.flexDirection='column'; list.style.alignItems='stretch';
+
+    function mkBtn(txt, icon, fn){
+      var b = document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
+      b.innerHTML = icon+' '+txt; b.addEventListener('click', fn); return b;
+    }
+    list.appendChild(mkBtn('+ Nueva venta','➕', function(){ abrirVentaNueva(); }));
+    list.appendChild(mkBtn('Ventas abiertas','📂', function(){ listarVentas(false); }));
+    list.appendChild(mkBtn('Historial','📜', function(){ listarVentas(true); }));
+
+    card.appendChild(list);
+    host.appendChild(card);
+
+    // Por defecto mostramos abiertas
+    listarVentas(false);
+  };
+})();
+
+/* ---------- Utilidades ---------- */
+function nextVentaId(){
+  DB.folioVenta += 1; saveDB(DB);
+  return { id: 'V'+Date.now(), folio: DB.folioVenta };
+}
+function v_money(n){ return '$ ' + (Number(n||0)).toFixed(2); }
+function v_num(n){ return (Number(n||0)).toFixed(2); }
+
+/* Totales de líneas */
+function ventaCalcularTotales(v){
+  var pz=0, gr=0, sub=0, desc=0, neto=0;
+  (v.lineas||[]).forEach(function(li){
+    var precio = Number(li.precio||0);
+    var base = Number(li.gramos||0); // cobro por gramo (simple y claro)
+    var imp = base * precio;
+    var d = Math.min(Math.max(Number(li.desc||0),0),100);
+    var dMonto = imp * (d/100);
+    var net = imp - dMonto;
+
+    li._importe = net;
+    pz += Number(li.piezas||0);
+    gr += Number(li.gramos||0);
+    sub += imp;
+    desc += dMonto;
+    neto += net;
+  });
+  v.totales = { piezas:pz, gramos:gr, subtotal:sub, descuento:desc, total:neto };
+  // saldos: dinero y metal
+  var factor = Number(v.factorPlata||0);
+  v.saldoDinero = neto;
+  v.saldoPlataGr = gr * Math.max(factor,0); // 0 = sólo mano de obra
+}
+
+/* ---------- Crear / listar ---------- */
+function nuevaVentaBase(){
+  var nx = nextVentaId();
+  var obj = {
+    id: nx.id,
+    folio: nx.folio,
+    fecha: hoyStr(),
+    cliente: '',
+    comentarios: '',
+    factorPlata: 0, // 0 = sólo MO; 1 = 1:1; permite decimales
+    cerrado: false,
+    lineas: [
+      { codigo:'', descripcion:'', piezas:0, gramos:0, precio:0, desc:0 },
+      { codigo:'', descripcion:'', piezas:0, gramos:0, precio:0, desc:0 },
+      { codigo:'', descripcion:'', piezas:0, gramos:0, precio:0, desc:0 }
+    ],
+    totales: { piezas:0, gramos:0, subtotal:0, descuento:0, total:0 },
+    saldoDinero: 0,
+    saldoPlataGr: 0
+  };
+  ventaCalcularTotales(obj);
+  DB.ventas.push(obj); saveDB(DB);
+  return obj.id;
+}
+function abrirVentaNueva(){ var id = nuevaVentaBase(); abrirVenta(id, false); }
+
+function listarVentas(cerradas){
+  var host = qs('#subpanel'); if(!host) return;
+  var list = document.createElement('div'); list.className='card';
+  var h = document.createElement('h2'); h.textContent = cerradas?'Historial de ventas':'Ventas abiertas'; list.appendChild(h);
+
+  var tbl=document.createElement('table');
+  var thead=document.createElement('thead'); var trh=document.createElement('tr');
+  ['Folio','Fecha','Cliente','Factor Plata','Total $','Saldo Plata (gr)','Estatus','Acciones'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+  thead.appendChild(trh); tbl.appendChild(thead);
+  var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+
+  DB.ventas.slice().sort(function(a,b){ return b.folio - a.folio; }).forEach(function(v){
+    if(!!v.cerrado !== !!cerradas) return;
+    ventaCalcularTotales(v);
+    var tr=document.createElement('tr');
+    function td(t){ var d=document.createElement('td'); d.textContent=t; return d; }
+    tr.appendChild(td(String(v.folio).padStart(3,'0')));
+    tr.appendChild(td(v.fecha||''));
+    tr.appendChild(td(v.cliente||''));
+    tr.appendChild(td(v_num(v.factorPlata)));
+    tr.appendChild(td(v_money(v.saldoDinero)));
+    tr.appendChild(td(v_num(v.saldoPlataGr)));
+    tr.appendChild(td(v.cerrado?'Cerrada':'Abierta'));
+    var tda=document.createElement('td');
+    var b=document.createElement('button'); b.className='btn'; b.textContent = v.cerrado?'Ver PDF':'Abrir';
+    b.addEventListener('click', function(){ v.cerrado ? imprimirPDFVenta(v,false) : abrirVenta(v.id, false); });
+    tda.appendChild(b); tr.appendChild(tda);
+    tbody.appendChild(tr);
+  });
+
+  list.appendChild(tbl);
+  host.appendChild(list);
+}
+
+/* ---------- Editor de Venta ---------- */
+function abrirVenta(id, readOnly){
+  var v = DB.ventas.find(function(x){ return x.id===id; });
+  if(!v){ toast('Venta no encontrada'); return; }
+
+  var tabId = 'venta-'+v.id;
+  var titulo = 'Venta '+String(v.folio).padStart(3,'0');
+
+  openTab(tabId, titulo, function(host){
+    host.innerHTML='';
+
+    // recalcula siempre
+    ventaCalcularTotales(v);
+
+    /* --- Barra superior (iconos izq + Guardar/Editar der) --- */
+    var top = document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
+
+    var left = document.createElement('div'); left.className='actions';
+    var bNuevo=document.createElement('button'); bNuevo.className='btn'; bNuevo.textContent='➕ Nuevo'; 
+    bNuevo.addEventListener('click', function(){ abrirVentaNueva(); });
+    var bPDF=document.createElement('button'); bPDF.className='btn'; bPDF.textContent='🖨️ Imprimir';
+    bPDF.addEventListener('click', function(){ imprimirPDFVenta(v,true); });
+    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='🟢 WhatsApp';
+    bWA.addEventListener('click', function(){ imprimirPDFVenta(v,false); toast('Guarda el PDF y compártelo por WhatsApp.'); });
+    left.appendChild(bNuevo); left.appendChild(bPDF); left.appendChild(bWA);
+
+    var right = document.createElement('div'); right.className='actions';
+    var bGuardar=document.createElement('button');
+    function paintGuardar(){
+      bGuardar.className = v.cerrado ? 'btn' : 'btn-primary';
+      bGuardar.textContent = v.cerrado ? 'Editar' : 'GUARDAR';
+    }
+    paintGuardar();
+    bGuardar.addEventListener('click', function(){
+      if(v.cerrado){
+        v.cerrado=false; saveDB(DB); paintGuardar(); renderForm(); toast('Modo edición habilitado.');
+      }else{
+        // validaciones mínimas
+        if(!v.fecha){ alert('Fecha requerida'); return; }
+        ventaCalcularTotales(v);
+        v.cerrado=true; saveDB(DB); paintGuardar(); renderForm(); toast('Venta guardada y bloqueada.');
+      }
+    });
+    right.appendChild(bGuardar);
+
+    top.appendChild(left); top.appendChild(right);
+    host.appendChild(top);
+
+    /* --- Contenedor del formulario --- */
+    var card = document.createElement('div'); card.className='card';
+    host.appendChild(card);
+
+    function ro(input, lock){
+      if(lock){ input.readOnly=true; input.classList.add('ro'); }
+      else{ input.readOnly=false; input.classList.remove('ro'); }
+    }
+
+    function renderForm(){
+      card.innerHTML='';
+
+      // Header
+      var header=document.createElement('div'); header.className='grid';
+      var dFolio=document.createElement('div'); var lFolio=document.createElement('label'); lFolio.textContent='Folio'; 
+      var iFolio=document.createElement('input'); iFolio.readOnly=true; iFolio.value=String(v.folio).padStart(3,'0'); iFolio.style.color='#b91c1c'; 
+      dFolio.appendChild(lFolio); dFolio.appendChild(iFolio); header.appendChild(dFolio);
+
+      var dFecha=document.createElement('div'); var lFecha=document.createElement('label'); lFecha.textContent='Fecha';
+      var iFecha=document.createElement('input'); iFecha.type='date'; iFecha.value=v.fecha||hoyStr();
+      iFecha.addEventListener('change', function(){ v.fecha=iFecha.value; saveDB(DB); });
+      ro(iFecha, v.cerrado); dFecha.appendChild(lFecha); dFecha.appendChild(iFecha); header.appendChild(dFecha);
+
+      var dCliente=document.createElement('div'); var lCli=document.createElement('label'); lCli.textContent='Cliente';
+      var iCli=document.createElement('input'); iCli.type='text'; iCli.value=v.cliente||'';
+      iCli.addEventListener('input', function(){ v.cliente=iCli.value; saveDB(DB); });
+      ro(iCli, v.cerrado); dCliente.appendChild(lCli); dCliente.appendChild(iCli); header.appendChild(dCliente);
+
+      var dFactor=document.createElement('div'); var lFac=document.createElement('label'); lFac.textContent='Factor de Plata (gr por gr)';
+      var iFac=document.createElement('input'); iFac.type='number'; iFac.step='0.01'; iFac.value=v.factorPlata;
+      iFac.addEventListener('input', function(){ v.factorPlata=parseFloat(iFac.value||'0'); ventaCalcularTotales(v); saveDB(DB); paintChips(); });
+      ro(iFac, v.cerrado); dFactor.appendChild(lFac); dFactor.appendChild(iFac); header.appendChild(dFactor);
+
+      var dCom=document.createElement('div'); var lCom=document.createElement('label'); lCom.textContent='Comentarios';
+      var tCom=document.createElement('textarea'); tCom.value=v.comentarios||'';
+      tCom.addEventListener('input', function(){ v.comentarios=tCom.value; saveDB(DB); });
+      ro(tCom, v.cerrado); dCom.appendChild(lCom); dCom.appendChild(tCom); header.appendChild(dCom);
+
+      card.appendChild(header);
+
+      // Chips (saldos)
+      var chips=document.createElement('div'); chips.className='actions';
+      function pill(txt){ var s=document.createElement('span'); s.className='pill'; s.textContent=txt; return s; }
+      function paintChips(){
+        chips.innerHTML='';
+        ventaCalcularTotales(v);
+        chips.appendChild(pill('PZ: '+v_num(v.totales.piezas)));
+        chips.appendChild(pill('GR: '+v_num(v.totales.gramos)));
+        chips.appendChild(pill('Subtotal: '+v_money(v.totales.subtotal)));
+        chips.appendChild(pill('Desc: '+v_money(v.totales.descuento)));
+        chips.appendChild(pill('Total: '+v_money(v.totales.total)));
+        var metal = v_num(v.saldoPlataGr);
+        var money = v_money(v.saldoDinero);
+        chips.appendChild(pill('Saldo en plata: '+metal+' g'));
+        chips.appendChild(pill('Saldo en dinero: '+money));
+      }
+      paintChips();
+      card.appendChild(chips);
+
+      // Tabla de líneas
+      card.appendChild(tablaLineasVenta({
+        bloqueado: v.cerrado,
+        lineas: v.lineas,
+        onChange: function(){ ventaCalcularTotales(v); saveDB(DB); paintChips(); }
+      }));
+    }
+
+    renderForm();
+  });
+}
+
+/* ---------- Tabla líneas de venta ---------- */
+function tablaLineasVenta(cfg){
+  var wrap=document.createElement('div');
+
+  var actions=document.createElement('div'); actions.className='actions';
+  if(!cfg.bloqueado){
+    var bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea';
+    var bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última';
+    actions.appendChild(bAdd); actions.appendChild(bDel);
+    bAdd.addEventListener('click', function(){ cfg.lineas.push({ codigo:'', descripcion:'', piezas:0, gramos:0, precio:0, desc:0 }); rebuild(); cfg.onChange&&cfg.onChange(); });
+    bDel.addEventListener('click', function(){ if(cfg.lineas.length>1){ cfg.lineas.pop(); rebuild(); cfg.onChange&&cfg.onChange(); } });
+  }
+  wrap.appendChild(actions);
+
+  var table=document.createElement('table');
+  var thead=document.createElement('thead'); var trh=document.createElement('tr');
+  ['Código','Descripción','Piezas','Gramos','$/gr','% Desc','$ Neto'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+  thead.appendChild(trh); table.appendChild(thead);
+  var tbody=document.createElement('tbody');
+
+  function renderRow(li){
+    var tr=document.createElement('tr');
+
+    function mkInput(val, type, step){
+      var i=document.createElement('input'); i.type=type||'text'; if(step) i.step=step;
+      i.value=(type==='number')?Number(val||0):String(val||''); 
+      if(cfg.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      return i;
+    }
+    // Código
+    var td1=document.createElement('td'); var i1=mkInput(li.codigo); i1.addEventListener('input', function(){ li.codigo=i1.value; cfg.onChange&&cfg.onChange(); }); td1.appendChild(i1); tr.appendChild(td1);
+    // Descripción
+    var td2=document.createElement('td'); var i2=mkInput(li.descripcion); i2.addEventListener('input', function(){ li.descripcion=i2.value; cfg.onChange&&cfg.onChange(); }); td2.appendChild(i2); tr.appendChild(td2);
+    // Piezas
+    var td3=document.createElement('td'); var i3=mkInput(li.piezas,'number','1'); i3.addEventListener('input', function(){ li.piezas=parseFloat(i3.value||'0'); cfg.onChange&&cfg.onChange(); }); td3.appendChild(i3); tr.appendChild(td3);
+    // Gramos
+    var td4=document.createElement('td'); var i4=mkInput(li.gramos,'number','0.01'); i4.addEventListener('input', function(){ li.gramos=parseFloat(i4.value||'0'); cfg.onChange&&cfg.onChange(); }); td4.appendChild(i4); tr.appendChild(td4);
+    // $/gr
+    var td5=document.createElement('td'); var i5=mkInput(li.precio,'number','0.01'); i5.addEventListener('input', function(){ li.precio=parseFloat(i5.value||'0'); cfg.onChange&&cfg.onChange(); }); td5.appendChild(i5); tr.appendChild(td5);
+    // % desc
+    var td6=document.createElement('td'); var i6=mkInput(li.desc,'number','0.01'); i6.addEventListener('input', function(){ li.desc=parseFloat(i6.value||'0'); cfg.onChange&&cfg.onChange(); }); td6.appendChild(i6); tr.appendChild(td6);
+    // Neto (read-only)
+    var td7=document.createElement('td'); var i7=mkInput(li._importe||0,'text'); i7.readOnly=true; i7.classList.add('ro'); i7.value=v_money(li._importe||0); td7.appendChild(i7); tr.appendChild(td7);
+
+    tbody.appendChild(tr);
+  }
+
+  function rebuild(){ tbody.innerHTML=''; cfg.lineas.forEach(renderRow); }
+  rebuild();
+
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+/* ---------- PDF ---------- */
+function imprimirPDFVenta(v, isDraft){
+  ventaCalcularTotales(v);
+
+  var css='@page{size:Letter;margin:12mm}body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;color:#0f172a}h1{margin:4px 0;color:#0a2c4c}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #e5e7eb;padding:4px 6px;word-break:break-word}thead tr{background:#e7effa}.row{display:flex;gap:8px;margin:6px 0}.col{flex:1}.chips{margin:6px 0}.chip{background:#f1f5f9;border-radius:14px;padding:4px 8px;font-weight:700;margin-right:6px}.water{position:fixed;top:40%;left:18%;font-size:52px;color:#94a3b880;transform:rotate(-18deg);}';
+  var H=[];
+  H.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Venta '+String(v.folio).padStart(3,'0')+'</title><style>'+css+'</style></head><body>');
+  if(isDraft){ H.push('<div class="water">BORRADOR</div>'); }
+  H.push('<div class="row"><div class="col" style="max-width:140px"><img src="/logo.webp" style="max-width:100%;max-height:64px;object-fit:contain"></div><div class="col"><h1>NOTA DE VENTA</h1></div></div>');
+  H.push('<div class="row"><div class="col"><b>Folio:</b> '+String(v.folio).padStart(3,'0')+'</div><div class="col"><b>Fecha:</b> '+(v.fecha||'')+'</div><div class="col"><b>Cliente:</b> '+escapeHTML(v.cliente||'')+'</div><div class="col"><b>Factor Plata:</b> '+v_num(v.factorPlata)+'</div></div>');
+  H.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(v.comentarios||'')+'</div></div>');
+
+  H.push('<div class="chips">');
+  H.push('<span class="chip">PZ: '+v_num(v.totales.piezas)+'</span>');
+  H.push('<span class="chip">GR: '+v_num(v.totales.gramos)+'</span>');
+  H.push('<span class="chip">Subtotal: '+v_money(v.totales.subtotal)+'</span>');
+  H.push('<span class="chip">Descuento: '+v_money(v.totales.descuento)+'</span>');
+  H.push('<span class="chip">Total: '+v_money(v.totales.total)+'</span>');
+  H.push('<span class="chip">Saldo en plata: '+v_num(v.saldoPlataGr)+' g</span>');
+  H.push('<span class="chip">Saldo en dinero: '+v_money(v.saldoDinero)+'</span>');
+  H.push('</div>');
+
+  H.push('<table><thead><tr><th style="width:8%">Código</th><th>Descripción</th><th style="width:8%">Pz</th><th style="width:12%">Gr</th><th style="width:12%">$/gr</th><th style="width:10%">% Desc</th><th style="width:14%">$ Neto</th></tr></thead><tbody>');
+  (v.lineas||[]).forEach(function(li,idx){
+    H.push('<tr><td>'+escapeHTML(li.codigo||'')+'</td><td>'+escapeHTML(li.descripcion||'')+'</td><td>'+v_num(li.piezas||0)+'</td><td>'+v_num(li.gramos||0)+'</td><td>'+v_money(li.precio||0)+'</td><td>'+v_num(li.desc||0)+'</td><td>'+v_money(li._importe||0)+'</td></tr>');
+  });
+  H.push('</tbody></table>');
+
+  H.push('</body></html>');
+  var html=H.join('');
+  var w=window.open('', '_blank', 'width=840,height=900');
+  if(!w){ alert('Permite pop-ups para imprimir.'); return; }
+  w.document.write(html); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
+}
+
    
 })();
 
