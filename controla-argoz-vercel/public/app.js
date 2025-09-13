@@ -1958,457 +1958,405 @@ function imprimirPDFMaquila(ot, isDraft){
     var v = document.getElementById('view-'+id);
     if(v) v.classList.add('active');
   });
+
+/* ================================================================
+   ADMINISTRACIÓN v1.0 — submenú + hoja de trabajo: GASTOS
+   ➜ Pegar DENTRO del IIFE de app.js, justo antes del último `})();`
+   - Soporta roots: 'admin' | 'administracion' | 'Administración'
+   - Corrige clic en pestañas (activa la vista correcta)
+=================================================================*/
+
+/* ---- PARCHE DE PESTAÑAS (click = activa su vista) ---- */
+(function fixTabClicks(){
+  var tabsHost = document.getElementById('tabs');
+  if(!tabsHost || tabsHost.__patchedAdmin) return;
+  tabsHost.__patchedAdmin = true;
+  tabsHost.addEventListener('click', function(e){
+    var tab = e.target.closest('.tab');
+    if(!tab || e.target.classList.contains('x')) return;
+    var id = tab.getAttribute('data-tab');
+    if(!id) return;
+    // Activa pestaña
+    Array.prototype.forEach.call(tabsHost.querySelectorAll('.tab'), function(t){ t.classList.remove('active'); });
+    tab.classList.add('active');
+    // Activa vista
+    var viewsHost = document.getElementById('views');
+    Array.prototype.forEach.call(viewsHost.querySelectorAll('.view'), function(v){ v.classList.remove('active'); });
+    var v = document.getElementById('view-'+id);
+    if(v) v.classList.add('active');
+  });
 })();
 
-/* ======================== MÓDULO: ADMINISTRACIÓN v0.3 ===========================
-   - Submenú Administración (Dashboard, Estado de Resultados, Gastos, Conciliación de Cajas)
-   - Hoja de trabajo: GASTOS (Registrar/editar, tipos Pagado/Por pagar/Recurrente, semáforo)
-   - Evidencia (foto), formato de dinero con $ y 2 decimales
-   - Cuenta de pago obligatoria SOLO en Pagado; Cuenta contable obligatoria en todos
-   Dependencias: qs, qsa, openTab, saveDB, DB (obj principal), hoyStr(), f2()
-=================================================================================*/
-
-/* ---------- Estado/persistencia ---------- */
-(function ensureAdminDB(){
-  if(!window.DB) return;
+/* ---- Estado/persistencia mínima de Administración ---- */
+(function ensureAdminState(){
   if(!DB.admin){
     DB.admin = {
       consecutivoGasto: 0,
       gastos: [],
       cuentas: [
-        { id:'caja_plata', nombre:'Caja de Plata', saldo:0 },
-        { id:'caja_general', nombre:'Caja General', saldo:0 },
-        { id:'banco_mxn', nombre:'Banco MXN', saldo:0 }
+        { id:'caja_plata',   nombre:'Caja de Plata', saldo:0 },
+        { id:'caja_general', nombre:'Caja General',  saldo:0 },
+        { id:'banco_mxn',    nombre:'Banco MXN',     saldo:0 }
       ],
-      // plan de cuentas simple (puedes editar/expandirlo luego)
       cuentasContables: [
-        { id:'renta', nombre:'Renta' },
-        { id:'servicios', nombre:'Servicios (luz/agua/internet)' },
-        { id:'intereses', nombre:'Intereses' },
-        { id:'papeleria', nombre:'Papelería' },
-        { id:'mantenimiento', nombre:'Mantenimiento' },
-        { id:'honorarios', nombre:'Honorarios' },
-        { id:'transporte', nombre:'Transporte / Envíos' },
-        { id:'viaticos', nombre:'Viáticos' },
-        { id:'publicidad', nombre:'Publicidad y Marketing' },
-        { id:'otros', nombre:'Otros gastos' }
+        { id:'renta',        nombre:'Renta' },
+        { id:'servicios',    nombre:'Servicios (luz/agua/internet)' },
+        { id:'intereses',    nombre:'Intereses' },
+        { id:'papeleria',    nombre:'Papelería' },
+        { id:'mantenimiento',nombre:'Mantenimiento' },
+        { id:'honorarios',   nombre:'Honorarios' },
+        { id:'transporte',   nombre:'Transporte / Envíos' },
+        { id:'viaticos',     nombre:'Viáticos' },
+        { id:'publicidad',   nombre:'Publicidad / Marketing' },
+        { id:'otros',        nombre:'Otros gastos' }
       ]
     };
     saveDB(DB);
   }
 })();
 
-/* ---------- Hook: agrega "Administración" al menú lateral (si no existe) ---------- */
-(function injectAdminRoot(){
+/* ---- Inyector del botón lateral (si no existe) ---- */
+(function injectAdminButton(){
   var aside = document.querySelector('.left');
   if(!aside) return;
-  if(aside.querySelector('[data-root="admin"]')) return;
+  if(aside.querySelector('[data-root="administracion"], [data-root="Administración"], [data-root="admin"]')) return;
   var btn = document.createElement('button');
   btn.className = 'side-item tree-btn';
-  btn.setAttribute('data-root','admin');
+  btn.setAttribute('data-root','administracion');
   btn.textContent = '🗄️ Administración';
-  // lo insertamos antes de Catálogo para mantener estilo
   var ref = aside.querySelector('.tree-btn[data-root="catalogo"]');
   if(ref && ref.parentNode){ ref.parentNode.insertBefore(btn, ref); }
   else { aside.appendChild(btn); }
 })();
 
-/* ---------- Parchea renderSubmenu para soportar "admin" ---------- */
-(function patchRenderSubmenuForAdmin(){
-  var _orig = window.renderSubmenu;
-  window.renderSubmenu = function(root){
-    if(root !== 'admin'){ _orig && _orig(root); return; }
-    var host = document.getElementById('subpanel'); if(!host) return;
+/* ---- Utilidades locales ---- */
+function moneyFmt(n){ return '$ ' + (Number(n||0)).toFixed(2); }
+function moneyParse(s){ return isNaN(s) ? parseFloat(String(s||'').replace(/[^\d.-]/g,''))||0 : Number(s); }
+function nextGastoId(){ DB.admin.consecutivoGasto+=1; saveDB(DB); return 'G'+Date.now()+'-'+DB.admin.consecutivoGasto; }
+function estadoSemaforo(g){
+  var okMonto = Number(g.monto||0) > 0;
+  var okCC    = !!g.cuentaContableId;
+  if(!okMonto || !okCC) return 'rojo';
+  if(g.tipo==='pagado'){ return g.cuentaId ? (g.conciliado?'verde':'amarillo') : 'rojo'; }
+  if(g.tipo==='por_pagar'){ return g.pagado ? (g.conciliado?'verde':'amarillo') : 'amarillo'; }
+  if(g.tipo==='recurrente'){ return g.conciliado?'verde':'amarillo'; }
+  return 'rojo';
+}
+function semaforoNode(estado){
+  var c = '#ef4444', icon='🔴';
+  if(estado==='amarillo'){ c='#f59e0b'; icon='🟡'; }
+  if(estado==='verde'){ c='#16a34a'; icon='🟢'; }
+  var div=document.createElement('div');
+  div.style.fontSize='30px'; div.style.fontWeight='800'; div.style.color=c;
+  div.textContent = icon+' Semáforo: '+estado.toUpperCase();
+  return div;
+}
+
+/* ---- PARCHA renderSubmenu para abrir el submódulo Administración ---- */
+(function patchRenderSubmenu_Admin(){
+  var _orig = renderSubmenu;
+  renderSubmenu = function(root){
+    var r = String(root||'').toLowerCase();
+    if(r!=='admin' && r!=='administracion' && r!=='administración'){ _orig(root); return; }
+
+    var host = qs('#subpanel'); if(!host) return;
     host.innerHTML = '';
 
-    // Panel de árbol (submenú) como en tu diseño
+    // Panel del submenú (izquierda-centro) — mismo formato que el resto
     var card = document.createElement('div'); card.className='card';
-    var h2 = document.createElement('h2'); h2.textContent='Administración'; card.appendChild(h2);
+    var h2 = document.createElement('h2'); h2.textContent = 'Administración'; card.appendChild(h2);
 
-    var tree = document.createElement('div'); tree.className='actions'; tree.style.flexDirection='column'; tree.style.alignItems='stretch';
+    var list = document.createElement('div'); list.className='actions'; list.style.flexDirection='column'; list.style.alignItems='stretch';
 
-    function mkBtn(text, icon, fn){
+    function nodeBtn(txt, icon, fn){
       var b = document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
-      b.innerHTML = icon+' '+text;
+      b.innerHTML = icon+' '+txt;
       b.addEventListener('click', fn);
       return b;
     }
 
-    tree.appendChild(mkBtn('Dashboard', '📊', function(){ adminRenderDashboard(); }));
-    tree.appendChild(mkBtn('Estado de Resultados', '📑', function(){ adminRenderEResultados(); }));
-    tree.appendChild(mkBtn('Gastos', '💸', function(){ adminRenderGastos(); }));
-    tree.appendChild(mkBtn('Conciliación de Cajas', '🧾', function(){ adminRenderConciliacion(); }));
+    list.appendChild(nodeBtn('Dashboard',              '📊', function(){ adminDashboard(); }));
+    list.appendChild(nodeBtn('Estado de Resultados',   '📑', function(){ adminER(); }));
+    list.appendChild(nodeBtn('Gastos',                 '💸', function(){ adminGastos(); }));
+    list.appendChild(nodeBtn('Conciliación de Cajas',  '🧾', function(){ adminConciliacion(); }));
 
-    card.appendChild(tree);
+    card.appendChild(list);
     host.appendChild(card);
 
-    // Abrimos por defecto GASTOS (puedes cambiar a Dashboard si prefieres)
-    adminRenderGastos();
+    // Abre por defecto la hoja de trabajo de GASTOS en la derecha
+    adminGastos();
   };
 })();
 
-/* ----------------------- UTILIDADES DE ADMIN ----------------------- */
-function dineroFmt(n){
-  var v = isNaN(n) ? 0 : Number(n);
-  return '$ ' + v.toFixed(2);
-}
-function parseDinero(s){
-  // acepta "$ 1,234.50" o "1234.5"
-  if(typeof s === 'number') return s;
-  var t = String(s||'').replace(/[^\d.-]/g,'');
-  var n = parseFloat(t);
-  return isNaN(n) ? 0 : n;
-}
-function adminNuevaIdGasto(){
-  DB.admin.consecutivoGasto += 1;
-  saveDB(DB);
-  return 'G'+Date.now()+'-'+DB.admin.consecutivoGasto;
-}
-function adminSemaforoEstado(g){
-  // Rojo: faltan obligatorios / monto 0
-  // Amarillo: por pagar (no conciliado) o pagado sin conciliar
-  // Verde: pagado y conciliado (o por pagar marcado pagado)
-  var montoOK = (parseFloat(g.monto||0) > 0);
-  var cuentaContOK = !!g.cuentaContableId;
-  if(!montoOK || !cuentaContOK) return 'rojo';
-  if(g.tipo==='pagado'){
-    if(!g.cuentaId) return 'rojo';
-    return g.conciliado ? 'verde' : 'amarillo';
-  }
-  if(g.tipo==='por_pagar'){
-    return g.pagado ? (g.conciliado ? 'verde' : 'amarillo') : 'amarillo';
-  }
-  if(g.tipo==='recurrente'){
-    // recurrente activo: amarillo hasta que cada ocurrencia se concilie
-    return g.conciliado ? 'verde' : 'amarillo';
-  }
-  return 'rojo';
-}
-function adminSemaforoHTML(estado){
-  var color = '#ef4444', emoji='🔴';
-  if(estado==='amarillo'){ color='#f59e0b'; emoji='🟡'; }
-  if(estado==='verde'){ color='#16a34a'; emoji='🟢'; }
-  var el = document.createElement('div');
-  el.style.fontSize='32px'; el.style.fontWeight='800'; el.style.color=color; el.textContent=emoji+' Semáforo: '+estado.toUpperCase();
-  return el;
-}
-
-/* ----------------------- SUBMÓDULO: DASHBOARD (placeholder) ----------------------- */
-function adminRenderDashboard(){
-  var id='admin-dashboard';
-  openTab(id, 'Admin · Dashboard', function(host){
+/* ========================== SUBMÓDULOS ========================== */
+function adminDashboard(){
+  openTab('admin-dash','Admin · Dashboard', function(host){
     host.innerHTML='';
-    var card = document.createElement('div'); card.className='card';
-    var h = document.createElement('h2'); h.textContent='Dashboard Administrativo'; card.appendChild(h);
-    var p = document.createElement('p'); p.textContent='(Aquí luego pondremos KPIs, tarjetas y gráficas)'; card.appendChild(p);
-    host.appendChild(card);
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Dashboard Administrativo'; c.appendChild(h);
+    var p=document.createElement('p'); p.textContent='(KPIs aquí próximamente)'; c.appendChild(p);
+    host.appendChild(c);
   });
 }
 
-/* ----------------------- SUBMÓDULO: ESTADO DE RESULTADOS (placeholder) ----------------------- */
-function adminRenderEResultados(){
-  var id='admin-eres';
-  openTab(id, 'Admin · Estado de Resultados', function(host){
+function adminER(){
+  openTab('admin-er','Admin · Estado de Resultados', function(host){
     host.innerHTML='';
-    var card = document.createElement('div'); card.className='card';
-    var h = document.createElement('h2'); h.textContent='Estado de Resultados (quincenal / por periodo)'; card.appendChild(h);
-    var p = document.createElement('p'); p.textContent='(En la siguiente iteración leeremos ventas/costos y gastos para mostrar utilidad por periodo)'; card.appendChild(p);
-    host.appendChild(card);
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Estado de Resultados'; c.appendChild(h);
+    var p=document.createElement('p'); p.textContent='(Quincenas/periodos: integraremos ventas y gastos)'; c.appendChild(p);
+    host.appendChild(c);
   });
 }
 
-/* ----------------------- SUBMÓDULO: CONCILIACIÓN (placeholder) ----------------------- */
-function adminRenderConciliacion(){
-  var id='admin-conc';
-  openTab(id, 'Admin · Conciliación de Cajas', function(host){
+function adminConciliacion(){
+  openTab('admin-conc','Admin · Conciliación de Cajas', function(host){
     host.innerHTML='';
-    var card = document.createElement('div'); card.className='card';
-    var h = document.createElement('h2'); h.textContent='Conciliación de Cajas'; card.appendChild(h);
-    var p = document.createElement('p'); p.textContent='(Aquí verás movimientos por cuenta y el semáforo por día/periodo)'; card.appendChild(p);
-    host.appendChild(card);
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Conciliación de Cajas'; c.appendChild(h);
+    var p=document.createElement('p'); p.textContent='(Aquí verás movimientos por cuenta y estado de semáforo)'; c.appendChild(p);
+    host.appendChild(c);
   });
 }
 
-/* ----------------------- SUBMÓDULO: GASTOS ----------------------- */
-function adminRenderGastos(){
-  var id='admin-gastos';
-  openTab(id, 'Admin · Gastos', function(host){
-    host.innerHTML = '';
+/* ----------------- GASTOS: listado + alta/edición ----------------- */
+function adminGastos(){
+  openTab('admin-gastos','Admin · Gastos', function(host){
+    host.innerHTML='';
 
-    // Panel de filtros + acciones
-    var left = document.createElement('div'); left.className='card';
-    var h = document.createElement('h2'); h.textContent='Gastos'; left.appendChild(h);
+    var c = document.createElement('div'); c.className='card';
+    var h = document.createElement('h2'); h.textContent='Gastos'; c.appendChild(h);
 
-    var filtros = document.createElement('div'); filtros.className='grid';
-    var f1 = document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Fecha inicio'; var i1=document.createElement('input'); i1.type='date'; f1.appendChild(l1); f1.appendChild(i1); filtros.appendChild(f1);
-    var f2 = document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Fecha fin'; var i2=document.createElement('input'); i2.type='date'; f2.appendChild(l2); f2.appendChild(i2); filtros.appendChild(f2);
+    // Filtros
+    var g=document.createElement('div'); g.className='grid';
+    var f1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Fecha inicio'; var i1=document.createElement('input'); i1.type='date'; f1.appendChild(l1); f1.appendChild(i1); g.appendChild(f1);
+    var f2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Fecha fin';    var i2=document.createElement('input'); i2.type='date'; f2.appendChild(l2); f2.appendChild(i2); g.appendChild(f2);
+    var f3=document.createElement('div'); var l3=document.createElement('label'); l3.textContent='Tipo';        var s3=document.createElement('select'); [['','TODOS'],['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; s3.appendChild(op); }); f3.appendChild(l3); f3.appendChild(s3); g.appendChild(f3);
+    var f4=document.createElement('div'); var l4=document.createElement('label'); l4.textContent='Cuenta';      var s4=document.createElement('select'); var opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas las cuentas'; s4.appendChild(opAll); DB.admin.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; s4.appendChild(op); }); f4.appendChild(l4); f4.appendChild(s4); g.appendChild(f4);
+    c.appendChild(g);
 
-    var f3 = document.createElement('div'); var l3=document.createElement('label'); l3.textContent='Tipo'; var s3=document.createElement('select');
-    [['','TODOS'],['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; s3.appendChild(op); });
-    f3.appendChild(l3); f3.appendChild(s3); filtros.appendChild(f3);
+    var acts=document.createElement('div'); acts.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn-primary'; bNew.textContent='+ Registrar gasto';
+    bNew.addEventListener('click', function(){ adminGastoNuevo(); });
+    var bFil=document.createElement('button'); bFil.className='btn'; bFil.textContent='Filtrar';
+    acts.appendChild(bNew); acts.appendChild(bFil);
+    c.appendChild(acts);
 
-    var f4 = document.createElement('div'); var l4=document.createElement('label'); l4.textContent='Cuenta'; var s4=document.createElement('select');
-    var opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas las cuentas'; s4.appendChild(opAll);
-    DB.admin.cuentas.forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; s4.appendChild(op); });
-    f4.appendChild(l4); f4.appendChild(s4); filtros.appendChild(f4);
-
-    left.appendChild(filtros);
-
-    var acts = document.createElement('div'); acts.className='actions';
-    var btnNew = document.createElement('button'); btnNew.className='btn-primary'; btnNew.textContent='+ Registrar gasto';
-    btnNew.addEventListener('click', function(){ adminNuevoGasto(); });
-    acts.appendChild(btnNew);
-
-    var btnFiltrar = document.createElement('button'); btnFiltrar.className='btn'; btnFiltrar.textContent='Filtrar';
-    acts.appendChild(btnFiltrar);
-    left.appendChild(acts);
-
-    // Tabla simple de resultados
-    var tbl = document.createElement('table');
+    // Tabla
+    var tbl=document.createElement('table');
     var thead=document.createElement('thead'); var trh=document.createElement('tr');
     ['Folio','Fecha','Tipo','Cuenta pago','Cuenta contable','Monto','Semáforo','Estatus'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
     thead.appendChild(trh); tbl.appendChild(thead);
-    var tbody=document.createElement('tbody');
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    c.appendChild(tbl);
 
-    function pintaTabla(){
+    function pinta(){
       tbody.innerHTML='';
       var rows = DB.admin.gastos.slice().sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
-      rows.forEach(function(g){
-        // filtros
-        var ok = true;
-        if(i1.value){ ok = ok && g.fecha && g.fecha >= i1.value; }
-        if(i2.value){ ok = ok && g.fecha && g.fecha <= i2.value; }
-        if(s3.value){ ok = ok && g.tipo === s3.value; }
-        if(s4.value){ ok = ok && g.cuentaId === s4.value; }
+      rows.forEach(function(gst){
+        var ok=true;
+        if(i1.value){ ok=ok && gst.fecha>=i1.value; }
+        if(i2.value){ ok=ok && gst.fecha<=i2.value; }
+        if(s3.value){ ok=ok && gst.tipo===s3.value; }
+        if(s4.value){ ok=ok && gst.cuentaId===s4.value; }
         if(!ok) return;
 
-        var tr=document.createElement('tr');
-        tr.style.cursor='pointer';
-        tr.addEventListener('click', function(){ adminAbrirGasto(g.id); });
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click', function(){ adminGastoAbrir(gst.id); });
+        function td(t){ var d=document.createElement('td'); d.textContent=t; return d; }
+        var ctaPago=(DB.admin.cuentas.find(function(cu){return cu.id===gst.cuentaId;})||{}).nombre || '—';
+        var ctaCont=(DB.admin.cuentasContables.find(function(cc){return cc.id===gst.cuentaContableId;})||{}).nombre || '—';
+        var sem=estadoSemaforo(gst);
 
-        function td(txt){ var td=document.createElement('td'); td.textContent=txt; return td; }
-        var ctaPago = (DB.admin.cuentas.find(function(c){ return c.id===g.cuentaId; })||{}).nombre || '—';
-        var ctaCont = (DB.admin.cuentasContables.find(function(c){ return c.id===g.cuentaContableId; })||{}).nombre || '—';
-        var sem = adminSemaforoEstado(g);
-
-        tr.appendChild(td(String(g.folio).padStart(3,'0')));
-        tr.appendChild(td(g.fecha || '—'));
-        tr.appendChild(td(g.tipo || '—'));
+        tr.appendChild(td(String(gst.folio).padStart(3,'0')));
+        tr.appendChild(td(gst.fecha||'—'));
+        tr.appendChild(td(gst.tipo||'—'));
         tr.appendChild(td(ctaPago));
         tr.appendChild(td(ctaCont));
-        var tdm=document.createElement('td'); tdm.innerHTML='<b style="color:#b45309">'+dineroFmt(g.monto||0)+'</b>'; tr.appendChild(tdm);
+        var tdm=document.createElement('td'); tdm.innerHTML='<b style="color:#b45309">'+moneyFmt(gst.monto||0)+'</b>'; tr.appendChild(tdm);
         var tds=document.createElement('td'); tds.textContent=sem.toUpperCase(); tds.style.fontWeight='700'; tr.appendChild(tds);
-        tr.appendChild(td(g.conciliado ? 'Conciliado' : 'Pendiente'));
-
+        tr.appendChild(td(gst.conciliado?'Conciliado':'Pendiente'));
         tbody.appendChild(tr);
       });
     }
-    btnFiltrar.addEventListener('click', pintaTabla);
+    bFil.addEventListener('click', pinta);
+    pinta();
 
-    tbl.appendChild(tbody);
-    left.appendChild(tbl);
-
-    host.appendChild(left);
-    pintaTabla();
+    host.appendChild(c);
   });
 }
 
-/* ---------- CRUD Gastos ---------- */
-function adminNuevoGasto(){
-  var g = {
-    id: adminNuevaIdGasto(),
+function adminGastoNuevo(){
+  var g={
+    id: nextGastoId(),
     folio: DB.admin.consecutivoGasto,
     ts: Date.now(),
     tipo: 'pagado',          // pagado | por_pagar | recurrente
     fecha: hoyStr(),
-    cuentaId: '',            // obligatoria si tipo = pagado
+    cuentaId: '',            // obligatoria si pagado
     cuentaContableId: '',    // obligatoria siempre
     monto: 0,
     conciliado: false,
-    // por pagar:
-    fechaDevengo: '',        // compromiso de pago
+    // por pagar
+    fechaDevengo: '',
     pagado: false,
-    // recurrente:
+    // recurrente
     periodicidad: 'mensual', // mensual | quincenal | semanal | cada_x_dias
-    cadaDias: 30,            // si periodicidad = cada_x_dias
-    diaSemana: 'viernes',    // si semanal
-    diaMes: 1,               // si mensual (1..31)
-    evidencia: ''            // dataURL de imagen
+    diaMes: 1,
+    diaSemana: 'viernes',
+    cadaDias: 30,
+    evidencia: ''
   };
-  DB.admin.gastos.push(g);
-  saveDB(DB);
-  adminAbrirGasto(g.id);
+  DB.admin.gastos.push(g); saveDB(DB);
+  adminGastoAbrir(g.id);
 }
 
-function adminAbrirGasto(id){
+function adminGastoAbrir(id){
   var g = DB.admin.gastos.find(function(x){ return x.id===id; });
   if(!g) return;
 
-  var titulo = 'Gasto '+String(g.folio).padStart(3,'0');
   var tabId = 'admin-gasto-'+g.id;
+  var titulo = 'Gasto '+String(g.folio).padStart(3,'0');
 
   openTab(tabId, titulo, function(host){
     host.innerHTML='';
 
-    var card = document.createElement('div'); card.className='card';
+    var card=document.createElement('div'); card.className='card';
 
     // Semáforo
-    var sem = adminSemaforoEstado(g);
-    var semDiv = adminSemaforoHTML(sem);
+    var semDiv = semaforoNode(estadoSemaforo(g));
     card.appendChild(semDiv);
 
     // Encabezado
-    var header = document.createElement('div'); header.className='grid';
+    var head=document.createElement('div'); head.className='grid';
 
     // Tipo
-    var dvT = document.createElement('div'); var lbT=document.createElement('label'); lbT.textContent='Tipo de gasto';
-    var selT=document.createElement('select');
-    [['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(g.tipo===p[0]) op.selected=true; selT.appendChild(op); });
-    selT.addEventListener('change', function(){ g.tipo = selT.value; saveDB(DB); renderCampos(); });
-    dvT.appendChild(lbT); dvT.appendChild(selT); header.appendChild(dvT);
+    var dT=document.createElement('div'); var lT=document.createElement('label'); lT.textContent='Tipo de gasto';
+    var sT=document.createElement('select'); [['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(g.tipo===p[0]) op.selected=true; sT.appendChild(op); });
+    sT.addEventListener('change', function(){ g.tipo=sT.value; saveDB(DB); renderVars(); refreshSem(); });
+    dT.appendChild(lT); dT.appendChild(sT); head.appendChild(dT);
 
-    // Fecha (registro / pago)
-    var dvF = document.createElement('div'); var lbF=document.createElement('label'); lbF.textContent='Fecha';
-    var inF=document.createElement('input'); inF.type='date'; inF.value=g.fecha||hoyStr();
-    inF.addEventListener('change', function(){ g.fecha=inF.value; saveDB(DB); });
-    dvF.appendChild(lbF); dvF.appendChild(inF); header.appendChild(dvF);
+    // Fecha
+    var dF=document.createElement('div'); var lF=document.createElement('label'); lF.textContent='Fecha';
+    var iF=document.createElement('input'); iF.type='date'; iF.value=g.fecha||hoyStr(); iF.addEventListener('change', function(){ g.fecha=iF.value; saveDB(DB); });
+    dF.appendChild(lF); dF.appendChild(iF); head.appendChild(dF);
 
-    // Cuenta de pago
-    var dvC = document.createElement('div'); var lbC=document.createElement('label'); lbC.textContent='Cuenta de pago';
-    var selC=document.createElement('select');
-    var opV=document.createElement('option'); opV.value=''; opV.textContent='(Selecciona cuenta)'; selC.appendChild(opV);
-    DB.admin.cuentas.forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; if(g.cuentaId===c.id) op.selected=true; selC.appendChild(op); });
-    selC.addEventListener('change', function(){ g.cuentaId=selC.value; saveDB(DB); refreshSem(); });
-    dvC.appendChild(lbC); dvC.appendChild(selC); header.appendChild(dvC);
+    // Cuenta pago
+    var dC=document.createElement('div'); var lC=document.createElement('label'); lC.textContent='Cuenta de pago';
+    var sC=document.createElement('select'); var opV=document.createElement('option'); opV.value=''; opV.textContent='(Selecciona)'; sC.appendChild(opV);
+    DB.admin.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; if(g.cuentaId===cu.id) op.selected=true; sC.appendChild(op); });
+    sC.addEventListener('change', function(){ g.cuentaId=sC.value; saveDB(DB); refreshSem(); });
+    dC.appendChild(lC); dC.appendChild(sC); head.appendChild(dC);
 
     // Cuenta contable
-    var dvCC = document.createElement('div'); var lbCC=document.createElement('label'); lbCC.textContent='Cuenta contable';
-    var selCC=document.createElement('select'); var op0=document.createElement('option'); op0.value=''; op0.textContent='(Selecciona cuenta contable)'; selCC.appendChild(op0);
-    DB.admin.cuentasContables.forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; if(g.cuentaContableId===c.id) op.selected=true; selCC.appendChild(op); });
-    selCC.addEventListener('change', function(){ g.cuentaContableId=selCC.value; saveDB(DB); refreshSem(); });
-    dvCC.appendChild(lbCC); dvCC.appendChild(selCC); header.appendChild(dvCC);
+    var dCC=document.createElement('div'); var lCC=document.createElement('label'); lCC.textContent='Cuenta contable';
+    var sCC=document.createElement('select'); var op0=document.createElement('option'); op0.value=''; op0.textContent='(Selecciona)'; sCC.appendChild(op0);
+    DB.admin.cuentasContables.forEach(function(cc){ var op=document.createElement('option'); op.value=cc.id; op.textContent=cc.nombre; if(g.cuentaContableId===cc.id) op.selected=true; sCC.appendChild(op); });
+    sCC.addEventListener('change', function(){ g.cuentaContableId=sCC.value; saveDB(DB); refreshSem(); });
+    dCC.appendChild(lCC); dCC.appendChild(sCC); head.appendChild(dCC);
 
     // Monto
-    var dvM = document.createElement('div'); var lbM=document.createElement('label'); lbM.textContent='Monto';
-    var inM=document.createElement('input'); inM.type='text'; inM.value = dineroFmt(g.monto||0);
-    inM.style.fontWeight='800'; inM.style.color='#b45309';
-    inM.addEventListener('focus', function(){ inM.value = String(parseDinero(inM.value)); });
-    inM.addEventListener('blur', function(){
-      g.monto = parseDinero(inM.value);
-      inM.value = dineroFmt(g.monto);
-      saveDB(DB); refreshSem();
-    });
-    dvM.appendChild(lbM); dvM.appendChild(inM); header.appendChild(dvM);
+    var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Monto';
+    var iM=document.createElement('input'); iM.type='text'; iM.value=moneyFmt(g.monto||0); iM.style.fontWeight='800'; iM.style.color='#b45309';
+    iM.addEventListener('focus', function(){ iM.value=String(moneyParse(iM.value)); });
+    iM.addEventListener('blur', function(){ g.monto=moneyParse(iM.value); iM.value=moneyFmt(g.monto); saveDB(DB); refreshSem(); });
+    dM.appendChild(lM); dM.appendChild(iM); head.appendChild(dM);
 
     // Conciliado
-    var dvK = document.createElement('div'); var lbK=document.createElement('label'); lbK.textContent='Conciliado';
-    var chkK=document.createElement('input'); chkK.type='checkbox'; chkK.checked=!!g.conciliado;
-    chkK.addEventListener('change', function(){ g.conciliado = chkK.checked; saveDB(DB); refreshSem(); });
-    dvK.appendChild(lbK); dvK.appendChild(chkK); header.appendChild(dvK);
+    var dK=document.createElement('div'); var lK=document.createElement('label'); lK.textContent='Conciliado';
+    var cK=document.createElement('input'); cK.type='checkbox'; cK.checked=!!g.conciliado; cK.addEventListener('change', function(){ g.conciliado=cK.checked; saveDB(DB); refreshSem(); });
+    dK.appendChild(lK); dK.appendChild(cK); head.appendChild(dK);
 
-    card.appendChild(header);
+    card.appendChild(head);
 
-    // Campos variables por tipo
-    var varsCard = document.createElement('div'); varsCard.className='card';
-    var varsGrid = document.createElement('div'); varsGrid.className='grid'; varsCard.appendChild(varsGrid);
+    // Variables por tipo
+    var varsCard=document.createElement('div'); varsCard.className='card';
+    var varsGrid=document.createElement('div'); varsGrid.className='grid'; varsCard.appendChild(varsGrid);
     card.appendChild(varsCard);
 
     // Evidencia
-    var ev = document.createElement('div'); ev.className='actions';
-    var evLbl = document.createElement('span'); evLbl.textContent='📷 Evidencia (ticket/factura)';
-    var evIn = document.createElement('input'); evIn.type='file'; evIn.accept='image/*';
+    var ev=document.createElement('div'); ev.className='actions';
+    var evLbl=document.createElement('span'); evLbl.textContent='📷 Evidencia (ticket/factura)';
+    var evIn=document.createElement('input'); evIn.type='file'; evIn.accept='image/*';
+    var prev=document.createElement('div'); prev.className='preview';
     evIn.addEventListener('change', function(){
       if(evIn.files && evIn.files[0]){
-        var r=new FileReader();
-        r.onload=function(e){ g.evidencia = e.target.result; saveDB(DB); pintaPreview(); };
-        r.readAsDataURL(evIn.files[0]);
+        var r=new FileReader(); r.onload=function(e){ g.evidencia=e.target.result; saveDB(DB); paintPrev(); }; r.readAsDataURL(evIn.files[0]);
       }
     });
-    ev.appendChild(evLbl); ev.appendChild(evIn);
-    var prev = document.createElement('div'); prev.className='preview'; ev.appendChild(prev);
-    function pintaPreview(){ prev.innerHTML=''; if(g.evidencia){ var im=document.createElement('img'); im.src=g.evidencia; prev.appendChild(im); } }
-    pintaPreview();
+    function paintPrev(){ prev.innerHTML=''; if(g.evidencia){ var im=document.createElement('img'); im.src=g.evidencia; prev.appendChild(im); } }
+    paintPrev();
+    ev.appendChild(evLbl); ev.appendChild(evIn); ev.appendChild(prev);
     card.appendChild(ev);
 
-    // Botonera
-    var acts = document.createElement('div'); acts.className='actions';
-    var bSave = document.createElement('button'); bSave.className='btn-primary'; bSave.textContent='💾 Guardar gasto';
+    // Botón guardar
+    var acts=document.createElement('div'); acts.className='actions';
+    var bSave=document.createElement('button'); bSave.className='btn-primary'; bSave.textContent='💾 Guardar gasto';
     bSave.addEventListener('click', function(){
-      // validaciones mínimas
       if(!g.cuentaContableId){ alert('Selecciona la cuenta contable.'); return; }
-      if(parseFloat(g.monto||0)<=0){ alert('Captura un monto mayor a cero.'); return; }
+      if(Number(g.monto||0)<=0){ alert('Captura un monto mayor a cero.'); return; }
       if(g.tipo==='pagado' && !g.cuentaId){ alert('En “Pagado”, la cuenta de pago es obligatoria.'); return; }
-      saveDB(DB);
-      alert('Gasto guardado.');
+      saveDB(DB); alert('Gasto guardado.');
     });
     acts.appendChild(bSave);
     card.appendChild(acts);
 
     host.appendChild(card);
 
-    /* ---------- helpers internos de la vista ---------- */
     function refreshSem(){
-      var s = adminSemaforoEstado(g);
-      semDiv.replaceWith(semDiv = adminSemaforoHTML(s));
-      card.insertBefore(semDiv, card.firstChild);
+      var nuevo = semaforoNode(estadoSemaforo(g));
+      semDiv.replaceWith(nuevo); semDiv=nuevo;
     }
 
-    function renderCampos(){
+    function renderVars(){
       varsGrid.innerHTML='';
-
       if(g.tipo==='pagado'){
-        // No campos extra, solo reforzamos obligatoriedad visual
-        var note=document.createElement('div'); note.innerHTML='<b>Pagado:</b> La <u>cuenta de pago</u> es obligatoria y el gasto puede marcarse como <u>conciliado</u> cuando cuadre con caja/banco.';
+        var note=document.createElement('div'); note.innerHTML='<b>Pagado:</b> La <u>cuenta de pago</u> es obligatoria. Marca <b>Conciliado</b> cuando cuadre con caja/banco.';
         varsGrid.appendChild(note);
       }
-
       if(g.tipo==='por_pagar'){
         var d1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Fecha compromiso / devengo';
-        var i1=document.createElement('input'); i1.type='date'; i1.value=g.fechaDevengo||'';
-        i1.addEventListener('change', function(){ g.fechaDevengo=i1.value; saveDB(DB); });
+        var i1=document.createElement('input'); i1.type='date'; i1.value=g.fechaDevengo||''; i1.addEventListener('change', function(){ g.fechaDevengo=i1.value; saveDB(DB); });
         d1.appendChild(l1); d1.appendChild(i1); varsGrid.appendChild(d1);
 
         var d2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Marcar como pagado';
-        var c2=document.createElement('input'); c2.type='checkbox'; c2.checked=!!g.pagado;
-        c2.addEventListener('change', function(){ g.pagado=c2.checked; saveDB(DB); refreshSem(); });
+        var c2=document.createElement('input'); c2.type='checkbox'; c2.checked=!!g.pagado; c2.addEventListener('change', function(){ g.pagado=c2.checked; saveDB(DB); refreshSem(); });
         d2.appendChild(l2); d2.appendChild(c2); varsGrid.appendChild(d2);
       }
-
       if(g.tipo==='recurrente'){
         var dP=document.createElement('div'); var lP=document.createElement('label'); lP.textContent='Periodicidad';
         var sP=document.createElement('select');
         [['mensual','Mensual (día del mes)'],['quincenal','Quincenal (1/16)'],['semanal','Semanal (día de la semana)'],['cada_x_dias','Cada X días']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(g.periodicidad===p[0]) op.selected=true; sP.appendChild(op); });
-        sP.addEventListener('change', function(){ g.periodicidad=sP.value; saveDB(DB); renderCampos(); });
+        sP.addEventListener('change', function(){ g.periodicidad=sP.value; saveDB(DB); renderVars(); });
         dP.appendChild(lP); dP.appendChild(sP); varsGrid.appendChild(dP);
 
-        // campos según periodicidad
         if(g.periodicidad==='mensual'){
           var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Día del mes (1–31)';
           var iM=document.createElement('input'); iM.type='number'; iM.min='1'; iM.max='31'; iM.value=g.diaMes||1;
           iM.addEventListener('input', function(){ g.diaMes=parseInt(iM.value||'1',10); saveDB(DB); });
           dM.appendChild(lM); dM.appendChild(iM); varsGrid.appendChild(dM);
-        }else if(g.periodicidad==='quincenal'){
-          var pQ=document.createElement('div'); pQ.innerHTML='Se generará el cargo los días <b>1</b> y <b>16</b> de cada mes.'; varsGrid.appendChild(pQ);
-        }else if(g.periodicidad==='semanal'){
+        } else if(g.periodicidad==='quincenal'){
+          var dQ=document.createElement('div'); dQ.innerHTML='Se generará el cargo los días <b>1</b> y <b>16</b> de cada mes.'; varsGrid.appendChild(dQ);
+        } else if(g.periodicidad==='semanal'){
           var dS=document.createElement('div'); var lS=document.createElement('label'); lS.textContent='Día de la semana';
-          var sS=document.createElement('select'); ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'].forEach(function(d){ var op=document.createElement('option'); op.value=d; op.textContent=d; if(g.diaSemana===d) op.selected=true; sS.appendChild(op); });
+          var sS=document.createElement('select'); ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'].forEach(function(dia){ var op=document.createElement('option'); op.value=dia; op.textContent=dia; if(g.diaSemana===dia) op.selected=true; sS.appendChild(op); });
           sS.addEventListener('change', function(){ g.diaSemana=sS.value; saveDB(DB); });
           dS.appendChild(lS); dS.appendChild(sS); varsGrid.appendChild(dS);
-        }else if(g.periodicidad==='cada_x_dias'){
+        } else if(g.periodicidad==='cada_x_dias'){
           var dX=document.createElement('div'); var lX=document.createElement('label'); lX.textContent='Cada cuántos días';
-          var iX=document.createElement('input'); iX.type='number'; iX.min='1'; iX.value=g.cadaDias||30;
-          iX.addEventListener('input', function(){ g.cadaDias=parseInt(iX.value||'1',10); saveDB(DB); });
+          var iX=document.createElement('input'); iX.type='number'; iX.min='1'; iX.value=g.cadaDias||30; iX.addEventListener('input', function(){ g.cadaDias=parseInt(iX.value||'1',10); saveDB(DB); });
           dX.appendChild(lX); dX.appendChild(iX); varsGrid.appendChild(dX);
         }
 
-        var info=document.createElement('div'); info.innerHTML='Este gasto se repetirá según la periodicidad. Cada ocurrencia deberá <b>conciliarse</b> cuando se pague.';
-        varsGrid.appendChild(info);
+        var note=document.createElement('div'); note.innerHTML='Cada ocurrencia deberá <b>conciliarse</b> cuando se pague.';
+        varsGrid.appendChild(note);
       }
     }
 
-    renderCampos();
+    renderVars();
   });
 }
 
    
 })();
+
