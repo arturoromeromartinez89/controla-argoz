@@ -1939,633 +1939,144 @@ function imprimirPDFMaquila(ot, isDraft){
 
 /* ===== FIN MÓDULO MAQUILADORES v2.8.0 ===== */
 
-/* =========================  MÓDULO: ADMINISTRACIÓN  v1.0.0  =========================
+/* =========================  MÓDULO: ADMINISTRACIÓN v1.0  =========================
    Incluye:
-   - Dashboard (KPI quincenal/periodo, atajos).
-   - Estado de resultados (ingresos – costos – gastos) por periodo.
-   - Gastos con conciliación de cajas y semáforo (rojo/verde) + borradores.
-   - Cuentas/Cajas (altas, abonos/cargos, saldos).
-   - Gastos fijos (plantillas y recordatorios que generan borradores).
-   Principios:
-   - No altera módulos existentes; ventas futuras podrán integrarse, hoy admite "ingreso manual".
-   - Un gasto NO impacta resultados ni saldos hasta estar "Conciliado = VERDE".
-   - Se pueden guardar como "Borrador (Rojo)" para completarlos después.
-*/
+   - Inyector de botón en menú lateral: 🧮 Administración
+   - Submenú: Dashboard y Estado de Resultados
+   - Estructura básica de pantallas (tarjetas vacías para rellenar)
+   - Preparado para registrar gastos y conciliación de cajas
+   ================================================================================ */
 
-(function AdminModule(){
-  // ====== Estado / Persistencia (no rompe DB previo) ======
-  if(!DB.finanzas){
-    DB.finanzas = {
-      folioGasto: 0,
-      // Cuentas/Cajas básicas (puedes añadir más desde UI)
-      cuentas: [
-        { id:'caja_plata', nombre:'Caja de plata', tipo:'caja', saldo:0 },
-        { id:'banco', nombre:'Banco', tipo:'banco', saldo:0 }
-      ],
-      // Gastos
-      gastos: [
-        // { id, folio, fecha, concepto, categoria:'gasto'|'costo', montoSalida, cuentaId, montoCuenta, conciliado:false, notas:'' }
-      ],
-      // Ingresos manuales para EERR mientras se conecta a Ventas
-      ingresos: [
-        // { id, fecha, concepto, monto, cuentaId, notas:'' }
-      ],
-      // Plantillas de gastos fijos
-      fijos: [
-        // { id, nombre:'Renta', categoria:'gasto', monto, cuentaIdPorDefecto, periodicidad:'mensual'|'quincenal'|'semanal', diaRef:1, notas:'' }
-      ],
-      // Preferencias del módulo
-      prefs: {
-        // Si es true: NO deja guardar gasto si no cuadra; false: permite borrador rojo y no contabiliza
-        exigirConciliacionParaGuardar: false
-      }
-    };
-    saveDB(DB);
-  }
+// ===== Hook de menú: ADMINISTRACIÓN =====
+(function initAdminMenu(){
+  var aside = document.querySelector('.left');
+  if(!aside) return;
+  if(document.querySelector('[data-root="administracion"]')) return;
 
-  // ====== Helpers locales ======
-  function byId(id){ return document.getElementById(id); }
-  function uid(prefix){ return (prefix||'X')+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
-  function getCuenta(id){ return DB.finanzas.cuentas.find(function(c){return c.id===id;}); }
-  function setSaldo(cuentaId, delta){
-    var c = getCuenta(cuentaId);
-    if(c){ c.saldo = (parseFloat(c.saldo||0) + parseFloat(delta||0)); saveDB(DB); }
-  }
-  function sumarIngresosPeriodo(desde, hasta){
-    var s=0;
-    (DB.finanzas.ingresos||[]).forEach(function(i){
-      if(i.fecha>=desde && i.fecha<=hasta){ s += parseFloat(i.monto||0); }
-    });
-    return s;
-  }
-  function sumarGastosPeriodo(desde, hasta, tipo){ // tipo opcional: 'gasto'|'costo'
-    var s=0;
-    (DB.finanzas.gastos||[]).forEach(function(g){
-      if(!g.conciliado) return; // sólo contabiliza verdes
-      if(g.fecha>=desde && g.fecha<=hasta){
-        if(!tipo || g.categoria===tipo){ s += parseFloat(g.montoSalida||0); }
-      }
-    });
-    return s;
-  }
-  function periodoQuincena(fechaISO){
-    var d = fechaISO ? new Date(fechaISO) : new Date();
-    var y=d.getFullYear(), m=d.getMonth()+1, dia=d.getDate();
-    var desde = y+'-'+String(m).padStart(2,'0')+'-'+(dia<=15?'01':'16');
-    var hasta = y+'-'+String(m).padStart(2,'0')+'-'+(dia<=15?'15':new Date(y,m,0).getDate().toString().padStart(2,'0'));
-    return {desde, hasta};
-  }
-  function money(n){ return '$'+(parseFloat(n||0)).toFixed(2); }
+  var btn = document.createElement('button');
+  btn.className = 'side-item tree-btn';
+  btn.setAttribute('data-root','administracion');
+  btn.textContent = '🧮 Administración';
 
-  // ====== Botón de menú lateral ======
-  (function initAdminMenu(){
-    var aside = document.querySelector('.left');
-    if(!aside) return;
-    if(document.querySelector('[data-root="administracion"]')) return;
-    var btn = document.createElement('button');
-    btn.className = 'side-item tree-btn';
-    btn.setAttribute('data-root','administracion');
-    btn.textContent = '🧮 Administración';
-    // Lo insertamos arriba de inventarios si existe
-    var inv = document.querySelector('.left .tree-btn[data-root="inventarios"]');
-    if(inv && inv.parentNode){ inv.parentNode.insertBefore(btn, inv); } else { aside.appendChild(btn); }
-  })();
+  // Listener de click: activa y abre submenú
+  btn.addEventListener('click', function(){
+    Array.prototype.slice.call(document.querySelectorAll('.tree-btn'))
+      .forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    renderSubmenu('administracion');
+  });
 
-  // ====== Extiende renderSubmenu para ADMIN ======
-  (function patchRenderSubmenuAdmin(){
-    var _orig = renderSubmenu;
-    renderSubmenu = function(root){
-      if(root !== 'administracion'){ _orig(root); return; }
-      var host = qs('#subpanel'); if(!host) return; host.innerHTML='';
+  // Insertamos antes de "catalogo"
+  var cat = document.querySelector('.left .tree-btn[data-root="catalogo"]');
+  if(cat && cat.parentNode){ cat.parentNode.insertBefore(btn, cat); }
+  else { aside.appendChild(btn); }
+})();
 
-      var card = document.createElement('div'); card.className='card';
-      var h2 = document.createElement('h2'); h2.textContent='Administración'; card.appendChild(h2);
+// ===== Extiende renderSubmenu para ADMINISTRACIÓN =====
+(function patchRenderSubmenuAdmin(){
+  var _orig = renderSubmenu;
+  renderSubmenu = function(root){
+    if(root !== 'administracion'){ _orig(root); return; }
 
-      var actions = document.createElement('div'); actions.className='actions'; actions.style.gap='10px';
+    var host = qs('#subpanel'); if(!host) return;
+    host.innerHTML = '';
 
-      var bDash = document.createElement('button'); bDash.className='btn'; bDash.textContent='📊 Dashboard';
-      bDash.addEventListener('click', renderAdminDashboard); actions.appendChild(bDash);
-
-      var bEERR = document.createElement('button'); bEERR.className='btn'; bEERR.textContent='📈 Estado de resultados';
-      bEERR.addEventListener('click', renderEERR); actions.appendChild(bEERR);
-
-      var bGastos = document.createElement('button'); bGastos.className='btn'; bGastos.textContent='💸 Gastos (conciliación)';
-      bGastos.addEventListener('click', renderGastos); actions.appendChild(bGastos);
-
-      var bCtas = document.createElement('button'); bCtas.className='btn'; bCtas.textContent='🏦 Cuentas/Cajas';
-      bCtas.addEventListener('click', renderCuentas); actions.appendChild(bCtas);
-
-      var bFijos = document.createElement('button'); bFijos.className='btn'; bFijos.textContent='⏰ Gastos fijos';
-      bFijos.addEventListener('click', renderGastosFijos); actions.appendChild(bFijos);
-
-      card.appendChild(actions);
-      host.appendChild(card);
-
-      // Arranque en Dashboard
-      renderAdminDashboard();
-      ensureMobileToolbar && ensureMobileToolbar();
-    };
-  })();
-
-  // ====== Dashboard ======
-  function renderAdminDashboard(){
-    var host = qs('#subpanel');
     var card = document.createElement('div'); card.className='card';
-    var h = document.createElement('h2'); h.textContent = 'Dashboard de administración'; card.appendChild(h);
+    var h2 = document.createElement('h2'); h2.textContent='Administración'; card.appendChild(h2);
 
-    var f = periodoQuincena();
-    var desde = f.desde, hasta=f.hasta;
+    var actions = document.createElement('div'); actions.className='actions';
 
-    var kpis = document.createElement('div'); kpis.className='actions'; kpis.style.flexWrap='wrap'; kpis.style.gap='10px';
+    var btnDash = document.createElement('button'); btnDash.className='btn'; btnDash.textContent='📊 Dashboard';
+    btnDash.addEventListener('click', function(){ renderAdminDashboard(); });
+    actions.appendChild(btnDash);
 
-    var ingresos = sumarIngresosPeriodo(desde,hasta);
-    var costos = sumarGastosPeriodo(desde,hasta,'costo');
-    var gastos = sumarGastosPeriodo(desde,hasta,'gasto');
-    var utilidad = ingresos - costos - gastos;
+    var btnER = document.createElement('button'); btnER.className='btn'; btnER.textContent='📑 Estado de Resultados';
+    btnER.addEventListener('click', function(){ renderEstadoResultados(); });
+    actions.appendChild(btnER);
 
-    function chip(lbl, val, color){
-      var s=document.createElement('span'); s.className='pill'; s.textContent = lbl+': '+val; if(color){ s.style.background=color.bg; s.style.color=color.fg; }
-      s.style.fontWeight='700'; s.style.fontSize='12px'; return s;
-    }
-    kpis.appendChild(chip('Periodo', desde+' a '+hasta));
-    kpis.appendChild(chip('Ingresos', money(ingresos), {bg:'#e0f2fe',fg:'#075985'}));
-    kpis.appendChild(chip('Costos', money(costos), {bg:'#fee2e2',fg:'#7f1d1d'}));
-    kpis.appendChild(chip('Gastos', money(gastos), {bg:'#fef9c3',fg:'#713f12'}));
-    kpis.appendChild(chip('Utilidad', money(utilidad), {bg: utilidad>=0?'#dcfce7':'#fee2e2', fg: utilidad>=0?'#14532d':'#7f1d1d'}));
-
-    // Atajos
-    var acts=document.createElement('div'); acts.className='actions'; acts.style.gap='8px';
-    var bIngreso=document.createElement('button'); bIngreso.className='btn'; bIngreso.textContent='+ Ingreso manual';
-    bIngreso.addEventListener('click', function(){ openIngresoModal(); });
-    var bGasto=document.createElement('button'); bGasto.className='btn'; bGasto.textContent='+ Nuevo gasto';
-    bGasto.addEventListener('click', function(){ renderGastos(true); });
-    acts.appendChild(bIngreso); acts.appendChild(bGasto);
-
-    card.appendChild(kpis);
-    card.appendChild(acts);
-    host.appendChild(card);
-  }
-
-  function openIngresoModal(){
-    var id = 'ing-'+uid();
-    var defFecha = hoyStr();
-    var w = openTabModal('Nuevo ingreso', function(view, close){
-      var card=document.createElement('div'); card.className='card';
-      var g=document.createElement('div'); g.className='grid';
-
-      var d1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Fecha';
-      var i1=document.createElement('input'); i1.type='date'; i1.value=defFecha; d1.appendChild(l1); d1.appendChild(i1); g.appendChild(d1);
-
-      var d2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Concepto';
-      var i2=document.createElement('input'); i2.type='text'; i2.placeholder='Venta, abono, etc.'; d2.appendChild(l2); d2.appendChild(i2); g.appendChild(d2);
-
-      var d3=document.createElement('div'); var l3=document.createElement('label'); l3.textContent='Monto';
-      var i3=document.createElement('input'); i3.type='number'; i3.step='0.01'; i3.min='0'; i3.value='0'; d3.appendChild(l3); d3.appendChild(i3); g.appendChild(d3);
-
-      var d4=document.createElement('div'); var l4=document.createElement('label'); l4.textContent='Cuenta destino';
-      var s4=document.createElement('select');
-      DB.finanzas.cuentas.forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; s4.appendChild(op); });
-      d4.appendChild(l4); d4.appendChild(s4); g.appendChild(d4);
-
-      var d5=document.createElement('div'); var l5=document.createElement('label'); l5.textContent='Notas';
-      var t5=document.createElement('textarea'); d5.appendChild(l5); d5.appendChild(t5); g.appendChild(d5);
-
-      var acts=document.createElement('div'); acts.className='actions';
-      var bG=document.createElement('button'); bG.className='btn-primary'; bG.textContent='Guardar ingreso';
-      bG.addEventListener('click', function(){
-        var obj={ id:uid('I'), fecha:i1.value, concepto:i2.value||'Ingreso', monto:parseFloat(i3.value||'0'), cuentaId:s4.value, notas:t5.value||'' };
-        DB.finanzas.ingresos.push(obj);
-        setSaldo(obj.cuentaId, obj.monto);
-        saveDB(DB);
-        toast('Ingreso registrado');
-        close();
-        renderSubmenu('administracion');
-      });
-      acts.appendChild(bG);
-
-      card.appendChild(g); card.appendChild(acts);
-      view.appendChild(card);
-    });
-  }
-
-  // Modal helper minimal usando openTab (pestaña temporal)
-  function openTabModal(titulo, renderer){
-    var tmpId = 'modal-'+uid();
-    openTab(tmpId, titulo, function(host){
-      // Estilo simple para que se vea como modal en una pestaña
-      renderer(host, function close(){
-        var v = qs('#view-'+tmpId); if(v) v.remove();
-        var t = qs('[data-tab="'+tmpId+'"]'); if(t) t.remove();
-      });
-    });
-    return tmpId;
-  }
-
-  // ====== Gastos (conciliación + semáforo) ======
-  function renderGastos(abrirNuevo){
-    var host = qs('#subpanel');
-    var card = document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent='Gastos con conciliación de cajas'; card.appendChild(h);
-
-    var bar=document.createElement('div'); bar.className='actions'; bar.style.gap='8px';
-    var bNuevo=document.createElement('button'); bNuevo.className='btn'; bNuevo.textContent='+ Nuevo gasto';
-    bNuevo.addEventListener('click', function(){ abrirGastoForm(); });
-    var bPrefs=document.createElement('button'); bPrefs.className='btn'; bPrefs.textContent='⚙️ Preferencias';
-    bPrefs.addEventListener('click', function(){ abrirPrefs(); });
-    bar.appendChild(bNuevo); bar.appendChild(bPrefs);
-    card.appendChild(bar);
-
-    // Lista
-    var lista=document.createElement('div'); lista.className='card';
-    var tbl=document.createElement('table'); var thead=document.createElement('thead'); var trh=document.createElement('tr');
-    ['Folio','Fecha','Concepto','Categoría','Monto','Cuenta','Semáforo','Estatus'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-    thead.appendChild(trh); tbl.appendChild(thead);
-    var tbody=document.createElement('tbody');
-
-    (DB.finanzas.gastos||[]).slice().sort(function(a,b){return b.folio-a.folio;}).forEach(function(g){
-      var tr=document.createElement('tr');
-      function lamp(g){
-        var ok = parseFloat(g.montoSalida||0)===parseFloat(g.montoCuenta||0) && g.montoSalida>0 && g.montoCuenta>0;
-        var span=document.createElement('span'); span.className='pill'; span.textContent = ok ? 'VERDE' : 'ROJO';
-        span.style.background = ok ? '#dcfce7' : '#fee2e2';
-        span.style.color = ok ? '#166534' : '#7f1d1d';
-        span.style.fontWeight='800'; return span;
-      }
-      var tdF=document.createElement('td'); tdF.textContent=String(g.folio).padStart(3,'0'); tr.appendChild(tdF);
-      var tdFe=document.createElement('td'); tdFe.textContent=g.fecha; tr.appendChild(tdFe);
-      var tdC=document.createElement('td'); tdC.textContent=g.concepto; tr.appendChild(tdC);
-      var tdCa=document.createElement('td'); tdCa.textContent=g.categoria; tr.appendChild(tdCa);
-      var tdM=document.createElement('td'); tdM.textContent=money(g.montoSalida); tr.appendChild(tdM);
-      var tdCt=document.createElement('td'); tdCt.textContent=(getCuenta(g.cuentaId)||{nombre:g.cuentaId}).nombre; tr.appendChild(tdCt);
-      var tdS=document.createElement('td'); tdS.appendChild(lamp(g)); tr.appendChild(tdS);
-      var tdE=document.createElement('td'); tdE.textContent=g.conciliado?'Conciliado':'Borrador'; tr.appendChild(tdE);
-      tr.addEventListener('click', function(){ abrirGastoForm(g.id); });
-      tbody.appendChild(tr);
-    });
-
-    tbl.appendChild(tbody); lista.appendChild(tbl);
-    card.appendChild(lista);
+    card.appendChild(actions);
     host.appendChild(card);
 
-    if(abrirNuevo){ abrirGastoForm(); }
-  }
+    // Abre dashboard por defecto
+    renderAdminDashboard();
+    ensureMobileToolbar();
+  };
+})();
 
-  function abrirGastoForm(id){
-    var edit = id ? DB.finanzas.gastos.find(function(x){return x.id===id;}) : null;
-    if(!edit){
-      DB.finanzas.folioGasto += 1;
-      edit = {
-        id: uid('G'),
-        folio: DB.finanzas.folioGasto,
-        fecha: hoyStr(),
-        concepto: '',
-        categoria: 'gasto',
-        montoSalida: 0,
-        cuentaId: (DB.finanzas.cuentas[0]||{}).id || 'caja_plata',
-        montoCuenta: 0,
-        conciliado: false,
-        notas: ''
-      };
-      DB.finanzas.gastos.push(edit); saveDB(DB);
-    }
+// ===== Persistencia =====
+if(!DB.gastos){ DB.gastos = []; saveDB(DB); }
+if(!DB.cuentas){ 
+  DB.cuentas = [
+    { id:'caja_plata', nombre:'Caja de Plata', saldo:0 },
+    { id:'caja_general', nombre:'Caja General', saldo:0 }
+  ]; 
+  saveDB(DB);
+}
 
-    openTab('gasto-'+edit.id, 'Gasto '+String(edit.folio).padStart(3,'0'), function(host){
-      host.innerHTML='';
-      var card=document.createElement('div'); card.className='card';
+// ===== Dashboard =====
+function renderAdminDashboard(){
+  var host = qs('#subpanel'); if(!host) return;
+  host.innerHTML = '';
+  var card = document.createElement('div'); card.className='card';
+  var h2 = document.createElement('h2'); h2.textContent='📊 Dashboard Administrativo'; card.appendChild(h2);
 
-      var g=document.createElement('div'); g.className='grid';
+  var resumen = document.createElement('div'); resumen.className='grid';
 
-      var d1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Fecha';
-      var i1=document.createElement('input'); i1.type='date'; i1.value=edit.fecha;
-      i1.addEventListener('change', function(){ edit.fecha=i1.value; saveDB(DB); }); d1.appendChild(l1); d1.appendChild(i1); g.appendChild(d1);
+  var totGastos = DB.gastos.reduce((a,b)=>a+(parseFloat(b.monto)||0),0);
+  var div1 = document.createElement('div'); div1.innerHTML='<b>Total Gastos registrados:</b><br>$ '+f2(totGastos); resumen.appendChild(div1);
 
-      var d2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Concepto';
-      var i2=document.createElement('input'); i2.type='text'; i2.placeholder='Descripción corta'; i2.value=edit.concepto;
-      i2.addEventListener('input', function(){ edit.concepto=i2.value; saveDB(DB); }); d2.appendChild(l2); d2.appendChild(i2); g.appendChild(d2);
+  var div2 = document.createElement('div'); 
+  var ventas = (DB.ventas||[]).reduce((a,b)=>a+(parseFloat(b.total)||0),0);
+  div2.innerHTML='<b>Ventas acumuladas:</b><br>$ '+f2(ventas); resumen.appendChild(div2);
 
-      var d3=document.createElement('div'); var l3=document.createElement('label'); l3.textContent='Categoría';
-      var s3=document.createElement('select'); ['gasto','costo'].forEach(function(opc){ var op=document.createElement('option'); op.value=opc; op.textContent=opc; if(edit.categoria===opc) op.selected=true; s3.appendChild(op); });
-      s3.addEventListener('change', function(){ edit.categoria=s3.value; saveDB(DB); }); d3.appendChild(l3); d3.appendChild(s3); g.appendChild(d3);
+  var div3 = document.createElement('div');
+  var util = ventas - totGastos;
+  div3.innerHTML='<b>Utilidad neta (aprox):</b><br>$ '+f2(util); resumen.appendChild(div3);
 
-      var d4=document.createElement('div'); var l4=document.createElement('label'); l4.textContent='Monto (salida) – LADO IZQUIERDO';
-      var i4=document.createElement('input'); i4.type='number'; i4.step='0.01'; i4.min='0'; i4.value=edit.montoSalida;
-      i4.addEventListener('input', function(){ edit.montoSalida=parseFloat(i4.value||'0'); updateLamp(); saveDB(DB); }); d4.appendChild(l4); d4.appendChild(i4); g.appendChild(d4);
+  card.appendChild(resumen);
+  host.appendChild(card);
+}
 
-      var d5=document.createElement('div'); var l5=document.createElement('label'); l5.textContent='Desde cuenta (de dónde sale) – LADO DERECHO';
-      var wrapCt=document.createElement('div'); wrapCt.style.display='flex'; wrapCt.style.gap='6px';
-      var s5=document.createElement('select');
-      DB.finanzas.cuentas.forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; if(edit.cuentaId===c.id) op.selected=true; s5.appendChild(op); });
-      s5.addEventListener('change', function(){ edit.cuentaId=s5.value; saveDB(DB); });
-      var i5=document.createElement('input'); i5.type='number'; i5.step='0.01'; i5.min='0'; i5.value=edit.montoCuenta;
-      i5.addEventListener('input', function(){ edit.montoCuenta=parseFloat(i5.value||'0'); updateLamp(); saveDB(DB); });
-      wrapCt.appendChild(s5); wrapCt.appendChild(i5); d5.appendChild(l5); d5.appendChild(wrapCt); g.appendChild(d5);
+// ===== Estado de Resultados =====
+function renderEstadoResultados(){
+  var host = qs('#subpanel'); if(!host) return;
+  host.innerHTML = '';
 
-      var d6=document.createElement('div'); var l6=document.createElement('label'); l6.textContent='Notas';
-      var t6=document.createElement('textarea'); t6.value=edit.notas||''; t6.addEventListener('input', function(){ edit.notas=t6.value; saveDB(DB); });
-      d6.appendChild(l6); d6.appendChild(t6); g.appendChild(d6);
+  var card = document.createElement('div'); card.className='card';
+  var h2 = document.createElement('h2'); h2.textContent='📑 Estado de Resultados'; card.appendChild(h2);
 
-      // Semáforo
-      var lamp=document.createElement('div'); lamp.className='actions';
-      var lampP=document.createElement('span'); lampP.className='pill'; lampP.style.fontWeight='800';
-      function updateLamp(){
-        var ok = parseFloat(edit.montoSalida||0)===parseFloat(edit.montoCuenta||0) && edit.montoSalida>0 && edit.montoCuenta>0;
-        lampP.textContent = ok? 'SEMÁFORO: VERDE (conciliado)' : 'SEMÁFORO: ROJO (no cuadra)';
-        lampP.style.background = ok? '#dcfce7' : '#fee2e2';
-        lampP.style.color = ok? '#166534' : '#7f1d1d';
-      }
-      updateLamp();
-      lamp.appendChild(lampP);
+  var filtro = document.createElement('div'); filtro.className='actions';
+  var inF1=document.createElement('input'); inF1.type='date';
+  var inF2=document.createElement('input'); inF2.type='date';
+  var btnFil=document.createElement('button'); btnFil.className='btn'; btnFil.textContent='Filtrar';
+  filtro.appendChild(inF1); filtro.appendChild(inF2); filtro.appendChild(btnFil);
+  card.appendChild(filtro);
 
-      // Acciones
-      var acts=document.createElement('div'); acts.className='actions'; acts.style.gap='8px';
-      var bGuardar=document.createElement('button'); bGuardar.className='btn-primary'; bGuardar.textContent='💾 Guardar';
-      bGuardar.addEventListener('click', function(){
-        var ok = parseFloat(edit.montoSalida||0)===parseFloat(edit.montoCuenta||0) && edit.montoSalida>0;
-        if(DB.finanzas.prefs.exigirConciliacionParaGuardar && !ok){
-          alert('Este sistema exige conciliación para guardar. Corrige los montos (semáforo en verde).');
-          return;
-        }
-        // Si está verde y aún no estaba contabilizado → impactar saldo de la cuenta
-        if(ok && !edit.conciliado){
-          setSaldo(edit.cuentaId, -1*parseFloat(edit.montoCuenta||0));
-          edit.conciliado = true;
-        }else if(!ok){
-          edit.conciliado = false; // se mantiene como borrador
-        }
-        saveDB(DB);
-        toast(edit.conciliado?'Gasto conciliado y contabilizado':'Gasto guardado como borrador (rojo)');
-        renderGastos();
-      });
-      var bBorrar=document.createElement('button'); bBorrar.className='btn'; bBorrar.textContent='🗑️ Eliminar';
-      bBorrar.addEventListener('click', function(){
-        if(!confirm('¿Eliminar este gasto?')) return;
-        // Si estaba conciliado, revertimos saldo
-        if(edit.conciliado){ setSaldo(edit.cuentaId, +1*parseFloat(edit.montoCuenta||0)); }
-        DB.finanzas.gastos = DB.finanzas.gastos.filter(function(x){return x.id!==edit.id;});
-        saveDB(DB); toast('Eliminado'); renderGastos();
-      });
+  var divRes=document.createElement('div'); card.appendChild(divRes);
 
-      acts.appendChild(bGuardar); acts.appendChild(bBorrar);
-
-      card.appendChild(g);
-      card.appendChild(lamp);
-      card.appendChild(acts);
-      host.appendChild(card);
+  function calcular(){
+    var f1=inF1.value?new Date(inF1.value):null;
+    var f2=inF2.value?new Date(inF2.value):null;
+    var gastos=DB.gastos.filter(function(g){
+      var fg=new Date(g.fecha);
+      return (!f1||fg>=f1)&&(!f2||fg<=f2);
     });
-  }
-
-  function abrirPrefs(){
-    openTabModal('Preferencias de Gastos', function(view, close){
-      var card=document.createElement('div'); card.className='card';
-      var d=document.createElement('div'); d.className='actions';
-      var lab=document.createElement('label'); lab.textContent='Exigir conciliación (no permitir guardar en rojo)';
-      var chk=document.createElement('input'); chk.type='checkbox'; chk.checked=!!DB.finanzas.prefs.exigirConciliacionParaGuardar;
-      chk.addEventListener('change', function(){ DB.finanzas.prefs.exigirConciliacionParaGuardar=chk.checked; saveDB(DB); });
-      d.appendChild(lab); d.appendChild(chk);
-      var b=document.createElement('button'); b.className='btn-primary'; b.textContent='Cerrar'; b.addEventListener('click', close);
-      card.appendChild(d); card.appendChild(b); view.appendChild(card);
+    var ventas=(DB.ventas||[]).filter(function(v){
+      var fv=new Date(v.fecha);
+      return (!f1||fv>=f1)&&(!f2||fv<=f2);
     });
+    var totG=gastos.reduce((a,b)=>a+(parseFloat(b.monto)||0),0);
+    var totV=ventas.reduce((a,b)=>a+(parseFloat(b.total)||0),0);
+    var util=totV-totG;
+    divRes.innerHTML='<p><b>Ventas:</b> $'+f2(totV)+'</p><p><b>Gastos:</b> $'+f2(totG)+'</p><p><b>Utilidad:</b> $'+f2(util)+'</p>';
   }
+  btnFil.addEventListener('click', calcular);
 
-  // ====== Cuentas / Cajas ======
-  function renderCuentas(){
-    var host=qs('#subpanel');
-    var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent='Cuentas y Cajas'; card.appendChild(h);
+  host.appendChild(card);
+  calcular();
+}
 
-    var bar=document.createElement('div'); bar.className='actions';
-    var bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Nueva cuenta/caja';
-    bAdd.addEventListener('click', function(){ nuevaCuenta(); });
-    bar.appendChild(bAdd);
-    card.appendChild(bar);
-
-    var tbl=document.createElement('table'); var thead=document.createElement('thead'); var trh=document.createElement('tr');
-    ['ID','Nombre','Tipo','Saldo','Acciones'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-    thead.appendChild(trh); tbl.appendChild(thead);
-    var tbody=document.createElement('tbody');
-
-    DB.finanzas.cuentas.forEach(function(c){
-      var tr=document.createElement('tr');
-      var td1=document.createElement('td'); td1.textContent=c.id; tr.appendChild(td1);
-      var td2=document.createElement('td'); td2.textContent=c.nombre; tr.appendChild(td2);
-      var td3=document.createElement('td'); td3.textContent=c.tipo; tr.appendChild(td3);
-      var td4=document.createElement('td'); td4.textContent=money(c.saldo); tr.appendChild(td4);
-      var td5=document.createElement('td');
-      var ab=document.createElement('button'); ab.className='btn'; ab.textContent='+ Abono'; ab.addEventListener('click', function(){ movCuenta(c.id, +1); });
-      var ca=document.createElement('button'); ca.className='btn'; ca.textContent='– Cargo'; ca.addEventListener('click', function(){ movCuenta(c.id, -1); });
-      td5.appendChild(ab); td5.appendChild(ca); tr.appendChild(td5);
-      tbody.appendChild(tr);
-    });
-
-    tbl.appendChild(tbody); card.appendChild(tbl); host.appendChild(card);
-  }
-
-  function nuevaCuenta(){
-    openTabModal('Nueva cuenta/caja', function(view, close){
-      var card=document.createElement('div'); card.className='card';
-      var g=document.createElement('div'); g.className='grid';
-
-      var d1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='ID (único)'; var i1=document.createElement('input'); i1.type='text'; i1.placeholder='caja_plata_2';
-      d1.appendChild(l1); d1.appendChild(i1); g.appendChild(d1);
-
-      var d2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Nombre'; var i2=document.createElement('input'); i2.type='text'; i2.placeholder='Caja de plata sucursal';
-      d2.appendChild(l2); d2.appendChild(i2); g.appendChild(d2);
-
-      var d3=document.createElement('div'); var l3=document.createElement('label'); l3.textContent='Tipo'; var s3=document.createElement('select');
-      ['caja','banco','otros'].forEach(function(t){ var op=document.createElement('option'); op.value=t; op.textContent=t; s3.appendChild(op); });
-      d3.appendChild(l3); d3.appendChild(s3); g.appendChild(d3);
-
-      var d4=document.createElement('div'); var l4=document.createElement('label'); l4.textContent='Saldo inicial'; var i4=document.createElement('input'); i4.type='number'; i4.step='0.01'; i4.value='0';
-      d4.appendChild(l4); d4.appendChild(i4); g.appendChild(d4);
-
-      var acts=document.createElement('div'); acts.className='actions';
-      var bG=document.createElement('button'); bG.className='btn-primary'; bG.textContent='Crear';
-      bG.addEventListener('click', function(){
-        if(!i1.value){ alert('ID requerido'); return; }
-        if(getCuenta(i1.value)){ alert('Ese ID ya existe'); return; }
-        DB.finanzas.cuentas.push({ id:i1.value, nombre:i2.value||i1.value, tipo:s3.value, saldo:parseFloat(i4.value||'0') });
-        saveDB(DB); toast('Cuenta creada'); close(); renderCuentas();
-      });
-      acts.appendChild(bG);
-
-      card.appendChild(g); card.appendChild(acts); view.appendChild(card);
-    });
-  }
-
-  function movCuenta(cuentaId, signo){
-    openTabModal((signo>0?'+ Abono':'– Cargo')+' a '+(getCuenta(cuentaId)||{nombre:cuentaId}).nombre, function(view, close){
-      var card=document.createElement('div'); card.className='card';
-      var d1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Monto';
-      var i1=document.createElement('input'); i1.type='number'; i1.step='0.01'; i1.min='0'; i1.value='0'; d1.appendChild(l1); d1.appendChild(i1);
-      var acts=document.createElement('div'); acts.className='actions';
-      var b=document.createElement('button'); b.className='btn-primary'; b.textContent='Aplicar';
-      b.addEventListener('click', function(){ setSaldo(cuentaId, signo*parseFloat(i1.value||'0')); toast('Movimiento aplicado'); close(); renderCuentas(); });
-      acts.appendChild(b);
-      card.appendChild(d1); card.appendChild(acts); view.appendChild(card);
-    });
-  }
-
-  // ====== Estado de resultados ======
-  function renderEERR(){
-    var host=qs('#subpanel');
-    var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent='Estado de resultados'; card.appendChild(h);
-
-    var f=periodoQuincena();
-    var bar=document.createElement('div'); bar.className='actions'; bar.style.gap='8px';
-    var d1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Desde'; var i1=document.createElement('input'); i1.type='date'; i1.value=f.desde; d1.appendChild(l1); d1.appendChild(i1);
-    var d2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Hasta'; var i2=document.createElement('input'); i2.type='date'; i2.value=f.hasta; d2.appendChild(l2); d2.appendChild(i2);
-    var b=document.createElement('button'); b.className='btn'; b.textContent='Calcular'; 
-    var box=document.createElement('div'); box.className='card';
-    b.addEventListener('click', function(){ pintarEERR(box, i1.value, i2.value); });
-    bar.appendChild(d1); bar.appendChild(d2); bar.appendChild(b);
-    card.appendChild(bar);
-    card.appendChild(box);
-    host.appendChild(card);
-    pintarEERR(box, i1.value, i2.value);
-  }
-  function pintarEERR(box, desde, hasta){
-    box.innerHTML='';
-    var ingresos = sumarIngresosPeriodo(desde,hasta);
-    var costos = sumarGastosPeriodo(desde,hasta,'costo');
-    var gastos = sumarGastosPeriodo(desde,hasta,'gasto');
-    var utilidadBruta = ingresos - costos;
-    var utilidad = utilidadBruta - gastos;
-
-    var tbl=document.createElement('table'); var tb=document.createElement('tbody');
-    function row(a,b,bold){ var tr=document.createElement('tr'); var td1=document.createElement('td'); var td2=document.createElement('td'); td1.textContent=a; td2.textContent=money(b); if(bold){ td1.style.fontWeight='700'; td2.style.fontWeight='700'; } tr.appendChild(td1); tr.appendChild(td2); tb.appendChild(tr); }
-    row('Ingresos', ingresos);
-    row('(-) Costos', costos);
-    row('= Utilidad bruta', utilidadBruta, true);
-    row('(-) Gastos', gastos);
-    row('= Utilidad neta', utilidad, true);
-    tbl.appendChild(tb);
-    box.appendChild(tbl);
-  }
-
-  // ====== Gastos fijos ======
-  function renderGastosFijos(){
-    var host=qs('#subpanel');
-    var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent='Gastos fijos (recordatorios y generación)'; card.appendChild(h);
-
-    var bar=document.createElement('div'); bar.className='actions';
-    var bAdd=document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Nueva plantilla';
-    bAdd.addEventListener('click', function(){ openPlantillaFijo(); });
-    var bGen=document.createElement('button'); bGen.className='btn'; bGen.textContent='⟲ Generar borradores del periodo';
-    bGen.addEventListener('click', function(){ generarFijosPeriodo(); });
-    bar.appendChild(bAdd); bar.appendChild(bGen);
-    card.appendChild(bar);
-
-    var tbl=document.createElement('table'); var thead=document.createElement('thead'); var trh=document.createElement('tr');
-    ['Nombre','Categoría','Monto','Periodicidad','Cuenta por defecto','Notas','Acciones'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-    thead.appendChild(trh); tbl.appendChild(thead);
-    var tbody=document.createElement('tbody');
-
-    (DB.finanzas.fijos||[]).forEach(function(fx){
-      var tr=document.createElement('tr');
-      var td1=document.createElement('td'); td1.textContent=fx.nombre; tr.appendChild(td1);
-      var td2=document.createElement('td'); td2.textContent=fx.categoria; tr.appendChild(td2);
-      var td3=document.createElement('td'); td3.textContent=money(fx.monto); tr.appendChild(td3);
-      var td4=document.createElement('td'); td4.textContent=fx.periodicidad; tr.appendChild(td4);
-      var td5=document.createElement('td'); td5.textContent=(getCuenta(fx.cuentaIdPorDefecto)||{nombre:fx.cuentaIdPorDefecto}).nombre; tr.appendChild(td5);
-      var td6=document.createElement('td'); td6.textContent=fx.notas||''; tr.appendChild(td6);
-      var td7=document.createElement('td'); var del=document.createElement('button'); del.className='btn'; del.textContent='🗑️';
-      del.addEventListener('click', function(){
-        if(!confirm('¿Eliminar plantilla?')) return;
-        DB.finanzas.fijos = DB.finanzas.fijos.filter(function(x){return x.id!==fx.id;}); saveDB(DB); renderGastosFijos();
-      });
-      td7.appendChild(del); tr.appendChild(td7);
-      tbody.appendChild(tr);
-    });
-
-    tbl.appendChild(tbody); card.appendChild(tbl); host.appendChild(card);
-  }
-
-  function openPlantillaFijo(){
-    openTabModal('Nueva plantilla de gasto fijo', function(view, close){
-      var card=document.createElement('div'); card.className='card';
-      var g=document.createElement('div'); g.className='grid';
-
-      function mkInput(lbl, el){ var d=document.createElement('div'); var l=document.createElement('label'); l.textContent=lbl; d.appendChild(l); d.appendChild(el); return d; }
-
-      var iNom=document.createElement('input'); iNom.type='text'; iNom.placeholder='Renta local';
-      var sCat=document.createElement('select'); ['gasto','costo'].forEach(function(v){ var op=document.createElement('option'); op.value=v; op.textContent=v; sCat.appendChild(op); });
-      var iMon=document.createElement('input'); iMon.type='number'; iMon.step='0.01'; iMon.min='0'; iMon.value='0';
-      var sPer=document.createElement('select'); ['mensual','quincenal','semanal'].forEach(function(v){ var op=document.createElement('option'); op.value=v; op.textContent=v; sPer.appendChild(op); });
-      var iDia=document.createElement('input'); iDia.type='number'; iDia.step='1'; iDia.min='1'; iDia.max='31'; iDia.value='1';
-      var sCta=document.createElement('select'); DB.finanzas.cuentas.forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; sCta.appendChild(op); });
-      var tNt=document.createElement('textarea');
-
-      g.appendChild(mkInput('Nombre', iNom));
-      g.appendChild(mkInput('Categoría', sCat));
-      g.appendChild(mkInput('Monto', iMon));
-      g.appendChild(mkInput('Periodicidad', sPer));
-      g.appendChild(mkInput('Día de referencia (1-31)', iDia));
-      g.appendChild(mkInput('Cuenta por defecto', sCta));
-      g.appendChild(mkInput('Notas', tNt));
-
-      var acts=document.createElement('div'); acts.className='actions';
-      var bG=document.createElement('button'); bG.className='btn-primary'; bG.textContent='Guardar plantilla';
-      bG.addEventListener('click', function(){
-        DB.finanzas.fijos.push({
-          id:uid('F'),
-          nombre:iNom.value||'Gasto fijo',
-          categoria:sCat.value,
-          monto:parseFloat(iMon.value||'0'),
-          periodicidad:sPer.value,
-          diaRef:parseInt(iDia.value||'1',10),
-          cuentaIdPorDefecto:sCta.value,
-          notas:tNt.value||''
-        });
-        saveDB(DB); toast('Plantilla guardada'); close(); renderGastosFijos();
-      });
-      acts.appendChild(bG);
-
-      card.appendChild(g); card.appendChild(acts); view.appendChild(card);
-    });
-  }
-
-  function generarFijosPeriodo(){
-    var f = periodoQuincena();
-    var hoy = hoyStr();
-    var gen=0;
-    (DB.finanzas.fijos||[]).forEach(function(p){
-      var debeGenerar=false;
-      if(p.periodicidad==='mensual'){
-        // si estamos en el mismo mes y el díaRef ya pasó o es hoy
-        var d=new Date(hoy);
-        var y=d.getFullYear(), m=d.getMonth()+1;
-        var fecha = y+'-'+String(m).padStart(2,'0')+'-'+String(Math.min(p.diaRef, new Date(y,m,0).getDate())).padStart(2,'0');
-        if(fecha>=f.desde && fecha<=f.hasta) debeGenerar=true;
-      }
-      if(p.periodicidad==='quincenal'){ debeGenerar=true; }
-      if(p.periodicidad==='semanal'){ debeGenerar=true; } // simplificado: cada periodo generamos uno
-
-      if(debeGenerar){
-        DB.finanzas.folioGasto += 1;
-        DB.finanzas.gastos.push({
-          id:uid('G'),
-          folio:DB.finanzas.folioGasto,
-          fecha:hoy,
-          concepto:p.nombre,
-          categoria:p.categoria,
-          montoSalida:p.monto,
-          cuentaId:p.cuentaIdPorDefecto,
-          montoCuenta:0, // crear en ROJO para que el usuario confirme/cierre
-          conciliado:false,
-          notas:p.notas||'(generado desde plantilla)'
-        });
-        gen++;
-      }
-    });
-    saveDB(DB);
-    toast(gen>0?('Generados '+gen+' borradores'): 'No hubo plantillas aplicables');
-    renderGastos();
-  }
-
-})(); 
-/* =======================  FIN MÓDULO: ADMINISTRACIÓN  ======================= */
+/* ====== FIN MÓDULO ADMINISTRACIÓN v1.0 ====== */
 
 
 })();
