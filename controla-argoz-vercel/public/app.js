@@ -1940,13 +1940,11 @@ function imprimirPDFMaquila(ot, isDraft){
 /* ===== FIN MÓDULO MAQUILADORES v2.8.0 ===== */
 
 /* ================================================================
-   ADMINISTRACIÓN v1.2 — Submenú y Hoja de Trabajo: GASTOS
-   - Pestañas click OK
-   - Botón lateral Administración + handler
-   - Lista de gastos con Buscar (azul) y + Registrar (arriba derecha)
-   - Hoja de gasto: semáforo a la derecha, 30% más pequeño
-   - Guardar ⇒ bloquea edición; aparece "Editar ✏️"
-   - Barra superior: 🖨️ Imprimir | WhatsApp  ···  [GUARDAR] / [Editar ✏️]
+   ADMINISTRACIÓN v1.3 — Submenú y Hoja de Trabajo: GASTOS
+   Cambios:
+   - Botón “+ Nuevo gasto” en hoja de trabajo (a la izquierda, junto a Imprimir)
+   - Semáforo con texto de estatus (Conciliado / Por conciliar / Por pagar / Incompleto)
+   - Botón “Buscar” alineado a la derecha del selector de Cuenta en la lista
 =================================================================*/
 
 /* ---------- Fix de pestañas (activar vista al hacer clic) ---------- */
@@ -2007,21 +2005,29 @@ function estadoSemaforo(g){
   if(g.tipo==='recurrente'){ return g.conciliado?'verde':'amarillo'; }
   return 'rojo';
 }
+function semEstadoTexto(g){
+  // Texto que debe verse en el chip/semáforo
+  if(g.tipo==='por_pagar' && !g.pagado) return 'Por pagar';
+  var e = estadoSemaforo(g);
+  if(e==='verde') return 'Conciliado';
+  if(e==='amarillo') return 'Por conciliar';
+  return 'Incompleto';
+}
 function semIcon(estado){
   if(estado==='verde') return '🟢';
   if(estado==='amarillo') return '🟡';
   return '🔴';
 }
-function semaforoNode(estado){
+function semaforoNode(estado, texto){
   var c = '#ef4444', icon='🔴';
   if(estado==='amarillo'){ c='#f59e0b'; icon='🟡'; }
   if(estado==='verde'){ c='#16a34a'; icon='🟢'; }
   var div=document.createElement('div');
-  div.style.fontSize='21px';     /* 30% más pequeño que 30px */
+  div.style.fontSize='21px';     /* 30% menos */
   div.style.fontWeight='800';
   div.style.color=c;
   div.style.marginLeft='auto';   /* a la derecha */
-  div.textContent = icon+' Semáforo';
+  div.textContent = icon+' '+(texto||'');
   return div;
 }
 function setRO(el, ro){
@@ -2128,7 +2134,7 @@ function adminGastos(){
     host.innerHTML='';
     var c = document.createElement('div'); c.className='card';
 
-    // Barra superior con "+ Registrar gasto" a la derecha
+    // Barra superior con "+ Registrar gasto" arriba derecha
     var top=document.createElement('div'); top.className='actions';
     var title=document.createElement('h2'); title.textContent='Gastos'; top.appendChild(title);
     var spacer=document.createElement('div'); spacer.style.flex='1'; top.appendChild(spacer);
@@ -2139,19 +2145,33 @@ function adminGastos(){
 
     // Filtros
     var g=document.createElement('div'); g.className='actions'; g.style.flexWrap='wrap';
-    function wrap(label, node){ var d=document.createElement('div'); d.style.display='flex'; d.style.flexDirection='column'; d.style.minWidth='160px'; var l=document.createElement('label'); l.textContent=label; d.appendChild(l); d.appendChild(node); return d; }
+    function wrap(label, node){
+      var d=document.createElement('div');
+      d.style.display='flex'; d.style.flexDirection='column'; d.style.minWidth='180px';
+      var l=document.createElement('label'); l.textContent=label; d.appendChild(l); d.appendChild(node); return d;
+    }
     var i1=document.createElement('input'); i1.type='date';
     var i2=document.createElement('input'); i2.type='date';
     var s3=document.createElement('select'); [['','TODOS'],['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; s3.appendChild(op); });
-    var s4=document.createElement('select'); var opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas las cuentas'; s4.appendChild(opAll); DB.admin.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; s4.appendChild(op); });
+
+    // Cuenta + botón Buscar a la derecha en la MISMA fila
+    var s4=document.createElement('select'); var opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas las cuentas'; s4.appendChild(opAll);
+    DB.admin.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; s4.appendChild(op); });
+
+    var cuentaWrap=document.createElement('div');
+    cuentaWrap.style.display='flex'; cuentaWrap.style.flexDirection='column'; cuentaWrap.style.minWidth='280px';
+    var lblCuenta=document.createElement('label'); lblCuenta.textContent='Cuenta'; cuentaWrap.appendChild(lblCuenta);
+    var rowCuenta=document.createElement('div'); rowCuenta.style.display='flex'; rowCuenta.style.gap='8px'; rowCuenta.style.alignItems='center';
+    rowCuenta.appendChild(s4);
+
+    var bBuscar=document.createElement('button'); bBuscar.textContent='Buscar'; bBuscar.className='btn'; bBuscar.style.background='#0a3a74'; bBuscar.style.color='#fff'; bBuscar.dataset.role='action';
+    rowCuenta.appendChild(bBuscar);
+    cuentaWrap.appendChild(rowCuenta);
+
     g.appendChild(wrap('Fecha inicio', i1));
     g.appendChild(wrap('Fecha fin', i2));
     g.appendChild(wrap('Tipo', s3));
-    var cuentaWrap = wrap('Cuenta', s4);
     g.appendChild(cuentaWrap);
-
-    var bBuscar=document.createElement('button'); bBuscar.textContent='Buscar'; bBuscar.className='btn'; bBuscar.style.background='#0a3a74'; bBuscar.style.color='#fff'; bBuscar.dataset.role='action';
-    cuentaWrap.appendChild(bBuscar); // a la derecha de cuenta
     c.appendChild(g);
 
     // Tabla
@@ -2235,16 +2255,17 @@ function adminGastoAbrir(id){
 
     var card=document.createElement('div'); card.className='card';
 
-    /* --- Barra superior: acciones izq / guardar/editar der --- */
+    /* --- Barra superior: +Nuevo | Imprimir | WhatsApp  ···  Guardar/Editar --- */
     var top=document.createElement('div'); top.className='actions'; top.style.alignItems='center';
-    // Izquierda
+
+    var bNuevo=document.createElement('button'); bNuevo.className='btn'; bNuevo.textContent='+ Nuevo gasto'; bNuevo.dataset.role='action';
+    bNuevo.addEventListener('click', function(){ adminGastoNuevo(); });
     var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir'; bPrint.dataset.role='action';
     bPrint.addEventListener('click', function(){ imprimirPDFGasto(g); });
     var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp'; bWA.dataset.role='action';
     bWA.addEventListener('click', function(){ compartirWhatsAppGasto(g); });
-    top.appendChild(bPrint); top.appendChild(bWA);
+    top.appendChild(bNuevo); top.appendChild(bPrint); top.appendChild(bWA);
 
-    // Semáforo a la derecha de la barra (además del de cabecera)
     var spacer=document.createElement('div'); spacer.style.flex='1'; top.appendChild(spacer);
 
     var rightBtn=document.createElement('button'); rightBtn.className='btn-primary'; rightBtn.dataset.role='action';
@@ -2259,7 +2280,6 @@ function adminGastoAbrir(id){
         setRO(card, false);
         renderRightBtn();
       }else{
-        // validaciones
         if(!g.cuentaContableId){ alert('Selecciona la cuenta contable.'); return; }
         if(Number(g.monto||0)<=0){ alert('Captura un monto mayor a cero.'); return; }
         if(g.tipo==='pagado' && !g.cuentaId){ alert('En “Pagado”, la cuenta de pago es obligatoria.'); return; }
@@ -2272,50 +2292,44 @@ function adminGastoAbrir(id){
     top.appendChild(rightBtn);
     card.appendChild(top);
 
-    /* --- Encabezado con título y semáforo a la derecha --- */
+    /* --- Encabezado con título y semáforo (estatus textual) a la derecha --- */
     var headTitle=document.createElement('div'); headTitle.className='actions';
     var h2=document.createElement('h2'); h2.textContent = g.locked ? ('Gasto '+String(g.folio).padStart(3,'0')) : 'Registrar nuevo gasto';
     headTitle.appendChild(h2);
-    var semDiv = semaforoNode(estadoSemaforo(g));
+    var semDiv = semaforoNode(estadoSemaforo(g), semEstadoTexto(g));
     headTitle.appendChild(semDiv);
     card.appendChild(headTitle);
 
     /* --- Formulario principal --- */
     var head=document.createElement('div'); head.className='grid';
 
-    // Tipo
     var dT=document.createElement('div'); var lT=document.createElement('label'); lT.textContent='Tipo de gasto';
     var sT=document.createElement('select'); [['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(g.tipo===p[0]) op.selected=true; sT.appendChild(op); });
     sT.addEventListener('change', function(){ g.tipo=sT.value; saveDB(DB); renderVars(); refreshSem(); });
     dT.appendChild(lT); dT.appendChild(sT); head.appendChild(dT);
 
-    // Fecha
     var dF=document.createElement('div'); var lF=document.createElement('label'); lF.textContent='Fecha';
     var iF=document.createElement('input'); iF.type='date'; iF.value=g.fecha||hoyStr(); iF.addEventListener('change', function(){ g.fecha=iF.value; saveDB(DB); });
     dF.appendChild(lF); dF.appendChild(iF); head.appendChild(dF);
 
-    // Cuenta pago
     var dC=document.createElement('div'); var lC=document.createElement('label'); lC.textContent='Cuenta de pago';
     var sC=document.createElement('select'); var opV=document.createElement('option'); opV.value=''; opV.textContent='(Selecciona)'; sC.appendChild(opV);
     DB.admin.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; if(g.cuentaId===cu.id) op.selected=true; sC.appendChild(op); });
     sC.addEventListener('change', function(){ g.cuentaId=sC.value; saveDB(DB); refreshSem(); });
     dC.appendChild(lC); dC.appendChild(sC); head.appendChild(dC);
 
-    // Cuenta contable (obligatoria)
     var dCC=document.createElement('div'); var lCC=document.createElement('label'); lCC.textContent='Cuenta contable';
     var sCC=document.createElement('select'); var op0=document.createElement('option'); op0.value=''; op0.textContent='(Selecciona)'; sCC.appendChild(op0);
     DB.admin.cuentasContables.forEach(function(cc){ var op=document.createElement('option'); op.value=cc.id; op.textContent=cc.nombre; if(g.cuentaContableId===cc.id) op.selected=true; sCC.appendChild(op); });
     sCC.addEventListener('change', function(){ g.cuentaContableId=sCC.value; saveDB(DB); refreshSem(); });
     dCC.appendChild(lCC); dCC.appendChild(sCC); head.appendChild(dCC);
 
-    // Monto
     var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Monto';
     var iM=document.createElement('input'); iM.type='text'; iM.value=moneyFmt(g.monto||0); iM.style.fontWeight='800'; iM.style.color='#b45309';
     iM.addEventListener('focus', function(){ iM.value=String(moneyParse(iM.value)); });
     iM.addEventListener('blur', function(){ g.monto=moneyParse(iM.value); iM.value=moneyFmt(g.monto); saveDB(DB); refreshSem(); });
     dM.appendChild(lM); dM.appendChild(iM); head.appendChild(dM);
 
-    // Conciliado
     var dK=document.createElement('div'); var lK=document.createElement('label'); lK.textContent='Conciliado';
     var cK=document.createElement('input'); cK.type='checkbox'; cK.checked=!!g.conciliado; cK.addEventListener('change', function(){ g.conciliado=cK.checked; saveDB(DB); refreshSem(); });
     dK.appendChild(lK); dK.appendChild(cK); head.appendChild(dK);
@@ -2346,7 +2360,7 @@ function adminGastoAbrir(id){
 
     // -------- Helpers de render dentro de la hoja --------
     function refreshSem(){
-      var nuevo = semaforoNode(estadoSemaforo(g));
+      var nuevo = semaforoNode(estadoSemaforo(g), semEstadoTexto(g));
       semDiv.replaceWith(nuevo); semDiv=nuevo;
     }
     function renderVars(){
@@ -2394,7 +2408,7 @@ function adminGastoAbrir(id){
     }
     renderVars();
 
-    // Si está bloqueado, deshabilita todo
+    // Bloqueo visual si ya está guardado
     if(g.locked){ setRO(card, true); }
   });
 }
@@ -2406,7 +2420,7 @@ function imprimirPDFGasto(g){
   H.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Gasto '+String(g.folio).padStart(3,'0')+'</title><style>'+css+'</style></head><body>');
   H.push('<h1>Gasto '+String(g.folio).padStart(3,'0')+'</h1>');
   H.push('<div class="row"><div class="col"><b>Fecha:</b> '+(g.fecha||'')+'</div><div class="col"><b>Tipo:</b> '+g.tipo+'</div><div class="col"><b>Monto:</b> '+moneyFmt(g.monto||0)+'</div></div>');
-  H.push('<div class="row"><div class="col"><b>Cuenta pago:</b> '+((DB.admin.cuentas.find(function(c){return c.id===g.cuentaId;})||{}).nombre||'—')+'</div><div class="col"><b>Cuenta contable:</b> '+((DB.admin.cuentasContables.find(function(c){return c.id===g.cuentaContableId;})||{}).nombre||'—')+'</div><div class="col"><b>Conciliado:</b> '+(g.conciliado?'Sí':'No')+'</div></div>');
+  H.push('<div class="row"><div class="col"><b>Cuenta pago:</b> '+((DB.admin.cuentas.find(function(c){return c.id===g.cuentaId;})||{}).nombre||'—')+'</div><div class="col"><b>Cuenta contable:</b> '+((DB.admin.cuentasContables.find(function(c){return c.id===g.cuentaContableId;})||{}).nombre||'—')+'</div><div class="col"><b>Estatus:</b> '+semEstadoTexto(g)+'</div></div>');
   if(g.evidencia){ H.push('<div><b>Evidencia:</b><br><img src="'+g.evidencia+'" style="max-width:100%;max-height:280px;border:1px solid #cbd5e1"></div>'); }
   H.push('</body></html>');
   var blob=new Blob([H.join('')],{type:'text/html'}); var url=URL.createObjectURL(blob); window.open(url,'_blank','width=840,height=900');
