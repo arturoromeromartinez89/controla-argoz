@@ -1939,34 +1939,12 @@ function imprimirPDFMaquila(ot, isDraft){
 
 /* ===== FIN MÓDULO MAQUILADORES v2.8.0 ===== */
 
-/* ================ PARCHE GLOBAL: clic en pestañas activa su vista ================ */
-(function patchTabClicks(){
-  var tabsHost = document.getElementById('tabs');
-  if(!tabsHost || tabsHost.__patched) return;
-  tabsHost.__patched = true;
-  tabsHost.addEventListener('click', function(e){
-    var tab = e.target.closest('.tab');
-    if(!tab || e.target.classList.contains('x')) return; // la X ya tiene su propio handler
-    var id = tab.getAttribute('data-tab');
-    if(!id) return;
-    // activar pestaña
-    Array.prototype.forEach.call(tabsHost.querySelectorAll('.tab'), function(t){ t.classList.remove('active'); });
-    tab.classList.add('active');
-    // activar vista
-    var viewsHost = document.getElementById('views');
-    Array.prototype.forEach.call(viewsHost.querySelectorAll('.view'), function(v){ v.classList.remove('active'); });
-    var v = document.getElementById('view-'+id);
-    if(v) v.classList.add('active');
-  });
-
 /* ================================================================
-   ADMINISTRACIÓN v1.0 — submenú + hoja de trabajo: GASTOS
-   ➜ Pegar DENTRO del IIFE de app.js, justo antes del último `})();`
-   - Soporta roots: 'admin' | 'administracion' | 'Administración'
-   - Corrige clic en pestañas (activa la vista correcta)
+   ADMINISTRACIÓN v1.1 — submenú + hoja de trabajo: GASTOS
+   (Incluye: fix de pestañas y botón Administración con handler)
 =================================================================*/
 
-/* ---- PARCHE DE PESTAÑAS (click = activa su vista) ---- */
+/* ---- PARCHE DE PESTAÑAS (clic = activa su vista) ---- */
 (function fixTabClicks(){
   var tabsHost = document.getElementById('tabs');
   if(!tabsHost || tabsHost.__patchedAdmin) return;
@@ -1976,10 +1954,8 @@ function imprimirPDFMaquila(ot, isDraft){
     if(!tab || e.target.classList.contains('x')) return;
     var id = tab.getAttribute('data-tab');
     if(!id) return;
-    // Activa pestaña
     Array.prototype.forEach.call(tabsHost.querySelectorAll('.tab'), function(t){ t.classList.remove('active'); });
     tab.classList.add('active');
-    // Activa vista
     var viewsHost = document.getElementById('views');
     Array.prototype.forEach.call(viewsHost.querySelectorAll('.view'), function(v){ v.classList.remove('active'); });
     var v = document.getElementById('view-'+id);
@@ -2015,20 +1991,6 @@ function imprimirPDFMaquila(ot, isDraft){
   }
 })();
 
-/* ---- Inyector del botón lateral (si no existe) ---- */
-(function injectAdminButton(){
-  var aside = document.querySelector('.left');
-  if(!aside) return;
-  if(aside.querySelector('[data-root="administracion"], [data-root="Administración"], [data-root="admin"]')) return;
-  var btn = document.createElement('button');
-  btn.className = 'side-item tree-btn';
-  btn.setAttribute('data-root','administracion');
-  btn.textContent = '🗄️ Administración';
-  var ref = aside.querySelector('.tree-btn[data-root="catalogo"]');
-  if(ref && ref.parentNode){ ref.parentNode.insertBefore(btn, ref); }
-  else { aside.appendChild(btn); }
-})();
-
 /* ---- Utilidades locales ---- */
 function moneyFmt(n){ return '$ ' + (Number(n||0)).toFixed(2); }
 function moneyParse(s){ return isNaN(s) ? parseFloat(String(s||'').replace(/[^\d.-]/g,''))||0 : Number(s); }
@@ -2052,6 +2014,33 @@ function semaforoNode(estado){
   return div;
 }
 
+/* ---- Helper: engancha el mismo handler que usa tu app para .tree-btn ---- */
+function attachTreeHandler(btn){
+  btn.addEventListener('click', function(){
+    var all = document.querySelectorAll('.tree-btn');
+    Array.prototype.forEach.call(all, function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    var root = btn.getAttribute('data-root');
+    renderSubmenu(root);
+  });
+}
+
+/* ---- Inyector del botón lateral (con handler propio) ---- */
+(function injectAdminButton(){
+  var aside = document.querySelector('.left');
+  if(!aside) return;
+  var exists = aside.querySelector('[data-root="administracion"], [data-root="Administración"], [data-root="admin"]');
+  if(!exists){
+    var btn = document.createElement('button');
+    btn.className = 'side-item tree-btn';
+    btn.setAttribute('data-root','administracion');
+    btn.textContent = '🗄️ Administración';
+    var ref = aside.querySelector('.tree-btn[data-root="catalogo"]');
+    if(ref && ref.parentNode){ ref.parentNode.insertBefore(btn, ref); } else { aside.appendChild(btn); }
+    attachTreeHandler(btn);            // <— clave: le ponemos el handler aquí
+  }
+})();
+
 /* ---- PARCHA renderSubmenu para abrir el submódulo Administración ---- */
 (function patchRenderSubmenu_Admin(){
   var _orig = renderSubmenu;
@@ -2062,7 +2051,7 @@ function semaforoNode(estado){
     var host = qs('#subpanel'); if(!host) return;
     host.innerHTML = '';
 
-    // Panel del submenú (izquierda-centro) — mismo formato que el resto
+    // Panel del submenú (izquierda-centro)
     var card = document.createElement('div'); card.className='card';
     var h2 = document.createElement('h2'); h2.textContent = 'Administración'; card.appendChild(h2);
 
@@ -2083,7 +2072,7 @@ function semaforoNode(estado){
     card.appendChild(list);
     host.appendChild(card);
 
-    // Abre por defecto la hoja de trabajo de GASTOS en la derecha
+    // Abre por defecto la hoja de trabajo de GASTOS
     adminGastos();
   };
 })();
@@ -2356,7 +2345,7 @@ function adminGastoAbrir(id){
     renderVars();
   });
 }
+ 
 
-   
 })();
 
