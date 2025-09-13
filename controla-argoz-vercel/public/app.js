@@ -1940,11 +1940,16 @@ function imprimirPDFMaquila(ot, isDraft){
 /* ===== FIN MÓDULO MAQUILADORES v2.8.0 ===== */
 
 /* ================================================================
-   ADMINISTRACIÓN v1.1 — submenú + hoja de trabajo: GASTOS
-   (Incluye: fix de pestañas y botón Administración con handler)
+   ADMINISTRACIÓN v1.2 — Submenú y Hoja de Trabajo: GASTOS
+   - Pestañas click OK
+   - Botón lateral Administración + handler
+   - Lista de gastos con Buscar (azul) y + Registrar (arriba derecha)
+   - Hoja de gasto: semáforo a la derecha, 30% más pequeño
+   - Guardar ⇒ bloquea edición; aparece "Editar ✏️"
+   - Barra superior: 🖨️ Imprimir | WhatsApp  ···  [GUARDAR] / [Editar ✏️]
 =================================================================*/
 
-/* ---- PARCHE DE PESTAÑAS (clic = activa su vista) ---- */
+/* ---------- Fix de pestañas (activar vista al hacer clic) ---------- */
 (function fixTabClicks(){
   var tabsHost = document.getElementById('tabs');
   if(!tabsHost || tabsHost.__patchedAdmin) return;
@@ -1952,18 +1957,16 @@ function imprimirPDFMaquila(ot, isDraft){
   tabsHost.addEventListener('click', function(e){
     var tab = e.target.closest('.tab');
     if(!tab || e.target.classList.contains('x')) return;
-    var id = tab.getAttribute('data-tab');
-    if(!id) return;
+    var id = tab.getAttribute('data-tab'); if(!id) return;
     Array.prototype.forEach.call(tabsHost.querySelectorAll('.tab'), function(t){ t.classList.remove('active'); });
     tab.classList.add('active');
     var viewsHost = document.getElementById('views');
     Array.prototype.forEach.call(viewsHost.querySelectorAll('.view'), function(v){ v.classList.remove('active'); });
-    var v = document.getElementById('view-'+id);
-    if(v) v.classList.add('active');
+    var v = document.getElementById('view-'+id); if(v) v.classList.add('active');
   });
 })();
 
-/* ---- Estado/persistencia mínima de Administración ---- */
+/* ------------------ Estado base de Administración ------------------ */
 (function ensureAdminState(){
   if(!DB.admin){
     DB.admin = {
@@ -1991,7 +1994,7 @@ function imprimirPDFMaquila(ot, isDraft){
   }
 })();
 
-/* ---- Utilidades locales ---- */
+/* ----------------------- Utilidades locales ----------------------- */
 function moneyFmt(n){ return '$ ' + (Number(n||0)).toFixed(2); }
 function moneyParse(s){ return isNaN(s) ? parseFloat(String(s||'').replace(/[^\d.-]/g,''))||0 : Number(s); }
 function nextGastoId(){ DB.admin.consecutivoGasto+=1; saveDB(DB); return 'G'+Date.now()+'-'+DB.admin.consecutivoGasto; }
@@ -2004,28 +2007,48 @@ function estadoSemaforo(g){
   if(g.tipo==='recurrente'){ return g.conciliado?'verde':'amarillo'; }
   return 'rojo';
 }
+function semIcon(estado){
+  if(estado==='verde') return '🟢';
+  if(estado==='amarillo') return '🟡';
+  return '🔴';
+}
 function semaforoNode(estado){
   var c = '#ef4444', icon='🔴';
   if(estado==='amarillo'){ c='#f59e0b'; icon='🟡'; }
   if(estado==='verde'){ c='#16a34a'; icon='🟢'; }
   var div=document.createElement('div');
-  div.style.fontSize='30px'; div.style.fontWeight='800'; div.style.color=c;
-  div.textContent = icon+' Semáforo: '+estado.toUpperCase();
+  div.style.fontSize='21px';     /* 30% más pequeño que 30px */
+  div.style.fontWeight='800';
+  div.style.color=c;
+  div.style.marginLeft='auto';   /* a la derecha */
+  div.textContent = icon+' Semáforo';
   return div;
 }
-
-/* ---- Helper: engancha el mismo handler que usa tu app para .tree-btn ---- */
-function attachTreeHandler(btn){
-  btn.addEventListener('click', function(){
-    var all = document.querySelectorAll('.tree-btn');
-    Array.prototype.forEach.call(all, function(b){ b.classList.remove('active'); });
-    btn.classList.add('active');
-    var root = btn.getAttribute('data-root');
-    renderSubmenu(root);
+function setRO(el, ro){
+  if(!el) return;
+  el.querySelectorAll('input,select,textarea,button').forEach(function(n){
+    var isAction = n.dataset.role==='action';
+    if(isAction) return;
+    if(n.tagName==='BUTTON'){ n.disabled = ro; n.classList.toggle('ro', ro); }
+    else{
+      if(n.type==='file'){ n.disabled = ro; }
+      else{
+        n.readOnly = (n.tagName!=='SELECT') && ro;
+        n.disabled = (n.tagName==='SELECT') ? ro : n.disabled;
+        if(ro) n.classList.add('ro'); else n.classList.remove('ro');
+      }
+    }
   });
 }
 
-/* ---- Inyector del botón lateral (con handler propio) ---- */
+/* ------------- Botón lateral Administración (+ handler) ------------ */
+function attachTreeHandler(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('.tree-btn').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    renderSubmenu(btn.getAttribute('data-root'));
+  });
+}
 (function injectAdminButton(){
   var aside = document.querySelector('.left');
   if(!aside) return;
@@ -2037,11 +2060,11 @@ function attachTreeHandler(btn){
     btn.textContent = '🗄️ Administración';
     var ref = aside.querySelector('.tree-btn[data-root="catalogo"]');
     if(ref && ref.parentNode){ ref.parentNode.insertBefore(btn, ref); } else { aside.appendChild(btn); }
-    attachTreeHandler(btn);            // <— clave: le ponemos el handler aquí
+    attachTreeHandler(btn);
   }
 })();
 
-/* ---- PARCHA renderSubmenu para abrir el submódulo Administración ---- */
+/* -------------- Parche renderSubmenu para Administración ------------ */
 (function patchRenderSubmenu_Admin(){
   var _orig = renderSubmenu;
   renderSubmenu = function(root){
@@ -2051,90 +2074,90 @@ function attachTreeHandler(btn){
     var host = qs('#subpanel'); if(!host) return;
     host.innerHTML = '';
 
-    // Panel del submenú (izquierda-centro)
     var card = document.createElement('div'); card.className='card';
     var h2 = document.createElement('h2'); h2.textContent = 'Administración'; card.appendChild(h2);
 
     var list = document.createElement('div'); list.className='actions'; list.style.flexDirection='column'; list.style.alignItems='stretch';
-
     function nodeBtn(txt, icon, fn){
       var b = document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
-      b.innerHTML = icon+' '+txt;
-      b.addEventListener('click', fn);
-      return b;
+      b.innerHTML = icon+' '+txt; b.addEventListener('click', fn); return b;
     }
-
-    list.appendChild(nodeBtn('Dashboard',              '📊', function(){ adminDashboard(); }));
-    list.appendChild(nodeBtn('Estado de Resultados',   '📑', function(){ adminER(); }));
-    list.appendChild(nodeBtn('Gastos',                 '💸', function(){ adminGastos(); }));
-    list.appendChild(nodeBtn('Conciliación de Cajas',  '🧾', function(){ adminConciliacion(); }));
-
+    list.appendChild(nodeBtn('Dashboard',             '📊', function(){ adminDashboard(); }));
+    list.appendChild(nodeBtn('Estado de Resultados',  '📑', function(){ adminER(); }));
+    list.appendChild(nodeBtn('Gastos',                '💸', function(){ adminGastos(); }));
+    list.appendChild(nodeBtn('Conciliación de Cajas', '🧾', function(){ adminConciliacion(); }));
     card.appendChild(list);
     host.appendChild(card);
 
-    // Abre por defecto la hoja de trabajo de GASTOS
-    adminGastos();
+    adminGastos(); // por defecto
   };
 })();
 
-/* ========================== SUBMÓDULOS ========================== */
+/* ============================ SUBMÓDULOS ============================ */
 function adminDashboard(){
   openTab('admin-dash','Admin · Dashboard', function(host){
     host.innerHTML='';
     var c=document.createElement('div'); c.className='card';
     var h=document.createElement('h2'); h.textContent='Dashboard Administrativo'; c.appendChild(h);
-    var p=document.createElement('p'); p.textContent='(KPIs aquí próximamente)'; c.appendChild(p);
+    c.appendChild(document.createElement('p')).textContent='(KPIs aquí próximamente)';
     host.appendChild(c);
   });
 }
-
 function adminER(){
   openTab('admin-er','Admin · Estado de Resultados', function(host){
     host.innerHTML='';
     var c=document.createElement('div'); c.className='card';
     var h=document.createElement('h2'); h.textContent='Estado de Resultados'; c.appendChild(h);
-    var p=document.createElement('p'); p.textContent='(Quincenas/periodos: integraremos ventas y gastos)'; c.appendChild(p);
+    c.appendChild(document.createElement('p')).textContent='(Quincenas/periodos: integraremos ventas y gastos)';
     host.appendChild(c);
   });
 }
-
 function adminConciliacion(){
   openTab('admin-conc','Admin · Conciliación de Cajas', function(host){
     host.innerHTML='';
     var c=document.createElement('div'); c.className='card';
     var h=document.createElement('h2'); h.textContent='Conciliación de Cajas'; c.appendChild(h);
-    var p=document.createElement('p'); p.textContent='(Aquí verás movimientos por cuenta y estado de semáforo)'; c.appendChild(p);
+    c.appendChild(document.createElement('p')).textContent='(Movimientos por cuenta; semáforo de cuadre)';
     host.appendChild(c);
   });
 }
 
-/* ----------------- GASTOS: listado + alta/edición ----------------- */
+/* ----------------- Lista de Gastos + Filtros/Acciones ---------------- */
 function adminGastos(){
   openTab('admin-gastos','Admin · Gastos', function(host){
     host.innerHTML='';
-
     var c = document.createElement('div'); c.className='card';
-    var h = document.createElement('h2'); h.textContent='Gastos'; c.appendChild(h);
 
-    // Filtros
-    var g=document.createElement('div'); g.className='grid';
-    var f1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Fecha inicio'; var i1=document.createElement('input'); i1.type='date'; f1.appendChild(l1); f1.appendChild(i1); g.appendChild(f1);
-    var f2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Fecha fin';    var i2=document.createElement('input'); i2.type='date'; f2.appendChild(l2); f2.appendChild(i2); g.appendChild(f2);
-    var f3=document.createElement('div'); var l3=document.createElement('label'); l3.textContent='Tipo';        var s3=document.createElement('select'); [['','TODOS'],['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; s3.appendChild(op); }); f3.appendChild(l3); f3.appendChild(s3); g.appendChild(f3);
-    var f4=document.createElement('div'); var l4=document.createElement('label'); l4.textContent='Cuenta';      var s4=document.createElement('select'); var opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas las cuentas'; s4.appendChild(opAll); DB.admin.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; s4.appendChild(op); }); f4.appendChild(l4); f4.appendChild(s4); g.appendChild(f4);
-    c.appendChild(g);
-
-    var acts=document.createElement('div'); acts.className='actions';
+    // Barra superior con "+ Registrar gasto" a la derecha
+    var top=document.createElement('div'); top.className='actions';
+    var title=document.createElement('h2'); title.textContent='Gastos'; top.appendChild(title);
+    var spacer=document.createElement('div'); spacer.style.flex='1'; top.appendChild(spacer);
     var bNew=document.createElement('button'); bNew.className='btn-primary'; bNew.textContent='+ Registrar gasto';
     bNew.addEventListener('click', function(){ adminGastoNuevo(); });
-    var bFil=document.createElement('button'); bFil.className='btn'; bFil.textContent='Filtrar';
-    acts.appendChild(bNew); acts.appendChild(bFil);
-    c.appendChild(acts);
+    top.appendChild(bNew);
+    c.appendChild(top);
+
+    // Filtros
+    var g=document.createElement('div'); g.className='actions'; g.style.flexWrap='wrap';
+    function wrap(label, node){ var d=document.createElement('div'); d.style.display='flex'; d.style.flexDirection='column'; d.style.minWidth='160px'; var l=document.createElement('label'); l.textContent=label; d.appendChild(l); d.appendChild(node); return d; }
+    var i1=document.createElement('input'); i1.type='date';
+    var i2=document.createElement('input'); i2.type='date';
+    var s3=document.createElement('select'); [['','TODOS'],['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; s3.appendChild(op); });
+    var s4=document.createElement('select'); var opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas las cuentas'; s4.appendChild(opAll); DB.admin.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; s4.appendChild(op); });
+    g.appendChild(wrap('Fecha inicio', i1));
+    g.appendChild(wrap('Fecha fin', i2));
+    g.appendChild(wrap('Tipo', s3));
+    var cuentaWrap = wrap('Cuenta', s4);
+    g.appendChild(cuentaWrap);
+
+    var bBuscar=document.createElement('button'); bBuscar.textContent='Buscar'; bBuscar.className='btn'; bBuscar.style.background='#0a3a74'; bBuscar.style.color='#fff'; bBuscar.dataset.role='action';
+    cuentaWrap.appendChild(bBuscar); // a la derecha de cuenta
+    c.appendChild(g);
 
     // Tabla
     var tbl=document.createElement('table');
     var thead=document.createElement('thead'); var trh=document.createElement('tr');
-    ['Folio','Fecha','Tipo','Cuenta pago','Cuenta contable','Monto','Semáforo','Estatus'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    ['Folio','Fecha','Tipo','Cuenta pago','Cuenta contable','Monto','Estatus',''].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
     thead.appendChild(trh); tbl.appendChild(thead);
     var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
     c.appendChild(tbl);
@@ -2163,38 +2186,38 @@ function adminGastos(){
         tr.appendChild(td(ctaPago));
         tr.appendChild(td(ctaCont));
         var tdm=document.createElement('td'); tdm.innerHTML='<b style="color:#b45309">'+moneyFmt(gst.monto||0)+'</b>'; tr.appendChild(tdm);
-        var tds=document.createElement('td'); tds.textContent=sem.toUpperCase(); tds.style.fontWeight='700'; tr.appendChild(tds);
         tr.appendChild(td(gst.conciliado?'Conciliado':'Pendiente'));
+        var tds=document.createElement('td'); tds.style.textAlign='right'; tds.textContent=semIcon(sem); tr.appendChild(tds);
         tbody.appendChild(tr);
       });
     }
-    bFil.addEventListener('click', pinta);
+    bBuscar.addEventListener('click', pinta);
     pinta();
 
     host.appendChild(c);
   });
 }
 
+/* ---------------- Hoja de trabajo de un Gasto (CRUD) ---------------- */
 function adminGastoNuevo(){
   var g={
     id: nextGastoId(),
     folio: DB.admin.consecutivoGasto,
     ts: Date.now(),
-    tipo: 'pagado',          // pagado | por_pagar | recurrente
+    tipo: 'pagado',
     fecha: hoyStr(),
-    cuentaId: '',            // obligatoria si pagado
-    cuentaContableId: '',    // obligatoria siempre
+    cuentaId: '',
+    cuentaContableId: '',
     monto: 0,
     conciliado: false,
-    // por pagar
     fechaDevengo: '',
     pagado: false,
-    // recurrente
-    periodicidad: 'mensual', // mensual | quincenal | semanal | cada_x_dias
+    periodicidad: 'mensual',
     diaMes: 1,
     diaSemana: 'viernes',
     cadaDias: 30,
-    evidencia: ''
+    evidencia: '',
+    locked: false
   };
   DB.admin.gastos.push(g); saveDB(DB);
   adminGastoAbrir(g.id);
@@ -2205,18 +2228,59 @@ function adminGastoAbrir(id){
   if(!g) return;
 
   var tabId = 'admin-gasto-'+g.id;
-  var titulo = 'Gasto '+String(g.folio).padStart(3,'0');
+  var titulo = g.locked ? ('Gasto '+String(g.folio).padStart(3,'0')) : 'Registrar nuevo gasto';
 
   openTab(tabId, titulo, function(host){
     host.innerHTML='';
 
     var card=document.createElement('div'); card.className='card';
 
-    // Semáforo
-    var semDiv = semaforoNode(estadoSemaforo(g));
-    card.appendChild(semDiv);
+    /* --- Barra superior: acciones izq / guardar/editar der --- */
+    var top=document.createElement('div'); top.className='actions'; top.style.alignItems='center';
+    // Izquierda
+    var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir'; bPrint.dataset.role='action';
+    bPrint.addEventListener('click', function(){ imprimirPDFGasto(g); });
+    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp'; bWA.dataset.role='action';
+    bWA.addEventListener('click', function(){ compartirWhatsAppGasto(g); });
+    top.appendChild(bPrint); top.appendChild(bWA);
 
-    // Encabezado
+    // Semáforo a la derecha de la barra (además del de cabecera)
+    var spacer=document.createElement('div'); spacer.style.flex='1'; top.appendChild(spacer);
+
+    var rightBtn=document.createElement('button'); rightBtn.className='btn-primary'; rightBtn.dataset.role='action';
+    function renderRightBtn(){
+      if(g.locked){ rightBtn.textContent='Editar ✏️'; rightBtn.className='btn-warn'; }
+      else{ rightBtn.textContent='GUARDAR'; rightBtn.className='btn-primary'; }
+    }
+    renderRightBtn();
+    rightBtn.addEventListener('click', function(){
+      if(g.locked){
+        g.locked=false; saveDB(DB);
+        setRO(card, false);
+        renderRightBtn();
+      }else{
+        // validaciones
+        if(!g.cuentaContableId){ alert('Selecciona la cuenta contable.'); return; }
+        if(Number(g.monto||0)<=0){ alert('Captura un monto mayor a cero.'); return; }
+        if(g.tipo==='pagado' && !g.cuentaId){ alert('En “Pagado”, la cuenta de pago es obligatoria.'); return; }
+        g.locked=true; saveDB(DB);
+        alert('Gasto guardado con éxito · No. '+String(g.folio).padStart(3,'0'));
+        setRO(card, true);
+        renderRightBtn();
+      }
+    });
+    top.appendChild(rightBtn);
+    card.appendChild(top);
+
+    /* --- Encabezado con título y semáforo a la derecha --- */
+    var headTitle=document.createElement('div'); headTitle.className='actions';
+    var h2=document.createElement('h2'); h2.textContent = g.locked ? ('Gasto '+String(g.folio).padStart(3,'0')) : 'Registrar nuevo gasto';
+    headTitle.appendChild(h2);
+    var semDiv = semaforoNode(estadoSemaforo(g));
+    headTitle.appendChild(semDiv);
+    card.appendChild(headTitle);
+
+    /* --- Formulario principal --- */
     var head=document.createElement('div'); head.className='grid';
 
     // Tipo
@@ -2237,7 +2301,7 @@ function adminGastoAbrir(id){
     sC.addEventListener('change', function(){ g.cuentaId=sC.value; saveDB(DB); refreshSem(); });
     dC.appendChild(lC); dC.appendChild(sC); head.appendChild(dC);
 
-    // Cuenta contable
+    // Cuenta contable (obligatoria)
     var dCC=document.createElement('div'); var lCC=document.createElement('label'); lCC.textContent='Cuenta contable';
     var sCC=document.createElement('select'); var op0=document.createElement('option'); op0.value=''; op0.textContent='(Selecciona)'; sCC.appendChild(op0);
     DB.admin.cuentasContables.forEach(function(cc){ var op=document.createElement('option'); op.value=cc.id; op.textContent=cc.nombre; if(g.cuentaContableId===cc.id) op.selected=true; sCC.appendChild(op); });
@@ -2278,25 +2342,13 @@ function adminGastoAbrir(id){
     ev.appendChild(evLbl); ev.appendChild(evIn); ev.appendChild(prev);
     card.appendChild(ev);
 
-    // Botón guardar
-    var acts=document.createElement('div'); acts.className='actions';
-    var bSave=document.createElement('button'); bSave.className='btn-primary'; bSave.textContent='💾 Guardar gasto';
-    bSave.addEventListener('click', function(){
-      if(!g.cuentaContableId){ alert('Selecciona la cuenta contable.'); return; }
-      if(Number(g.monto||0)<=0){ alert('Captura un monto mayor a cero.'); return; }
-      if(g.tipo==='pagado' && !g.cuentaId){ alert('En “Pagado”, la cuenta de pago es obligatoria.'); return; }
-      saveDB(DB); alert('Gasto guardado.');
-    });
-    acts.appendChild(bSave);
-    card.appendChild(acts);
-
     host.appendChild(card);
 
+    // -------- Helpers de render dentro de la hoja --------
     function refreshSem(){
       var nuevo = semaforoNode(estadoSemaforo(g));
       semDiv.replaceWith(nuevo); semDiv=nuevo;
     }
-
     function renderVars(){
       varsGrid.innerHTML='';
       if(g.tipo==='pagado'){
@@ -2336,16 +2388,34 @@ function adminGastoAbrir(id){
           var iX=document.createElement('input'); iX.type='number'; iX.min='1'; iX.value=g.cadaDias||30; iX.addEventListener('input', function(){ g.cadaDias=parseInt(iX.value||'1',10); saveDB(DB); });
           dX.appendChild(lX); dX.appendChild(iX); varsGrid.appendChild(dX);
         }
-
         var note=document.createElement('div'); note.innerHTML='Cada ocurrencia deberá <b>conciliarse</b> cuando se pague.';
         varsGrid.appendChild(note);
       }
     }
-
     renderVars();
+
+    // Si está bloqueado, deshabilita todo
+    if(g.locked){ setRO(card, true); }
   });
 }
- 
+
+/* -------------------- PDF / WhatsApp (gasto) -------------------- */
+function imprimirPDFGasto(g){
+  var css='@page{size:5.5in 8.5in;margin:10mm}body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px}h1{color:#0a2c4c}table{width:100%;border-collapse:collapse}th,td{border:1px solid #e5e7eb;padding:4px 6px}thead tr{background:#e7effa}.row{display:flex;gap:8px;margin:6px 0}.col{flex:1}';
+  var H=[];
+  H.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Gasto '+String(g.folio).padStart(3,'0')+'</title><style>'+css+'</style></head><body>');
+  H.push('<h1>Gasto '+String(g.folio).padStart(3,'0')+'</h1>');
+  H.push('<div class="row"><div class="col"><b>Fecha:</b> '+(g.fecha||'')+'</div><div class="col"><b>Tipo:</b> '+g.tipo+'</div><div class="col"><b>Monto:</b> '+moneyFmt(g.monto||0)+'</div></div>');
+  H.push('<div class="row"><div class="col"><b>Cuenta pago:</b> '+((DB.admin.cuentas.find(function(c){return c.id===g.cuentaId;})||{}).nombre||'—')+'</div><div class="col"><b>Cuenta contable:</b> '+((DB.admin.cuentasContables.find(function(c){return c.id===g.cuentaContableId;})||{}).nombre||'—')+'</div><div class="col"><b>Conciliado:</b> '+(g.conciliado?'Sí':'No')+'</div></div>');
+  if(g.evidencia){ H.push('<div><b>Evidencia:</b><br><img src="'+g.evidencia+'" style="max-width:100%;max-height:280px;border:1px solid #cbd5e1"></div>'); }
+  H.push('</body></html>');
+  var blob=new Blob([H.join('')],{type:'text/html'}); var url=URL.createObjectURL(blob); window.open(url,'_blank','width=840,height=900');
+}
+function compartirWhatsAppGasto(g){
+  imprimirPDFGasto(g);
+  alert('Guarda el PDF y compártelo por WhatsApp desde tu dispositivo.');
+}
+
 
 })();
 
