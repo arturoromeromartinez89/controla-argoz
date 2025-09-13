@@ -1940,15 +1940,17 @@ function imprimirPDFMaquila(ot, isDraft){
 /* ===== FIN MÓDULO MAQUILADORES v2.8.0 ===== */
 
 /* ================================================================
-   ADMINISTRACIÓN v1.2 — Submenú + Gastos + Conciliación de Cajas
+   ADMINISTRACIÓN v1.3 — Menú funcional + Gastos + Conciliación
    ➜ Pegar DENTRO del IIFE de app.js, justo antes del último `})();`
-   Reglas aplicadas:
-   - Pestañas: clic activa su vista (parche).
-   - Gastos: toolbar IZQ: [Nuevo gasto][Imprimir][WhatsApp] · DER: [GUARDAR] / [✏️ Editar]
-   - Bloqueo tras guardar (gris) y re-edición con ✏️.
-   - Semáforo 30% más pequeño, a la derecha, texto de estatus (no dice “Semáforo”).
-   - Lista: botón “Buscar” (azul) a la derecha del selector de Cuenta; semáforo (solo icono) a la derecha.
-   - Conciliación B (contable clásico): concilia periodo por cuenta y arrastra movimientos a conciliado.
+   Incluye:
+   - Botón lateral "🗄️ Administración" con CLICK LISTENER propio.
+   - Parche de pestañas: clic activa su vista.
+   - Submenú: Gastos, Conciliación de Cajas, E/R, Dashboard.
+   - Gastos: toolbar IZQ [Nuevo gasto][Imprimir][WhatsApp] · DER [GUARDAR]/[✏️ Editar],
+             bloqueo tras guardar, semáforo (texto) a la derecha (30% más chico),
+             lista con “Buscar” azul a la derecha del selector de cuenta y semáforo-ícono a la derecha.
+   - Conciliación (flujo B clásico): concilia ingresos+gastos de un periodo por cuenta,
+     marca conciliado y registra diferencia con ajuste.
 ================================================================ */
 
 /* ---------- PARCHE: clic en pestañas activa su vista ---------- */
@@ -1997,26 +1999,11 @@ function imprimirPDFMaquila(ot, isDraft){
     };
     saveDB(DB);
   } else {
-    // Campos nuevos por compatibilidad
     DB.admin.gastos.forEach(function(g){ if(typeof g.bloqueado!=='boolean') g.bloqueado=false; });
     if(!Array.isArray(DB.admin.ingresos)) DB.admin.ingresos = [];
     if(!Array.isArray(DB.admin.conciliaciones)) DB.admin.conciliaciones = [];
     saveDB(DB);
   }
-})();
-
-/* ---------------------- Inyector botón lateral ---------------------- */
-(function injectAdminButton(){
-  var aside = document.querySelector('.left');
-  if(!aside) return;
-  if(aside.querySelector('[data-root="administracion"], [data-root="Administración"], [data-root="admin"]')) return;
-  var btn = document.createElement('button');
-  btn.className = 'side-item tree-btn';
-  btn.setAttribute('data-root','administracion');
-  btn.textContent = '🗄️ Administración';
-  var ref = aside.querySelector('.tree-btn[data-root="catalogo"]');
-  if(ref && ref.parentNode){ ref.parentNode.insertBefore(btn, ref); }
-  else { aside.appendChild(btn); }
 })();
 
 /* --------------------- Utilidades locales Admin --------------------- */
@@ -2029,10 +2016,6 @@ function ctaContNombre(id){ var c=DB.admin.cuentasContables.find(function(x){ret
 
 /* Semáforo: devuelve {icon, color, label} */
 function gastoSemaforo(g){
-  // Estados:
-  // - Incompleto: sin monto o sin cuenta contable (rojo)
-  // - Por conciliar: completo, pero no conciliado (amarillo)
-  // - Conciliado: conciliado (verde)
   var okMonto = Number(g.monto||0) > 0;
   var okCC    = !!g.cuentaContableId;
   if(!okMonto || !okCC) return {icon:'🔴', color:'#ef4444', label:'Incompleto'};
@@ -2048,7 +2031,6 @@ function semaforoBadgeSmallRight(g){
   span.style.float='right';
   return span;
 }
-/* Semáforo grande (30% menos, a la derecha, con label) */
 function semaforoPanelRight(g){
   var s=gastoSemaforo(g);
   var box=document.createElement('div');
@@ -2056,13 +2038,13 @@ function semaforoPanelRight(g){
   box.style.display='flex';
   box.style.alignItems='center';
   box.style.gap='8px';
-  var ico=document.createElement('span'); ico.textContent=s.icon; ico.style.fontSize='21px'; // 30% menos aprox
+  var ico=document.createElement('span'); ico.textContent=s.icon; ico.style.fontSize='21px'; // ~30% menor
   var lbl=document.createElement('b'); lbl.textContent=s.label; lbl.style.color=s.color;
   box.appendChild(ico); box.appendChild(lbl);
   return box;
 }
 
-/* ---------- Lógica de conciliación (clásico) ---------- */
+/* ---------- Lógica de conciliación (flujo B clásico) ---------- */
 function lastConciliacionBefore(cuentaId, fechaISO){
   var lst = DB.admin.conciliaciones
     .filter(function(c){ return c.cuentaId===cuentaId && c.hasta && c.hasta < fechaISO; })
@@ -2074,11 +2056,38 @@ function movimientosIngresosEnPeriodo(cuentaId, desde, hasta){
 }
 function movimientosGastosEnPeriodo(cuentaId, desde, hasta){
   return DB.admin.gastos.filter(function(g){
-    if(g.tipo!=='pagado') return false;        // para caja: egreso cuando sale de cuenta
+    if(g.tipo!=='pagado') return false;        // egreso cuando sale de la cuenta
     if(g.cuentaId!==cuentaId) return false;
     return (g.fecha>=desde && g.fecha<=hasta);
   });
 }
+
+/* ---------------------- Inyector botón lateral ---------------------- */
+(function injectAdminButton(){
+  var aside = document.querySelector('.left');
+  if(!aside) return;
+  // evita duplicar
+  if(aside.querySelector('[data-root="administracion"], [data-root="Administración"], [data-root="admin"]')) return;
+
+  var btn = document.createElement('button');
+  btn.className = 'side-item tree-btn';
+  btn.setAttribute('data-root','administracion');
+  btn.textContent = '🗄️ Administración';
+
+  // ==> CLICK LISTENER para botones inyectados (clave para que funcione)
+  btn.addEventListener('click', function(){
+    // Replica el manejador global: activa visual y llama renderSubmenu
+    Array.prototype.forEach.call(document.querySelectorAll('.tree-btn'), function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    // Llama al submenú administración
+    renderSubmenu('administracion');
+  });
+
+  // Inserta antes de Catálogo (si existe)
+  var ref = aside.querySelector('.tree-btn[data-root="catalogo"]');
+  if(ref && ref.parentNode){ ref.parentNode.insertBefore(btn, ref); }
+  else { aside.appendChild(btn); }
+})();
 
 /* ----------------- renderSubmenu (parche Administración) ----------------- */
 (function patchRenderSubmenu_Admin(){
@@ -2093,7 +2102,7 @@ function movimientosGastosEnPeriodo(cuentaId, desde, hasta){
     var card = document.createElement('div'); card.className='card';
     var h2 = document.createElement('h2'); h2.textContent = 'Administración'; card.appendChild(h2);
 
-    // Submenú vertical (misma línea visual que usas)
+    // Submenú vertical
     var list = document.createElement('div'); list.className='actions';
     list.style.flexDirection='column'; list.style.alignItems='stretch';
 
@@ -2147,19 +2156,14 @@ function adminGastos(){
     host.innerHTML='';
 
     var c = document.createElement('div'); c.className='card';
+    // Topbar LISTA
     var topbar = document.createElement('div'); topbar.className='actions';
-
-    // IZQUIERDA: (vacía en lista)
-    var left = document.createElement('div'); left.style.display='flex'; left.style.gap='8px';
-    topbar.appendChild(left);
-
-    // DERECHA: + Registrar gasto (arriba derecha)
+    var left = document.createElement('div'); left.style.display='flex'; left.style.gap='8px'; topbar.appendChild(left);
     var right = document.createElement('div'); right.style.marginLeft='auto';
     var bNew=document.createElement('button'); bNew.className='btn-primary'; bNew.textContent='+ Registrar gasto';
     bNew.addEventListener('click', function(){ adminGastoNuevo(); });
     right.appendChild(bNew);
     topbar.appendChild(right);
-
     c.appendChild(topbar);
 
     // Filtros
@@ -2168,7 +2172,7 @@ function adminGastos(){
     var f2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Fecha fin';    var i2=document.createElement('input'); i2.type='date'; f2.appendChild(l2); f2.appendChild(i2); g.appendChild(f2);
     var f3=document.createElement('div'); var l3=document.createElement('label'); l3.textContent='Tipo';        var s3=document.createElement('select'); [['','TODOS'],['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; s3.appendChild(op); }); f3.appendChild(l3); f3.appendChild(s3); g.appendChild(f3);
 
-    // Cuenta + botón Buscar AZUL alineado a la derecha del selector
+    // Cuenta + botón Buscar azul a la derecha del selector
     var f4=document.createElement('div'); var l4=document.createElement('label'); l4.textContent='Cuenta';
     var s4=document.createElement('select'); var opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas las cuentas'; s4.appendChild(opAll);
     DB.admin.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; s4.appendChild(op); });
@@ -2212,8 +2216,7 @@ function adminGastos(){
         tr.appendChild(td(ctaNombre(gst.cuentaId)));
         tr.appendChild(td(ctaContNombre(gst.cuentaContableId)));
         tr.appendChild(tdHTML('<b style="color:#b45309">'+moneyFmt(gst.monto||0)+'</b>'));
-        tr.appendChild(td(sem.label)); // texto de estatus
-        // Columna derecha: solo icono de semáforo
+        tr.appendChild(td(sem.label));
         var tdSem=document.createElement('td'); tdSem.style.textAlign='right'; tdSem.textContent=sem.icon; tdSem.title=sem.label; tdSem.style.fontSize='18px';
         tr.appendChild(tdSem);
 
@@ -2259,7 +2262,7 @@ function adminGastoAbrir(id){
   if(!g) return;
 
   var tabId = 'admin-gasto-'+g.id;
-  var titulo = 'Registrar nuevo gasto'; // título fijo como pediste
+  var titulo = 'Registrar nuevo gasto';
 
   openTab(tabId, titulo, function(host){
     host.innerHTML='';
@@ -2344,14 +2347,14 @@ function adminGastoAbrir(id){
     iM.addEventListener('blur', function(){ g.monto=moneyParse(iM.value); iM.value=moneyFmt(g.monto); saveDB(DB); refreshSem(); });
     dM.appendChild(lM); dM.appendChild(iM); head.appendChild(dM);
 
-    // Conciliado (solo toggle)
+    // Conciliado
     var dK=document.createElement('div'); var lK=document.createElement('label'); lK.textContent='Conciliado';
     var cK=document.createElement('input'); cK.type='checkbox'; cK.checked=!!g.conciliado; cK.addEventListener('change', function(){ g.conciliado=cK.checked; saveDB(DB); refreshSem(); });
     dK.appendChild(lK); dK.appendChild(cK); head.appendChild(dK);
 
     headRow.appendChild(head);
 
-    // Semáforo a la derecha
+    // Semáforo a la derecha (texto estatus, sin palabra "Semáforo")
     var semDiv = semaforoPanelRight(g);
     headRow.appendChild(semDiv);
 
@@ -2431,24 +2434,17 @@ function adminGastoAbrir(id){
 
     function renderLockState(){
       var ro = g.bloqueado;
-      // Inputs de encabezado:
       [sT,iF,sC,sCC,iM].forEach(function(inp){
         inp.disabled = ro; if(ro){ inp.classList.add('ro'); } else { inp.classList.remove('ro'); }
       });
-      // Conciliado: permitimos cambiarlo aun bloqueado? Lo dejamos editable SOLO si desbloqueas.
-      // (Si quieres que sea editable aún bloqueado, comenta la línea siguiente)
+      // Si deseas permitir marcar "Conciliado" aun bloqueado, comenta la línea siguiente.
       // cK.disabled = ro;
-      var allInputs = card.querySelectorAll('input, select, textarea, button.btn, button.btn-primary, button.btn-warn');
-      allInputs.forEach(function(el){
-        if(el===bEditar || el===bImp || el===bWA || el===bNuevo) return; // estos siempre activos
-        if(el===bGuardar){ el.disabled = ro; if(ro){ el.classList.add('ro'); } else { el.classList.remove('ro'); } return; }
-      });
     }
 
     renderVars();
     renderLockState();
 
-    // ======= Acciones de impresión/whatsapp =======
+    // ======= Impresión / WhatsApp =======
     function adminGastoHTML(g){
       var css='@page{size:5.5in 8.5in;margin:10mm;}body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}h1{color:#0a2c4c}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #e5e7eb;padding:4px 6px}thead tr{background:#e7effa}.row{display:flex;gap:8px;margin:6px 0}.col{flex:1}';
       var H=[];
@@ -2589,7 +2585,7 @@ function adminConciliacion(){
         ins.forEach(function(m){ m.conciliado=true; });
         egs.forEach(function(g){ g.conciliado=true; });
 
-        // Si hay diferencia, registra ajuste por arqueo (como gasto)
+        // Diferencia => ajuste por arqueo como gasto
         if(Math.abs(dif) > 0.009){
           var gAjuste = {
             id: nextGastoId(),
@@ -2598,7 +2594,7 @@ function adminConciliacion(){
             tipo: 'pagado',
             fecha: hoyStr(),
             cuentaId: cuentaId,
-            cuentaContableId: 'otros', // o crea una cuenta 'ajuste_arqueo'
+            cuentaContableId: 'otros', // o crea 'ajuste_arqueo'
             monto: Math.abs(dif),
             conciliado: true,
             bloqueado: true,
@@ -2637,6 +2633,6 @@ function adminConciliacion(){
 
 /* ======================= FIN MÓDULO ADMINISTRACIÓN ======================= */
 
-
+   
 })();
 
