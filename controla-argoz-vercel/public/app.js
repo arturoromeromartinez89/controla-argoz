@@ -2430,6 +2430,6 @@ function compartirWhatsAppGasto(g){
   alert('Guarda el PDF y compártelo por WhatsApp desde tu dispositivo.');
 }
 
-
+   
 })();
 
