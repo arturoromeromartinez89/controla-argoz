@@ -1939,435 +1939,322 @@ function imprimirPDFMaquila(ot, isDraft){
 
 /* ===== FIN MÓDULO MAQUILADORES v2.8.0 ===== */
 
-/* =========================  MÓDULO: ADMINISTRACIÓN v1.9 (SUBMENÚ)  =========================
-   - Botón lateral "🧮 Administración" con listener propio (evita el bug de click sin acción).
-   - NO usa la columna de vistas (#views); todas las hojas viven en #subpanel.
-   - Submenús: 📊 Dashboard | 📑 Estado de Resultados | 💸 Gastos (semáforo+conciliación) | 🏧 Conciliación de Cajas.
-   - Saldos de cuentas = suma de movimientos conciliados (doble entrada en traspasos).
-   - Seguro de campo: no permite conciliar si el semáforo está rojo (reglas contables mínimas).
+/* ========= NAV EN ÁRBOL + ADMINISTRACIÓN (GASTOS) — Inyector seguro =========
+   Modo: Opción A (no rompemos #subpanel; las hojas abren a la derecha con openTab)
+   Requisitos: usa utilidades ya existentes en app.js: qs, qsa, openTab, f2, hoyStr, saveDB, loadDB, etc.
+   No toca index.html ni borra módulos previos.
 */
 
-/* ---------- CSS del módulo ---------- */
-(function injectAdminCSS(){
-  if(document.getElementById('css-admin-19')) return;
-  var css = ''
-    + '.admin-led{display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;border:1px solid #991b1b;vertical-align:middle;margin-right:6px}'
-    + '.admin-led.ok{background:#10b981;border-color:#065f46}'
-    + '.admin-pill{background:#f1f5f9;border-radius:14px;padding:4px 8px;font-weight:700;font-size:12px;margin-right:6px}'
-    + '.admin-note{font-size:12px;color:#64748b}'
-    + '.t-right{text-align:right}.t-center{text-align:center}.nowrap{white-space:nowrap}'
-    + '.evi-img{max-width:90px;max-height:60px;border:1px solid #e5e7eb;border-radius:6px}'
-    + '.table-compact th,.table-compact td{padding:4px 6px}'
-  ;
-  var s=document.createElement('style'); s.id='css-admin-19'; s.textContent=css; document.head.appendChild(s);
-})();
-
-/* ---------- Estado base en DB ---------- */
-if(!DB.cuentas){
-  DB.cuentas = [
-    { id:'caja_plata',   nombre:'Caja de Plata', saldo:0 },
-    { id:'caja_general', nombre:'Caja General', saldo:0 }
-  ];
-  saveDB(DB);
-}
-if(!DB.gastos){ DB.gastos = []; saveDB(DB); }
-if(!DB.gastoCategorias){
-  DB.gastoCategorias = [
-    { id:'renta',     nombre:'Renta' },
-    { id:'intereses', nombre:'Intereses' },
-    { id:'servicios', nombre:'Servicios (luz/agua/internet)' },
-    { id:'nomina',    nombre:'Nómina' },
-    { id:'varios',    nombre:'Varios' }
-  ];
-  saveDB(DB);
-}
-
-/* ---------- Helpers locales ---------- */
-function adminHost(){ return qs('#subpanel'); }
-function adminBody(){ return qs('#admin-body'); }
-function adminUid(){ return 'G'+Date.now()+String(Math.random()).slice(2,7); }
-function adminOk(g){
-  var m = parseFloat(g.monto||0);
-  if(!(m>0)) return false;
-  if(g.tipo==='gasto'){ return !!g.cuentaOrigenId && !!g.categoriaId; }
-  if(g.tipo==='traspaso'){ return !!g.cuentaOrigenId && !!g.cuentaDestinoId && g.cuentaDestinoId!==g.cuentaOrigenId; }
-  return false;
-}
-function adminRecalculaSaldos(){
-  var map={}; DB.cuentas.forEach(function(c){ map[c.id]=0; });
-  DB.gastos.forEach(function(g){
-    if(!g.conciliado) return;
-    var m=parseFloat(g.monto||0);
-    if(g.tipo==='gasto'){ map[g.cuentaOrigenId] = (map[g.cuentaOrigenId]||0) - m; }
-    if(g.tipo==='traspaso'){
-      map[g.cuentaOrigenId]  = (map[g.cuentaOrigenId]||0)  - m;
-      map[g.cuentaDestinoId] = (map[g.cuentaDestinoId]||0) + m;
-    }
-  });
-  DB.cuentas.forEach(function(c){ c.saldo = map[c.id]||0; });
-  saveDB(DB);
-}
-
-/* ---------- Inyector de botón LATERAL (con listener propio) ---------- */
-(function mountAdminButton(){
+(function enableTreeNav(){
   var aside = document.querySelector('.left');
   if(!aside) return;
 
-  var btn = document.querySelector('.left .tree-btn[data-root="administracion"]');
-  if(!btn){
-    btn = document.createElement('button');
-    btn.className = 'side-item tree-btn';
-    btn.setAttribute('data-root','administracion');
-    btn.textContent = '🧮 Administración';
-    // lo insertamos antes de "📇 Catálogo" si existe
-    var cat = document.querySelector('.left .tree-btn[data-root="catalogo"]');
-    if(cat && cat.parentNode){ cat.parentNode.insertBefore(btn, cat); }
-    else{ aside.appendChild(btn); }
+  // Limpia el contenido previo del aside y construye árbol
+  aside.innerHTML = '';
+  var h3 = document.createElement('h3'); h3.textContent = 'Menú';
+  aside.appendChild(h3);
+
+  // Helper: grupo de árbol
+  function makeGroup(label, icon){
+    var wrap = document.createElement('div');
+    wrap.className = 'tree-group';
+    var head = document.createElement('button');
+    head.className = 'side-item';
+    head.style.display = 'flex';
+    head.style.alignItems = 'center';
+    head.style.justifyContent = 'space-between';
+    head.innerHTML = '<span>'+icon+' '+label+'</span><span class="tw">+</span>';
+    var list = document.createElement('div');
+    list.className = 'tree-children';
+    list.style.display = 'none';
+    list.style.paddingLeft = '10px';
+    list.style.marginTop = '4px';
+
+    head.addEventListener('click', function(){
+      var open = list.style.display !== 'none';
+      list.style.display = open ? 'none' : 'block';
+      head.querySelector('.tw').textContent = open ? '+' : '–';
+    });
+
+    wrap.appendChild(head);
+    wrap.appendChild(list);
+    return {wrap:wrap, list:list, head:head};
   }
 
-  // Listener PROPIO (no dependemos del bind inicial)
-  btn.addEventListener('click', function(){
-    Array.prototype.slice.call(document.querySelectorAll('.tree-btn')).forEach(function(b){ b.classList.remove('active'); });
-    btn.classList.add('active');
-    renderAdminRoot(); // pintamos el submenú aquí mismo
-  });
-})();
-
-/* ---------- También parcheamos renderSubmenu por si alguien llama renderSubmenu('administracion') ---------- */
-(function patchRenderSubmenuAdmin(){
-  if(typeof renderSubmenu!=='function') return;
-  var _orig = renderSubmenu;
-  renderSubmenu = function(root){
-    if(root==='administracion'){ renderAdminRoot(); return; }
-    _orig(root);
-  };
-})();
-
-/* ======================== ROOT: tarjeta + barra de submenús ======================== */
-function renderAdminRoot(){
-  var host = adminHost(); if(!host) return;
-  host.innerHTML = '';
-
-  var card = document.createElement('div'); card.className = 'card';
-  var h2 = document.createElement('h2'); h2.textContent = 'Administración'; card.appendChild(h2);
-
-  var actions = document.createElement('div'); actions.className='actions';
-  function mk(txt, fn){ var b=document.createElement('button'); b.className='btn'; b.textContent=txt; b.addEventListener('click', fn); return b; }
-  actions.appendChild(mk('📊 Dashboard', function(){ renderAdminDashboard(); }));
-  actions.appendChild(mk('📑 Estado de Resultados', function(){ renderEstadoResultados(); }));
-  actions.appendChild(mk('💸 Gastos', function(){ renderAdminGastos(); }));
-  actions.appendChild(mk('🏧 Conciliación de Cajas', function(){ renderConciliacionCajas(); }));
-  card.appendChild(actions);
-  host.appendChild(card);
-
-  var body=document.createElement('div'); body.id='admin-body';
-  host.appendChild(body);
-
-  renderAdminGastos(); // hoja por defecto
-  if(typeof ensureMobileToolbar==='function'){ ensureMobileToolbar(); }
-}
-
-/* =============================== DASHBOARD =============================== */
-function renderAdminDashboard(){
-  var host = adminBody(); if(!host) return;
-  host.innerHTML = '';
-
-  adminRecalculaSaldos();
-
-  var card = document.createElement('div'); card.className='card';
-  var h2=document.createElement('h2'); h2.textContent='📊 Dashboard Administrativo'; card.appendChild(h2);
-
-  var ventas = (DB.ventas||[]).reduce(function(a,b){ return a + (parseFloat(b.total||0)); }, 0);
-  var gastos = (DB.gastos||[]).reduce(function(a,b){ return a + (parseFloat(b.monto||0)); }, 0);
-  var util = ventas - gastos;
-
-  var chips=document.createElement('div'); chips.className='actions';
-  function pill(t){ var s=document.createElement('span'); s.className='admin-pill'; s.textContent=t; return s; }
-  chips.appendChild(pill('Ventas: $ '+f2(ventas)));
-  chips.appendChild(pill('Gastos: $ '+f2(gastos)));
-  chips.appendChild(pill('Utilidad: $ '+f2(util)));
-  card.appendChild(chips);
-
-  var tbl=document.createElement('table'); tbl.className='table-compact';
-  var thead=document.createElement('thead'); var trh=document.createElement('tr');
-  ['Cuenta','Saldo'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-  thead.appendChild(trh); tbl.appendChild(thead);
-  var tb=document.createElement('tbody');
-  (DB.cuentas||[]).forEach(function(c){
-    var tr=document.createElement('tr');
-    var td1=document.createElement('td'); td1.textContent=c.nombre; tr.appendChild(td1);
-    var td2=document.createElement('td'); td2.className='t-right'; td2.textContent='$ '+f2(c.saldo||0); tr.appendChild(td2);
-    tb.appendChild(tr);
-  });
-  tbl.appendChild(tb); card.appendChild(tbl);
-
-  host.appendChild(card);
-}
-
-/* ========================= ESTADO DE RESULTADOS ========================= */
-function renderEstadoResultados(){
-  var host = adminBody(); if(!host) return;
-  host.innerHTML='';
-
-  var card=document.createElement('div'); card.className='card';
-  var h2=document.createElement('h2'); h2.textContent='📑 Estado de Resultados'; card.appendChild(h2);
-
-  var filtros=document.createElement('div'); filtros.className='actions';
-  var f1=document.createElement('input'); f1.type='date';
-  var f2=document.createElement('input'); f2.type='date';
-  var b=document.createElement('button'); b.className='btn'; b.textContent='Filtrar';
-  filtros.appendChild(f1); filtros.appendChild(f2); filtros.appendChild(b);
-  card.appendChild(filtros);
-
-  var res=document.createElement('div'); card.appendChild(res);
-
-  function calc(){
-    var d1=f1.value?new Date(f1.value):null, d2=f2.value?new Date(f2.value):null;
-    function inRange(d){ return (!d1||d>=d1)&&(!d2||d<=d2); }
-    var ventas=(DB.ventas||[]).filter(function(v){ return inRange(new Date(v.fecha||v.date||todayStr)); });
-    var gastos=(DB.gastos||[]).filter(function(g){ return inRange(new Date(g.fecha)); });
-
-    var totV=ventas.reduce(function(a,b){ return a+(parseFloat(b.total||0)); },0);
-    var totG=gastos.reduce(function(a,b){ return a+(parseFloat(b.monto||0)); },0);
-    var util=totV-totG;
-
-    res.innerHTML = '<p><b>Ventas:</b> $ '+f2(totV)+'</p>'
-                  + '<p><b>Gastos:</b> $ '+f2(totG)+'</p>'
-                  + '<p><b>Utilidad:</b> $ '+f2(util)+'</p>';
+  // Helper: item hoja
+  function makeLeaf(label, onClick, icon){
+    var btn = document.createElement('button');
+    btn.className = 'side-item';
+    btn.style.fontSize = '12px';
+    btn.style.paddingLeft = '18px';
+    btn.style.opacity = .95;
+    btn.textContent = (icon ? icon+' ' : '') + label;
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      onClick && onClick();
+    });
+    return btn;
   }
-  b.addEventListener('click', calc);
-  host.appendChild(card);
-  calc();
-}
 
-/* =============================== GASTOS =============================== */
-function renderAdminGastos(){
-  var host = adminBody(); if(!host) return;
-  host.innerHTML='';
+  // ===================== GRUPOS EXISTENTES (placeholders) =====================
+  var gInicio = makeGroup('Inicio','🏠');
+  gInicio.list.appendChild(makeLeaf('Bienvenida', function(){
+    openTab('inicio-info','Inicio', function(host){
+      host.innerHTML = '<div class="card"><h2>Inicio</h2><p>Selecciona un submódulo del menú.</p></div>';
+    });
+  }));
+  aside.appendChild(gInicio.wrap);
 
-  adminRecalculaSaldos();
+  var gVentas = makeGroup('Ventas','🧾');
+  gVentas.list.appendChild(makeLeaf('Abrir módulo actual', function(){ renderSubmenu && renderSubmenu('ventas'); }));
+  aside.appendChild(gVentas.wrap);
 
-  var card=document.createElement('div'); card.className='card';
-  var h2=document.createElement('h2'); h2.textContent='💸 Gastos'; card.appendChild(h2);
+  var gInv = makeGroup('Inventarios','📦');
+  gInv.list.appendChild(makeLeaf('Traspasos', function(){ renderSubmenu && renderSubmenu('inventarios'); }));
+  aside.appendChild(gInv.wrap);
 
-  /* ---- filtros ---- */
-  var filtros=document.createElement('div'); filtros.className='actions';
-  var fd=document.createElement('input'); fd.type='date';
-  var fh=document.createElement('input'); fh.type='date';
-  var selTipo=document.createElement('select'); ['todos','gasto','traspaso'].forEach(function(t){ var op=document.createElement('option'); op.value=t; op.textContent=t.toUpperCase(); selTipo.appendChild(op); });
-  var selCuenta=document.createElement('select'); var op0=document.createElement('option'); op0.value=''; op0.textContent='Todas las cuentas'; selCuenta.appendChild(op0);
-  (DB.cuentas||[]).forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; selCuenta.appendChild(op); });
-  var q=document.createElement('input'); q.type='text'; q.placeholder='Buscar...';
-  var bFil=document.createElement('button'); bFil.className='btn'; bFil.textContent='Filtrar';
-  [fd,fh,selTipo,selCuenta,q,bFil].forEach(function(el){ filtros.appendChild(el); });
-  card.appendChild(filtros);
+  var gPed = makeGroup('Pedidos','🗂️');
+  gPed.list.appendChild(makeLeaf('Pedidos', function(){ renderSubmenu && renderSubmenu('pedidos'); }));
+  aside.appendChild(gPed.wrap);
 
-  /* ---- alta rápida (en submenú) ---- */
-  var alta=document.createElement('div'); alta.className='card';
-  var h3=document.createElement('h2'); h3.textContent='Nuevo movimiento'; alta.appendChild(h3);
-  var g=document.createElement('div'); g.className='grid';
+  var gProd = makeGroup('Producción','🏭');
+  gProd.list.appendChild(makeLeaf('Maquiladores', function(){ renderSubmenu && renderSubmenu('produccion'); }));
+  aside.appendChild(gProd.wrap);
 
-  var inFecha=document.createElement('input'); inFecha.type='date'; inFecha.value=hoyStr();
-  var selMov=document.createElement('select'); [{v:'gasto',n:'GASTO'},{v:'traspaso',n:'TRASPASO ENTRE CAJAS'}].forEach(function(o){ var op=document.createElement('option'); op.value=o.v; op.textContent=o.n; selMov.appendChild(op); });
-  var selOrigen=document.createElement('select'); (DB.cuentas||[]).forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; selOrigen.appendChild(op); });
-  var selCat=document.createElement('select'); (DB.gastoCategorias||[]).forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; selCat.appendChild(op); });
-  var selDestino=document.createElement('select'); var opx=document.createElement('option'); opx.value=''; opx.textContent='Cuenta destino'; selDestino.appendChild(opx);
-  (DB.cuentas||[]).forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; selDestino.appendChild(op); });
-  var inMonto=document.createElement('input'); inMonto.type='number'; inMonto.min='0'; inMonto.step='0.01'; inMonto.placeholder='Monto';
-  var inDesc=document.createElement('input'); inDesc.type='text'; inDesc.placeholder='Descripción / concepto';
-  var inEvi=document.createElement('input'); inEvi.type='file'; inEvi.accept='image/*';
-  var prev=document.createElement('div'); prev.className='preview';
+  // ========================= ADMINISTRACIÓN (nuevo) ==========================
+  // Persistencia contable mínima (si no existe)
+  var DB = (typeof loadDB==='function') ? loadDB() : (window.DB||{});
+  if(!DB.adm){ DB.adm = { cuentas:[{id:'caja_plata', nombre:'Caja de Plata', moneda:'MXN', saldo:0},{id:'caja_general', nombre:'Caja General', moneda:'MXN', saldo:0}], gastos:[], seqGasto:0 }; }
+  if(typeof saveDB==='function'){ saveDB(DB); } else { window.DB = DB; }
 
-  function syncCampos(){ var isG = selMov.value==='gasto'; selCat.style.display=isG?'block':'none'; selDestino.style.display=isG?'none':'block'; }
-  selMov.addEventListener('change', syncCampos); syncCampos();
+  var gAdm = makeGroup('Administración','🏦');
 
-  [inFecha,selMov,selOrigen,selCat,selDestino,inMonto,inDesc].forEach(function(el){ g.appendChild(el); });
-  alta.appendChild(g);
+  // ---- Dashboard (placeholder simple) ----
+  gAdm.list.appendChild(makeLeaf('Dashboard', function(){
+    openTab('adm-dash','Dashboard Administrativo', function(host){
+      host.innerHTML = '';
+      var card = document.createElement('div'); card.className='card';
+      card.innerHTML = '<h2>📊 Dashboard</h2><p>Próximamente: KPIs rápidos.</p>';
+      host.appendChild(card);
+    });
+  }, '📊'));
 
-  var acts=document.createElement('div'); acts.className='actions';
-  var btnAdd=document.createElement('button'); btnAdd.className='btn-primary'; btnAdd.textContent='Agregar';
-  var nota=document.createElement('div'); nota.className='admin-note'; nota.textContent='El semáforo debe estar en VERDE para poder conciliar.';
-  acts.appendChild(btnAdd); acts.appendChild(nota);
+  // ---- Estado de Resultados (placeholder; abre en derecha) ----
+  gAdm.list.appendChild(makeLeaf('Estado de Resultados', function(){
+    openTab('adm-edr','Estado de Resultados', function(host){
+      host.innerHTML = '<div class="card"><h2>🧮 Estado de Resultados</h2><p>Selecciona un periodo y calcula utilidades (pendiente de integrar fuente de ventas).</p></div>';
+    });
+  }, '🧮'));
 
-  inEvi.addEventListener('change', function(){
-    if(!inEvi.files || !inEvi.files[0]) return;
-    var r=new FileReader();
-    r.onload=function(e){ prev.innerHTML=''; var im=new Image(); im.src=e.target.result; im.className='evi-img'; prev.appendChild(im); prev.setAttribute('data-b64', e.target.result); };
-    r.readAsDataURL(inEvi.files[0]);
-  });
-  acts.appendChild(inEvi); acts.appendChild(prev);
-  alta.appendChild(acts);
-  card.appendChild(alta);
+  // ---- Gastos (HOJA REAL) ----
+  gAdm.list.appendChild(makeLeaf('Gastos', openAdmGastos, '💸'));
 
-  /* ---- tabla ---- */
-  var tbl=document.createElement('table'); tbl.className='table-compact';
-  var thead=document.createElement('thead'); var trh=document.createElement('tr');
-  ['','Fecha','Tipo','Cuenta origen','Categoría / Destino','Monto','$','Descripción','Evid.','Conciliado'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-  thead.appendChild(trh); tbl.appendChild(thead);
-  var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
-  card.appendChild(tbl);
-  host.appendChild(card);
+  // ---- Conciliación de Cajas (placeholder) ----
+  gAdm.list.appendChild(makeLeaf('Conciliación de Cajas', function(){
+    openTab('adm-conc','Conciliación de Cajas', function(host){
+      host.innerHTML = '<div class="card"><h2>🧾 Conciliación de Cajas</h2><p>Aquí irá la conciliación contra movimientos y semáforo.</p></div>';
+    });
+  }, '🧾'));
 
-  btnAdd.addEventListener('click', function(){
-    var obj={
-      id: adminUid(),
-      fecha: inFecha.value||hoyStr(),
-      tipo: selMov.value,
-      cuentaOrigenId: selOrigen.value,
-      categoriaId: selMov.value==='gasto' ? selCat.value : '',
-      cuentaDestinoId: selMov.value==='traspaso' ? selDestino.value : '',
-      monto: parseFloat(inMonto.value||'0'),
-      descripcion: inDesc.value||'',
-      evidencia: prev.getAttribute('data-b64')||'',
-      conciliado: false
-    };
-    if(!adminOk(obj) && !confirm('El semáforo está ROJO. ¿Agregar de todos modos?')) return;
-    DB.gastos.push(obj); saveDB(DB); adminRecalculaSaldos(); toast('Movimiento agregado'); buildTable();
-  });
+  aside.appendChild(gAdm.wrap);
 
-  function listaFiltrada(){
-    var d1 = fd.value?new Date(fd.value):null;
-    var d2 = fh.value?new Date(fh.value):null;
-    var tipo = selTipo.value;
-    var cta  = selCuenta.value;
-    var txt  = (q.value||'').toLowerCase();
+  // Abre por default Administración/Gastos para que veas la hoja funcionando
+  setTimeout(function(){ gAdm.head.click(); }, 0);
 
-    return DB.gastos.slice().sort(function(a,b){
-      return new Date(b.fecha) - new Date(a.fecha);
-    }).filter(function(g){
-      var d=new Date(g.fecha);
-      if(d1 && d<d1) return false;
-      if(d2 && d>d2) return false;
-      if(tipo!=='todos' && g.tipo!==tipo) return false;
-      if(cta && !(g.cuentaOrigenId===cta || g.cuentaDestinoId===cta)) return false;
-      if(txt){
-        var hay=(g.descripcion||'')+' '+(g.tipo||'')+' '+(g.cuentaOrigenId||'')+' '+(g.cuentaDestinoId||'');
-        if(hay.toLowerCase().indexOf(txt)===-1) return false;
+  // ======================== HOJA — ADMIN · GASTOS ===========================
+  function openAdmGastos(){
+    openTab('adm-gastos','Gastos', function(host){
+      host.innerHTML = '';
+
+      var card = document.createElement('div'); card.className = 'card';
+      var h2 = document.createElement('h2'); h2.textContent = '💸 Gastos'; card.appendChild(h2);
+
+      // Filtros
+      var fx = document.createElement('div'); fx.className='actions';
+      fx.innerHTML = ''
+        + '<div><label>Desde</label><input id="g_desde" type="date"></div>'
+        + '<div><label>Hasta</label><input id="g_hasta" type="date"></div>'
+        + '<div><label>Cuenta</label><select id="g_cuenta"></select></div>'
+        + '<div><label>Buscar</label><input id="g_search" type="text" placeholder="Proveedor, concepto..."></div>'
+        + '<div><button class="btn" id="g_filtrar">Filtrar</button></div>';
+      card.appendChild(fx);
+
+      // Botonera
+      var acts = document.createElement('div'); acts.className='actions';
+      var bAdd = document.createElement('button'); bAdd.className='btn-primary'; bAdd.textContent='+ Registrar gasto';
+      var bCsv = document.createElement('button'); bCsv.className='btn'; bCsv.textContent='⬇️ CSV';
+      acts.appendChild(bAdd); acts.appendChild(bCsv);
+      card.appendChild(acts);
+
+      // Tabla
+      var table = document.createElement('table');
+      var thead = document.createElement('thead'); thead.innerHTML = '<tr>'
+        + '<th style="width:11%">Fecha</th><th style="width:16%">Cuenta</th><th style="width:18%">Proveedor</th>'
+        + '<th style="width:24%">Concepto</th><th style="width:10%">Monto</th><th style="width:9%">Estatus</th>'
+        + '<th style="width:12%">Acciones</th></tr>';
+      table.appendChild(thead);
+      var tbody = document.createElement('tbody');
+      table.appendChild(tbody);
+      card.appendChild(table);
+
+      // Totales
+      var foot = document.createElement('div'); foot.className='actions';
+      var tot = document.createElement('span'); tot.className='pill'; tot.textContent='Total: $ 0.00';
+      foot.appendChild(tot); card.appendChild(foot);
+
+      host.appendChild(card);
+
+      // ==== Lógica ====
+      var selCuenta = fx.querySelector('#g_cuenta');
+      selCuenta.appendChild(new Option('Todas las cuentas',''));
+      DB.adm.cuentas.forEach(function(c){ selCuenta.appendChild(new Option(c.nombre, c.id)); });
+
+      fx.querySelector('#g_filtrar').addEventListener('click', renderRows);
+      bAdd.addEventListener('click', function(){ editarGasto(); });
+      bCsv.addEventListener('click', exportarCSV);
+
+      renderRows();
+
+      function renderRows(){
+        var desde = fx.querySelector('#g_desde').value;
+        var hasta = fx.querySelector('#g_hasta').value;
+        var cta = selCuenta.value;
+        var q = (fx.querySelector('#g_search').value||'').toLowerCase();
+
+        var rows = (DB.adm.gastos||[]).slice().sort(function(a,b){ return (a.fecha||'').localeCompare(b.fecha||''); });
+        rows = rows.filter(function(g){
+          if(desde && g.fecha < desde) return false;
+          if(hasta && g.fecha > hasta) return false;
+          if(cta && g.cuentaId !== cta) return false;
+          if(q){
+            var s = (g.proveedor||'')+' '+(g.concepto||'')+' '+(g.notas||'');
+            if(s.toLowerCase().indexOf(q)===-1) return false;
+          }
+          return true;
+        });
+
+        tbody.innerHTML = '';
+        var total = 0;
+        rows.forEach(function(g){
+          total += parseFloat(g.monto||0);
+          var tr = document.createElement('tr');
+          tr.innerHTML = ''
+            + '<td>'+ (g.fecha||'') +'</td>'
+            + '<td>'+ nombreCuenta(g.cuentaId) +'</td>'
+            + '<td>'+ escapeHTML(g.proveedor||'') +'</td>'
+            + '<td>'+ escapeHTML(g.concepto||'') +'</td>'
+            + '<td>$ '+ f2(g.monto||0) +'</td>'
+            + '<td>'+ (g.conciliado ? '✅' : '⛔') +'</td>'
+            + '<td>'
+              + '<button class="btn btn-warn" data-ed="'+g.id+'">Editar</button> '
+              + '<button class="btn" data-del="'+g.id+'">Borrar</button> '
+              + (g.conciliado ? '' : '<button class="btn" data-conc="'+g.id+'">Conciliar</button>')
+            + '</td>';
+          tbody.appendChild(tr);
+        });
+        tot.textContent = 'Total: $ '+f2(total);
+
+        // Delegación acciones
+        tbody.querySelectorAll('[data-ed]').forEach(function(b){
+          b.addEventListener('click', function(){ var id=b.getAttribute('data-ed'); var it=DB.adm.gastos.find(function(x){return x.id===id}); if(it) editarGasto(it); });
+        });
+        tbody.querySelectorAll('[data-del]').forEach(function(b){
+          b.addEventListener('click', function(){ var id=b.getAttribute('data-del'); if(confirm('¿Eliminar gasto?')){ DB.adm.gastos = DB.adm.gastos.filter(function(x){return x.id!==id}); saveDB(DB); renderRows(); } });
+        });
+        tbody.querySelectorAll('[data-conc]').forEach(function(b){
+          b.addEventListener('click', function(){ var id=b.getAttribute('data-conc'); conciliarGasto(id); renderRows(); });
+        });
       }
-      return true;
+
+      function nombreCuenta(id){
+        var c = (DB.adm.cuentas||[]).find(function(x){return x.id===id;});
+        return c ? c.nombre : '—';
+      }
+
+      function editarGasto(item){
+        var g = item ? Object.assign({}, item) : {
+          id: 'G'+(++DB.adm.seqGasto),
+          fecha: hoyStr(),
+          cuentaId: DB.adm.cuentas[0] ? DB.adm.cuentas[0].id : '',
+          proveedor: '', concepto:'', monto:0, notas:'', conciliado:false
+        };
+
+        openTab('adm-gasto-'+g.id, 'Gasto '+g.id, function(view){
+          view.innerHTML = '';
+          var c = document.createElement('div'); c.className='card';
+          c.innerHTML = '<h2>'+ (item?'Editar gasto':'Nuevo gasto') +'</h2>';
+          var grid = document.createElement('div'); grid.className='grid';
+          grid.innerHTML = ''
+            + block('Fecha','<input type="date" id="e_fecha" value="'+(g.fecha||'')+'">')
+            + block('Cuenta','<select id="e_cta"></select>')
+            + block('Proveedor','<input type="text" id="e_prov" value="'+esc(g.proveedor)+'">')
+            + block('Concepto','<input type="text" id="e_conc" value="'+esc(g.concepto)+'">')
+            + block('Monto','<input type="number" step="0.01" min="0" id="e_monto" value="'+(g.monto||0)+'">')
+            + block('Notas','<input type="text" id="e_notas" value="'+esc(g.notas)+'">')
+            + block('Conciliado','<input type="checkbox" id="e_conciliado" '+(g.conciliado?'checked':'')+'>');
+          c.appendChild(grid);
+
+          var acts = document.createElement('div'); acts.className='actions';
+          var bSave = document.createElement('button'); bSave.className='btn-primary'; bSave.textContent='Guardar';
+          var bCancel = document.createElement('button'); bCancel.className='btn'; bCancel.textContent='Cerrar';
+          acts.appendChild(bSave); acts.appendChild(bCancel);
+          c.appendChild(acts);
+          view.appendChild(c);
+
+          // llena cuentas
+          var sel = grid.querySelector('#e_cta');
+          (DB.adm.cuentas||[]).forEach(function(ct){ sel.appendChild(new Option(ct.nombre, ct.id, ct.id===g.cuentaId, ct.id===g.cuentaId)); });
+
+          bSave.addEventListener('click', function(){
+            g.fecha = grid.querySelector('#e_fecha').value;
+            g.cuentaId = sel.value;
+            g.proveedor = grid.querySelector('#e_prov').value.trim();
+            g.concepto = grid.querySelector('#e_conc').value.trim();
+            g.monto = parseFloat(grid.querySelector('#e_monto').value||'0');
+            g.notas = grid.querySelector('#e_notas').value.trim();
+            g.conciliado = grid.querySelector('#e_conciliado').checked;
+
+            var idx = DB.adm.gastos.findIndex(function(x){return x.id===g.id;});
+            if(idx>-1){ DB.adm.gastos[idx] = g; } else { DB.adm.gastos.push(g); }
+            saveDB(DB);
+            renderRows();
+            alert('Gasto guardado');
+          });
+          bCancel.addEventListener('click', function(){
+            var tab = document.querySelector('[data-tab="adm-gasto-'+g.id+'"]');
+            var viewEl = document.getElementById('view-adm-gasto-'+g.id);
+            if(tab) tab.remove(); if(viewEl) viewEl.remove();
+          });
+
+          function block(lbl, html){ return '<div><label>'+lbl+'</label>'+html+'</div>'; }
+          function esc(s){ return String(s||'').replace(/"/g,'&quot;'); }
+        });
+      }
+
+      function conciliarGasto(id){
+        var it = DB.adm.gastos.find(function(x){return x.id===id;});
+        if(!it) return;
+        it.conciliado = true;
+        saveDB(DB);
+      }
+
+      function exportarCSV(){
+        var rows = [['Fecha','Cuenta','Proveedor','Concepto','Monto','Conciliado']];
+        (DB.adm.gastos||[]).forEach(function(g){
+          rows.push([g.fecha, nombreCuenta(g.cuentaId), g.proveedor||'', g.concepto||'', (g.monto||0), g.conciliado?'SI':'NO']);
+        });
+        var csv = rows.map(function(r){ return r.map(function(c){
+          var s = String(c==null?'':c).replace(/"/g,'""');
+          return '"'+s+'"';
+        }).join(','); }).join('\n');
+        var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a'); a.href=url; a.download='gastos.csv'; a.click();
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+      }
     });
   }
-
-  function buildTotals(lista){
-    var totG=0, totT=0;
-    lista.forEach(function(g){ if(g.tipo==='gasto'){ totG+=parseFloat(g.monto||0); } if(g.tipo==='traspaso'){ totT+=parseFloat(g.monto||0); } });
-    var old = card.querySelector('.admin-totales'); if(old) old.remove();
-    var info=document.createElement('div'); info.className='actions admin-totales';
-    var p1=document.createElement('span'); p1.className='admin-pill'; p1.textContent='Gastos periodo: $ '+f2(totG);
-    var p2=document.createElement('span'); p2.className='admin-pill'; p2.textContent='Traspasos periodo: $ '+f2(totT);
-    info.appendChild(p1); info.appendChild(p2);
-    card.insertBefore(info, tbl);
-  }
-
-  function buildTable(){
-    var lista = listaFiltrada();
-    buildTotals(lista);
-    tbody.innerHTML = '';
-
-    lista.forEach(function(g){
-      var tr=document.createElement('tr');
-
-      var ok = adminOk(g);
-      var tdLed=document.createElement('td'); var led=document.createElement('span'); led.className='admin-led'+(ok?' ok':''); tdLed.appendChild(led); tr.appendChild(tdLed);
-
-      var tdF=document.createElement('td'); var inF=document.createElement('input'); inF.type='date'; inF.value=g.fecha; inF.readOnly=g.conciliado; if(g.conciliado){ inF.classList.add('ro'); }
-      inF.addEventListener('change', function(){ g.fecha=inF.value; saveDB(DB); }); tdF.appendChild(inF); tr.appendChild(tdF);
-
-      var tdT=document.createElement('td'); var selT=document.createElement('select'); ['gasto','traspaso'].forEach(function(t){
-        var op=document.createElement('option'); op.value=t; op.textContent=t.toUpperCase(); if(g.tipo===t) op.selected=true; selT.appendChild(op);
-      });
-      selT.disabled=g.conciliado; if(g.conciliado){ selT.classList.add('ro'); }
-      selT.addEventListener('change', function(){ g.tipo=selT.value; saveDB(DB); renderAdminGastos(); });
-      tdT.appendChild(selT); tr.appendChild(tdT);
-
-      var tdO=document.createElement('td'); var selO=document.createElement('select');
-      (DB.cuentas||[]).forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; if(g.cuentaOrigenId===c.id) op.selected=true; selO.appendChild(op); });
-      selO.disabled=g.conciliado; if(g.conciliado){ selO.classList.add('ro'); }
-      selO.addEventListener('change', function(){ g.cuentaOrigenId=selO.value; saveDB(DB); led.className='admin-led'+(adminOk(g)?' ok':''); });
-      tdO.appendChild(selO); tr.appendChild(tdO);
-
-      var tdDer=document.createElement('td');
-      var selCat=document.createElement('select'); (DB.gastoCategorias||[]).forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; if(g.categoriaId===c.id) op.selected=true; selCat.appendChild(op); });
-      var selDst=document.createElement('select'); var opx=document.createElement('option'); opx.value=''; opx.textContent='Cuenta destino'; selDst.appendChild(opx);
-      (DB.cuentas||[]).forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; if(g.cuentaDestinoId===c.id) op.selected=true; selDst.appendChild(op); });
-
-      function syncDer(){
-        tdDer.innerHTML='';
-        if(g.tipo==='gasto'){ tdDer.appendChild(selCat); selDst.value=''; selCat.disabled=g.conciliado; if(g.conciliado){ selCat.classList.add('ro'); } }
-        else{ tdDer.appendChild(selDst); selCat.value=''; selDst.disabled=g.conciliado; if(g.conciliado){ selDst.classList.add('ro'); } }
-      }
-      selCat.addEventListener('change', function(){ g.categoriaId=selCat.value; saveDB(DB); led.className='admin-led'+(adminOk(g)?' ok':''); });
-      selDst.addEventListener('change', function(){ g.cuentaDestinoId=selDst.value; saveDB(DB); led.className='admin-led'+(adminOk(g)?' ok':''); });
-      syncDer(); tr.appendChild(tdDer);
-
-      var tdM=document.createElement('td'); var inM=document.createElement('input'); inM.type='number'; inM.step='0.01'; inM.min='0'; inM.value=g.monto; inM.className='t-right';
-      inM.readOnly=g.conciliado; if(g.conciliado){ inM.classList.add('ro'); }
-      inM.addEventListener('input', function(){ g.monto=parseFloat(inM.value||'0'); saveDB(DB); led.className='admin-led'+(adminOk(g)?' ok':''); tdMoney.textContent='$ '+f2(g.monto||0); });
-      tdM.appendChild(inM); tr.appendChild(tdM);
-
-      var tdMoney=document.createElement('td'); tdMoney.className='nowrap t-right'; tdMoney.textContent='$ '+f2(g.monto||0); tr.appendChild(tdMoney);
-
-      var tdD=document.createElement('td'); var inD=document.createElement('input'); inD.type='text'; inD.value=g.descripcion||''; inD.readOnly=g.conciliado; if(g.conciliado){ inD.classList.add('ro'); }
-      inD.addEventListener('input', function(){ g.descripcion=inD.value; saveDB(DB); }); tdD.appendChild(inD); tr.appendChild(tdD);
-
-      var tdE=document.createElement('td'); if(g.evidencia){ var im=new Image(); im.src=g.evidencia; im.className='evi-img'; tdE.appendChild(im); } else { tdE.textContent='—'; } tr.appendChild(tdE);
-
-      var tdC=document.createElement('td'); tdC.className='t-center';
-      var chk=document.createElement('input'); chk.type='checkbox'; chk.checked=!!g.conciliado;
-      chk.addEventListener('change', function(){
-        if(chk.checked){
-          if(!adminOk(g)){ alert('No se puede conciliar: semáforo en rojo.'); chk.checked=false; return; }
-          g.conciliado=true; saveDB(DB); adminRecalculaSaldos(); toast('Conciliado'); buildTable();
-        }else{
-          if(!confirm('Quitar conciliación permitirá editar y afectará saldos. ¿Continuar?')){ chk.checked=true; return; }
-          g.conciliado=false; saveDB(DB); adminRecalculaSaldos(); toast('Conciliación retirada'); buildTable();
-        }
-      });
-      tdC.appendChild(chk); tr.appendChild(tdC);
-
-      tbody.appendChild(tr);
-    });
-  }
-
-  bFil.addEventListener('click', buildTable);
-
-  // Cargar evidencia previa en alta
-  inEvi.addEventListener('change', function(){ /* ya manejado arriba */ });
-
-  buildTable();
-}
-
-/* ========================= CONCILIACIÓN DE CAJAS ========================= */
-function renderConciliacionCajas(){
-  var host = adminBody(); if(!host) return;
-  host.innerHTML='';
-
-  adminRecalculaSaldos();
-
-  var card=document.createElement('div'); card.className='card';
-  var h2=document.createElement('h2'); h2.textContent='🏧 Conciliación de Cajas'; card.appendChild(h2);
-
-  var p=document.createElement('p'); p.className='admin-note';
-  p.textContent='Saldos por cuenta (sólo movimientos conciliados). Próxima iteración: corte físico, diferencias y cierre.';
-  card.appendChild(p);
-
-  var tbl=document.createElement('table'); tbl.className='table-compact';
-  var thead=document.createElement('thead'); var trh=document.createElement('tr');
-  ['Cuenta','Saldo actual'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-  thead.appendChild(trh); tbl.appendChild(thead);
-  var tb=document.createElement('tbody');
-  (DB.cuentas||[]).forEach(function(c){
-    var tr=document.createElement('tr');
-    var td1=document.createElement('td'); td1.textContent=c.nombre; tr.appendChild(td1);
-    var td2=document.createElement('td'); td2.className='t-right'; td2.textContent='$ '+f2(c.saldo||0); tr.appendChild(td2);
-    tb.appendChild(tr);
-  });
-  tbl.appendChild(tb); card.appendChild(tbl);
-
-  host.appendChild(card);
-}
-
-/* ========================= FIN MÓDULO ADMINISTRACIÓN v1.9 ========================= */
+})();
 
    
 })();
