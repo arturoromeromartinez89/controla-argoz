@@ -4390,6 +4390,170 @@ function personalDeudaAbrir(id){
   });
 }
 
+/* ================================================================
+   PERSONAL · Submódulo "Activos varios"  v1.0
+   - Permite registrar activos (herramientas, muebles, etc.)
+   - Cantidad · Descripción · Precio unitario
+   - Se suman al Balance General como parte de Activos
+=================================================================*/
+
+(function ensurePersonalActivos(){
+  if(!DB.personal){ DB.personal = {}; }
+  if(!DB.personal.activos){ DB.personal.activos = []; }
+  if(typeof DB.personal.folioActivo !== 'number'){ DB.personal.folioActivo = 0; }
+  saveDB(DB);
+})();
+
+function nextActivoId(){ return 'PACT'+Date.now(); }
+function nextActivoFolio(){ DB.personal.folioActivo += 1; saveDB(DB); return DB.personal.folioActivo; }
+
+/* ---- Hook al submenú Personal para incluir "Activos varios" ---- */
+(function repatchRenderSubmenu_Personal_AddActivos(){
+  var _orig = renderSubmenu;
+  renderSubmenu = function(root){
+    var r = String(root||'').toLowerCase();
+    if(r!=='personal'){ _orig(root); return; }
+
+    var host = qs('#subpanel'); if(!host) return;
+    host.innerHTML='';
+
+    var card=document.createElement('div'); card.className='card';
+    var h2=document.createElement('h2'); h2.textContent='Personal'; card.appendChild(h2);
+
+    var list=document.createElement('div'); list.className='actions';
+    list.style.flexDirection='column'; list.style.alignItems='stretch';
+
+    function item(txt,icon,fn){
+      var b=document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
+      b.innerHTML=icon+' '+txt; b.addEventListener('click',fn); return b;
+    }
+
+    list.appendChild(item('Dashboard','📊',personalDashboard));
+    list.appendChild(item('Gastos','💸',personalGastosList||function(){alert('Gastos personales aún no cargados.');}));
+    list.appendChild(item('Conciliación de Cuentas','🧾',personalConciliacion||function(){alert('Conciliación personal aún no cargada.');}));
+    list.appendChild(item('Cuentas y Movimientos','📦',personalCuentasMovs));
+    list.appendChild(item('Deudas','📉',personalDeudas));
+    list.appendChild(item('Activos varios','🛠️',personalActivos));   // ← NUEVO
+    card.appendChild(list);
+    host.appendChild(card);
+
+    personalDashboard();
+  };
+})();
+
+/* ---- Submódulo Activos varios ---- */
+function personalActivos(){
+  openTab('pers-act','Personal · Activos varios',function(host){
+    host.innerHTML='';
+
+    var header=document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo activo';
+    bNew.addEventListener('click',function(){ personalActivoNuevo(); });
+    left.appendChild(bNew);
+    header.appendChild(left);
+    host.appendChild(header);
+
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Listado de activos'; c.appendChild(h);
+
+    var tbl=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Fecha','Descripción','Cantidad','PU','Total'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    c.appendChild(tbl);
+    host.appendChild(c);
+
+    function pinta(){
+      tbody.innerHTML='';
+      DB.personal.activos.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(a){
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click',function(){ personalActivoAbrir(a.id); });
+        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
+        tr.appendChild(td(String(a.folio).padStart(3,'0')));
+        tr.appendChild(td(a.fecha||'—'));
+        tr.appendChild(td(a.descripcion||'—'));
+        tr.appendChild(td(a.cantidad||0));
+        tr.appendChild(td('$ '+Number(a.precio||0).toFixed(2)));
+        tr.appendChild(td('$ '+Number((a.cantidad||0)*(a.precio||0)).toFixed(2)));
+        tbody.appendChild(tr);
+      });
+    }
+    pinta();
+  });
+}
+
+function personalActivoNuevo(){
+  var a={
+    id:nextActivoId(),
+    folio:nextActivoFolio(),
+    ts:Date.now(),
+    fecha:hoyStr(),
+    descripcion:'',
+    cantidad:1,
+    precio:0,
+    bloqueado:false
+  };
+  DB.personal.activos.push(a); saveDB(DB);
+  personalActivoAbrir(a.id);
+}
+
+function personalActivoAbrir(id){
+  var a=DB.personal.activos.find(function(x){return x.id===id;}); if(!a) return;
+
+  openTab('pers-act-'+a.id,a.bloqueado?('Activo '+String(a.folio).padStart(3,'0')):'Registrar activo',function(host){
+    host.innerHTML='';
+
+    var header=document.createElement('div'); header.className='actions'; header.style.justifyContent='flex-end';
+    var bMain=document.createElement('button');
+    if(a.bloqueado){
+      bMain.className='btn'; bMain.textContent='✏️ Editar';
+      bMain.addEventListener('click',function(){ a.bloqueado=false; saveDB(DB); personalActivoAbrir(a.id); });
+    }else{
+      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
+      bMain.addEventListener('click',function(){
+        if(!a.descripcion){ alert('Captura una descripción.'); return; }
+        if(Number(a.cantidad||0)<=0){ alert('Cantidad debe ser > 0'); return; }
+        if(Number(a.precio||0)<=0){ alert('Precio debe ser > 0'); return; }
+        a.bloqueado=true; saveDB(DB);
+        alert('Activo guardado con éxito con folio '+String(a.folio).padStart(3,'0'));
+        personalActivoAbrir(a.id);
+      });
+    }
+    header.appendChild(bMain);
+    host.appendChild(header);
+
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent=a.bloqueado?('ACTIVO FOLIO '+String(a.folio).padStart(3,'0')):'Registrar activo';
+    card.appendChild(h);
+
+    var g=document.createElement('div'); g.className='grid';
+
+    function addField(label,val,prop){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type='text'; i.value=val||''; 
+      if(a.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      else i.addEventListener('input',function(){ a[prop]=i.value; saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+    function addNumber(label,val,prop){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type='number'; i.value=val||0;
+      if(a.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      else i.addEventListener('input',function(){ a[prop]=parseFloat(i.value||'0'); saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+
+    addField('Descripción',a.descripcion,'descripcion');
+    addNumber('Cantidad',a.cantidad,'cantidad');
+    addNumber('Precio unitario',a.precio,'precio');
+
+    card.appendChild(g);
+    host.appendChild(card);
+  });
+}
+
    
 })();
 
