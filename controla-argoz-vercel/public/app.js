@@ -4021,6 +4021,375 @@ function personalInvAbrirMovimiento(id){
   });
 }
 
+/* ================================================================
+   PERSONAL · Dashboard + Cuentas y Movimientos + Deudas  v1.1
+   - Renombra "Inventarios" → "Cuentas y Movimientos"
+   - Agrega submódulo "Deudas"
+   - Dashboard con Balance General (Activos/Pasivos/Capital) y $/g
+================================================================ */
+
+/* ====== Estado base / parámetros ====== */
+(function ensurePersonalCore(){
+  if(!DB.personal){ DB.personal = {}; }
+  if(!Array.isArray(DB.personal.cuentas)){ DB.personal.cuentas = []; }
+  if(!DB.personal.invMovs){ DB.personal.invMovs = []; }
+  if(!DB.personal.deudas){ DB.personal.deudas = []; }
+  if(typeof DB.personal.folioInv !== 'number'){ DB.personal.folioInv = 0; }
+  if(typeof DB.personal.folioDeuda !== 'number'){ DB.personal.folioDeuda = 0; }
+  if(!DB.personal.parametros){ DB.personal.parametros = {}; }
+  if(typeof DB.personal.parametros.spotPlata !== 'number'){ DB.personal.parametros.spotPlata = 20; } // $/g referencia
+  saveDB(DB);
+})();
+
+/* ====== Helpers ====== */
+function pfMoney(n){ return '$ ' + (Number(n||0)).toFixed(2); }
+function pfParseMoney(s){ return isNaN(s)? parseFloat(String(s||'').replace(/[^\d.-]/g,''))||0 : Number(s); }
+function f2PI(n){ return (Number(n||0)).toFixed(2); }
+
+/* ====== Totales p/ Dashboard ====== */
+function personalTotals(){
+  var spot = Number(DB.personal.parametros.spotPlata||0);
+  var totalDinero = 0, totalGr = 0;
+  DB.personal.cuentas.forEach(function(c){
+    if(c.tipo==='dinero'){ totalDinero += Number(c.saldo||0); }
+    if(c.tipo==='metal'){ totalGr += Number(c.saldoGr||0); }
+  });
+  var activos = totalDinero + (totalGr * spot);
+
+  var pasivos = 0;
+  DB.personal.deudas.forEach(function(d){
+    pasivos += Number(d.saldoActual||0);
+  });
+
+  var capital = activos - pasivos;
+  return { spot: spot, totalDinero: totalDinero, totalGr: totalGr, activos: activos, pasivos: pasivos, capital: capital };
+}
+
+/* ====== Patch de submenú PERSONAL (renombre + nuevo ítem) ====== */
+(function repatchRenderSubmenu_Personal_Final(){
+  var _orig = renderSubmenu;
+  renderSubmenu = function(root){
+    var r = String(root||'').toLowerCase();
+    if(r!=='personal'){ _orig(root); return; }
+
+    var host = qs('#subpanel'); if(!host) return;
+    host.innerHTML = '';
+
+    var card = document.createElement('div'); card.className='card';
+    var h2 = document.createElement('h2'); h2.textContent='Personal'; card.appendChild(h2);
+
+    var list = document.createElement('div'); list.className='actions';
+    list.style.flexDirection='column'; list.style.alignItems='stretch';
+
+    function item(txt, icon, fn){
+      var b=document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
+      b.innerHTML = icon+' '+txt; b.addEventListener('click', fn); return b;
+    }
+
+    list.appendChild(item('Dashboard','📊', personalDashboard));                       // abre Balance
+    list.appendChild(item('Gastos','💸', personalGastosList || function(){ alert('Gastos personales aún no cargados.'); }));
+    list.appendChild(item('Conciliación de Cuentas','🧾', personalConciliacion || function(){ alert('Conciliación personal aún no cargada.'); }));
+    list.appendChild(item('Cuentas y Movimientos','📦', personalCuentasMovs));        // ← renombrado
+    list.appendChild(item('Deudas','📉', personalDeudas));                             // ← nuevo
+    card.appendChild(list);
+    host.appendChild(card);
+
+    // Abre Dashboard por defecto
+    personalDashboard();
+  };
+})();
+
+/* ===================== DASHBOARD (Balance General) ===================== */
+function personalDashboard(){
+  openTab('pers-dash','Personal · Dashboard', function(host){
+    host.innerHTML='';
+
+    var card = document.createElement('div'); card.className='card';
+    var h = document.createElement('h2'); h.textContent = 'Balance General (Personal)'; card.appendChild(h);
+
+    // Control spot $/g
+    var ctl=document.createElement('div'); ctl.className='actions';
+    var l=document.createElement('label'); l.textContent='Precio de plata ($/g)'; 
+    var i=document.createElement('input'); i.type='number'; i.step='0.01'; i.value=DB.personal.parametros.spotPlata||0;
+    i.addEventListener('input', function(){ DB.personal.parametros.spotPlata = parseFloat(i.value||'0'); saveDB(DB); pinta(); });
+    ctl.appendChild(l); ctl.appendChild(i);
+    card.appendChild(ctl);
+
+    // KPIs
+    var kpis = document.createElement('div'); kpis.className='grid'; card.appendChild(kpis);
+
+    // Tabla de cuentas
+    var boxCtas = document.createElement('div'); boxCtas.className='card';
+    var hC=document.createElement('h2'); hC.textContent='Cuentas personales'; boxCtas.appendChild(hC);
+    var gridC=document.createElement('div'); gridC.className='grid'; boxCtas.appendChild(gridC);
+
+    // Tabla de deudas
+    var boxDeu = document.createElement('div'); boxDeu.className='card';
+    var hD=document.createElement('h2'); hD.textContent='Deudas'; boxDeu.appendChild(hD);
+    var tbl=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Acreedor','Tipo','Saldo actual','Vence'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    boxDeu.appendChild(tbl);
+
+    host.appendChild(card);
+    host.appendChild(boxCtas);
+    host.appendChild(boxDeu);
+
+    function pinta(){
+      var t=personalTotals();
+
+      kpis.innerHTML='';
+      [
+        ['Activos', pfMoney(t.activos)],
+        ['Pasivos (Deudas)', pfMoney(t.pasivos)],
+        ['Capital Neto', pfMoney(t.capital)],
+        ['Dinero en cuentas', pfMoney(t.totalDinero)],
+        ['Plata (g)', f2PI(t.totalGr)+' g'],
+        ['$ por g', pfMoney(t.spot)]
+      ].forEach(function(row){
+        var box=document.createElement('div'); 
+        var ll=document.createElement('label'); ll.textContent=row[0];
+        var inp=document.createElement('input'); inp.readOnly=true; inp.className='ro'; inp.value=row[1];
+        box.appendChild(ll); box.appendChild(inp); kpis.appendChild(box);
+      });
+
+      gridC.innerHTML='';
+      DB.personal.cuentas.forEach(function(c){
+        var b=document.createElement('div');
+        var lab=document.createElement('label'); lab.textContent=c.nombre + (c.tipo==='metal'?' (g)':'');
+        var val=document.createElement('input'); val.readOnly=true; val.className='ro';
+        val.value = c.tipo==='metal' ? (f2PI(c.saldoGr||0)+' g  ≈  '+pfMoney((c.saldoGr||0)*t.spot)) : pfMoney(c.saldo||0);
+        b.appendChild(lab); b.appendChild(val); gridC.appendChild(b);
+      });
+
+      tbody.innerHTML='';
+      DB.personal.deudas.slice().sort(function(a,b){ return (a.vencimiento||'').localeCompare(b.vencimiento||''); }).forEach(function(d){
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click', function(){ personalDeudaAbrir(d.id); });
+        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
+        tr.appendChild(td(String(d.folio).padStart(3,'0')));
+        tr.appendChild(td(d.acreedor||'—'));
+        tr.appendChild(td(d.tipo||'—'));
+        tr.appendChild(td(pfMoney(d.saldoActual||0)));
+        tr.appendChild(td(d.vencimiento||'—'));
+        tbody.appendChild(tr);
+      });
+    }
+    pinta();
+  });
+}
+
+/* ===================== CUENTAS Y MOVIMIENTOS (renombrado) ===================== */
+/* Reutiliza tu implementación anterior de "Inventarios" personal.
+   Sólo cambiamos el entry point para abrir la misma UI. */
+function personalCuentasMovs(){
+  // Si ya tienes personalInventarios() (de mi entrega anterior), lo reusamos:
+  if(typeof personalInventarios === 'function'){ personalInventarios(); return; }
+
+  // Fallback mínimo (por si no pegaste la parte previa): abre un placeholder.
+  openTab('pers-movs','Personal · Cuentas y Movimientos', function(host){
+    host.innerHTML='';
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Cuentas y Movimientos'; c.appendChild(h);
+    var p=document.createElement('p'); p.textContent='Falta cargar módulo de movimientos personales.'; c.appendChild(p);
+    host.appendChild(c);
+  });
+}
+
+/* ===================== DEUDAS ===================== */
+function nextDeudaId(){ return 'PDEU'+Date.now(); }
+function nextDeudaFolio(){ DB.personal.folioDeuda += 1; saveDB(DB); return DB.personal.folioDeuda; }
+
+function personalDeudas(){
+  openTab('pers-deu','Personal · Deudas', function(host){
+    host.innerHTML='';
+
+    // Barra superior
+    var header=document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nueva deuda';
+    bNew.addEventListener('click', function(){ personalDeudaNueva(); });
+    var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir';
+    bPrint.addEventListener('click', function(){ alert('PDF de deudas (personal).'); });
+    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp';
+    bWA.addEventListener('click', function(){ alert('Enviar PDF por WhatsApp (personal).'); });
+    left.appendChild(bNew); left.appendChild(bPrint); left.appendChild(bWA);
+    header.appendChild(left);
+    host.appendChild(header);
+
+    // Tabla
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Listado de deudas'; c.appendChild(h);
+
+    var tbl=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Acreedor','Tipo','Monto original','Saldo actual','Tasa anual','Vencimiento','Estatus'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    c.appendChild(tbl);
+    host.appendChild(c);
+
+    function estatusDeuda(d){
+      var hoy = new Date().toISOString().slice(0,10);
+      if(d.vencimiento && d.vencimiento < hoy) return 'Vencido';
+      var ms7 = new Date(Date.now()+7*24*60*60*1000).toISOString().slice(0,10);
+      if(d.vencimiento && d.vencimiento <= ms7) return 'Por vencer';
+      return 'Al corriente';
+    }
+
+    function pinta(){
+      tbody.innerHTML='';
+      DB.personal.deudas.slice().sort(function(a,b){ return (a.vencimiento||'').localeCompare(b.vencimiento||''); }).forEach(function(d){
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click', function(){ personalDeudaAbrir(d.id); });
+        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
+        tr.appendChild(td(String(d.folio).padStart(3,'0')));
+        tr.appendChild(td(d.acreedor||'—'));
+        tr.appendChild(td(d.tipo||'—'));
+        tr.appendChild(td(pfMoney(d.montoOriginal||0)));
+        tr.appendChild(td(pfMoney(d.saldoActual||0)));
+        tr.appendChild(td((Number(d.tasaAnual||0)).toFixed(2)+'%'));
+        tr.appendChild(td(d.vencimiento||'—'));
+        tr.appendChild(td(estatusDeuda(d)));
+        tbody.appendChild(tr);
+      });
+    }
+    pinta();
+  });
+}
+
+function personalDeudaNueva(){
+  var d = {
+    id: nextDeudaId(),
+    folio: nextDeudaFolio(),
+    bloqueado: false,
+    ts: Date.now(),
+    fechaAlta: hoyStr(),
+    tipo: 'crédito',               // crédito | tarjeta | préstamo
+    acreedor: '',
+    montoOriginal: 0,
+    saldoActual: 0,
+    tasaAnual: 0,
+    pagoMinimo: 0,
+    fechaCorte: '',
+    vencimiento: '',
+    evidencia: ''
+  };
+  DB.personal.deudas.push(d); saveDB(DB);
+  personalDeudaAbrir(d.id);
+}
+
+function personalDeudaAbrir(id){
+  var d = DB.personal.deudas.find(function(x){ return x.id===id; });
+  if(!d) return;
+
+  openTab('pers-deu-'+d.id, d.bloqueado ? ('Deuda '+String(d.folio).padStart(3,'0')) : 'Registrar deuda', function(host){
+    host.innerHTML='';
+
+    // Barra superior
+    var header=document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+    var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir';
+    bPrint.addEventListener('click', function(){ alert('PDF de la deuda.'); });
+    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp';
+    bWA.addEventListener('click', function(){ alert('Enviar PDF por WhatsApp.'); });
+    left.appendChild(bPrint); left.appendChild(bWA);
+    header.appendChild(left);
+
+    var right=document.createElement('div'); right.className='actions';
+    var bMain=document.createElement('button');
+    if(d.bloqueado){
+      bMain.className='btn'; bMain.textContent='✏️ Editar';
+      bMain.addEventListener('click', function(){ d.bloqueado=false; saveDB(DB); personalDeudaAbrir(d.id); });
+    }else{
+      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
+      bMain.addEventListener('click', function(){
+        if(!d.acreedor){ alert('Captura el acreedor.'); return; }
+        if(Number(d.montoOriginal||0)<=0){ alert('Monto original debe ser > 0'); return; }
+        if(Number(d.saldoActual||0)<0){ alert('Saldo actual no puede ser negativo'); return; }
+        d.bloqueado = true; saveDB(DB);
+        alert('Deuda guardada con éxito con folio '+String(d.folio).padStart(3,'0'));
+        personalDeudaAbrir(d.id);
+      });
+    }
+    right.appendChild(bMain);
+    header.appendChild(right);
+    host.appendChild(header);
+
+    // Hoja
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent = d.bloqueado ? ('DEUDA FOLIO '+String(d.folio).padStart(3,'0')) : 'Registrar deuda';
+    card.appendChild(h);
+
+    var g=document.createElement('div'); g.className='grid';
+
+    function addText(label, val, oninput){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type='text'; i.value=val||''; i.readOnly=!!d.bloqueado; if(d.bloqueado){ i.classList.add('ro'); }
+      if(oninput) i.addEventListener('input', function(){ oninput(i.value); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+    function addNumber(label, val, step, onblur){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type='text'; i.value=pfMoney(val||0); i.style.fontWeight='800'; i.style.color='#b45309';
+      if(d.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      else{
+        i.addEventListener('focus', function(){ i.value=String(pfParseMoney(i.value)); });
+        i.addEventListener('blur', function(){ var v=pfParseMoney(i.value); if(onblur) onblur(v); i.value=pfMoney(v); });
+      }
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+    function addDate(label, val, onchange){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type='date'; i.value=val||''; i.readOnly=!!d.bloqueado; if(d.bloqueado){ i.classList.add('ro'); }
+      if(onchange) i.addEventListener('change', function(){ onchange(i.value); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+    function addSelect(label, val, opts, onchange){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var s=document.createElement('select'); opts.forEach(function(o){ var op=document.createElement('option'); op.value=o[0]; op.textContent=o[1]; if(val===o[0]) op.selected=true; s.appendChild(op); });
+      s.disabled=!!d.bloqueado; if(onchange) s.addEventListener('change', function(){ onchange(s.value); });
+      dv.appendChild(l); dv.appendChild(s); g.appendChild(dv);
+    }
+
+    addSelect('Tipo', d.tipo, [['crédito','Crédito'],['tarjeta','Tarjeta'],['préstamo','Préstamo']], function(v){ d.tipo=v; saveDB(DB); });
+    addText('Acreedor', d.acreedor, function(v){ d.acreedor=v; saveDB(DB); });
+    addNumber('Monto original', d.montoOriginal, 0.01, function(v){ d.montoOriginal=v; saveDB(DB); });
+    addNumber('Saldo actual', d.saldoActual, 0.01, function(v){ d.saldoActual=v; saveDB(DB); });
+    // tasa %
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Tasa anual (%)';
+      var i=document.createElement('input'); i.type='number'; i.step='0.01'; i.min='0'; i.value=(Number(d.tasaAnual||0)).toFixed(2);
+      i.readOnly=!!d.bloqueado; if(d.bloqueado){ i.classList.add('ro'); }
+      i.addEventListener('input', function(){ d.tasaAnual=parseFloat(i.value||'0'); saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    })();
+    addNumber('Pago mínimo sugerido', d.pagoMinimo, 0.01, function(v){ d.pagoMinimo=v; saveDB(DB); });
+    addDate('Fecha de corte', d.fechaCorte, function(v){ d.fechaCorte=v; saveDB(DB); });
+    addDate('Vencimiento', d.vencimiento, function(v){ d.vencimiento=v; saveDB(DB); });
+
+    // Evidencia
+    var ev=document.createElement('div'); ev.className='actions';
+    var evLbl=document.createElement('span'); evLbl.textContent='📷 Evidencia (contrato/estado)';
+    var evIn=document.createElement('input'); evIn.type='file'; evIn.accept='image/*'; evIn.disabled=!!d.bloqueado; if(d.bloqueado){ evIn.classList.add('ro'); }
+    var prev=document.createElement('div'); prev.className='preview';
+    evIn.addEventListener('change', function(){
+      if(evIn.files && evIn.files[0]){
+        var r=new FileReader(); r.onload=function(e){ d.evidencia=e.target.result; saveDB(DB); paintPrev(); }; r.readAsDataURL(evIn.files[0]);
+      }
+    });
+    function paintPrev(){ prev.innerHTML=''; if(d.evidencia){ var im=document.createElement('img'); im.src=d.evidencia; prev.appendChild(im); } }
+    paintPrev();
+    ev.appendChild(evLbl); ev.appendChild(evIn); ev.appendChild(prev);
+
+    card.appendChild(g);
+    card.appendChild(ev);
+    host.appendChild(card);
+  });
+}
+
    
 })();
 
