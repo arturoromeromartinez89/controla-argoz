@@ -4554,6 +4554,622 @@ function personalActivoAbrir(id){
   });
 }
 
+/* ================================================================
+   PERSONAL · Dashboard semanal, Deudas, Ingresos, Presupuestos  v1.2
+   - Inyector del botón "Personal" (idempotente)
+   - Estado inicial DB.personal
+   - Submenú Personal: Dashboard (calendario semanal), Deudas, Ingresos, Presupuestos
+   - Reglas visuales: GUARDAR bloquea, aparece ✏️ Editar
+   - Pagos de deuda: interés/capital/ambos + recálculo y próxima fecha
+=================================================================*/
+
+/* ------------ Helpers fecha/semana ------------ */
+function parseISO(d){ try{ var p=d.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }catch(e){ return new Date(); } }
+function fmtISO(dt){ var m=String(dt.getMonth()+1).padStart(2,'0'); var d=String(dt.getDate()).padStart(2,'0'); return dt.getFullYear()+'-'+m+'-'+d; }
+function startOfWeek(d){ // Lunes
+  var dt = (d instanceof Date)? new Date(d) : parseISO(d||hoyStr());
+  var day = (dt.getDay()+6)%7; // Mon=0 ... Sun=6
+  dt.setDate(dt.getDate()-day); dt.setHours(0,0,0,0);
+  return dt;
+}
+function addDaysDate(dt, n){ var x=new Date(dt); x.setDate(x.getDate()+n); return x; }
+function addFreq(dateISO, freq, xdays, dom){ // siguiente fecha según frecuencia
+  var d=parseISO(dateISO);
+  if(freq==='mensual'){
+    // usa mismo día del mes si dom, sino mismo día que 'dateISO'
+    var day = dom || d.getDate();
+    var m = d.getMonth()+1, y=d.getFullYear();
+    if(m===12){ y+=1; m=1; } else { m+=1; }
+    var next = new Date(y,m-1,Math.min(day,28)); // seguro
+    return fmtISO(next);
+  }else if(freq==='quincenal'){
+    // si <=15, lleva al 16; si >15, al 1 del siguiente mes
+    var day=d.getDate();
+    if(day<=15){ var n=new Date(d.getFullYear(), d.getMonth(), 16); return fmtISO(n); }
+    else{
+      var m=d.getMonth()+1, y=d.getFullYear();
+      if(m===12){ y+=1; m=1; } else { m+=1; }
+      var n2=new Date(y,m-1,1); return fmtISO(n2);
+    }
+  }else if(freq==='semanal'){
+    return fmtISO(addDaysDate(d,7));
+  }else if(freq==='cada_x_dias'){
+    var nd = addDaysDate(d, Math.max(1, parseInt(xdays||'1',10)));
+    return fmtISO(nd);
+  }
+  // por defecto, mensual
+  return fmtISO(addDaysDate(d,30));
+}
+
+/* ------------ Inyector seguro del botón "Personal" ------------ */
+(function injectPersonalButton(){
+  var aside = document.querySelector('.left');
+  if(!aside) return;
+  if(aside.querySelector('[data-root="personal"]')) return;
+  var btn = document.createElement('button');
+  btn.className='side-item tree-btn';
+  btn.setAttribute('data-root','personal');
+  btn.textContent='👨‍👩‍👧 Personal';
+  var ref = aside.querySelector('.tree-btn[data-root="catalogo"]');
+  if(ref && ref.parentNode){ ref.parentNode.insertBefore(btn, ref); } else { aside.appendChild(btn); }
+})();
+
+/* ------------ Estado inicial DB.personal ------------ */
+(function ensurePersonalState(){
+  if(!DB.personal){
+    DB.personal = {
+      deudas: [],     // {id, folio, ts, acreedor, saldoInicial, saldoPendiente, tasaAnual, frecuencia, diaMes, cadaDias, proximaFecha, notas, bloqueado}
+      ingresos: [],   // {id, folio, ts, descripcion, monto, frecuencia, diaMes, cadaDias, proximaFecha, notas, bloqueado}
+      presupuestos: [], // {id, folio, ts, concepto, fechaObjetivo, monto, notas, bloqueado}
+      folioDeuda: 0,
+      folioIngreso: 0,
+      folioPres: 0
+    };
+    saveDB(DB);
+  }
+  if(typeof DB.personal.folioDeuda !== 'number'){ DB.personal.folioDeuda = 0; saveDB(DB); }
+  if(typeof DB.personal.folioIngreso !== 'number'){ DB.personal.folioIngreso = 0; saveDB(DB); }
+  if(typeof DB.personal.folioPres !== 'number'){ DB.personal.folioPres = 0; saveDB(DB); }
+})();
+
+/* ------------ IDs ------------ */
+function pNextId(p){ return 'P-'+p+'-'+Date.now(); }
+function folioNext(kind){
+  if(kind==='deuda'){ DB.personal.folioDeuda+=1; saveDB(DB); return DB.personal.folioDeuda; }
+  if(kind==='ingreso'){ DB.personal.folioIngreso+=1; saveDB(DB); return DB.personal.folioIngreso; }
+  DB.personal.folioPres+=1; saveDB(DB); return DB.personal.folioPres;
+}
+
+/* ------------ Submenú Personal (parche renderSubmenu) ------------ */
+(function patchRenderSubmenu_Personal(){
+  var _orig = renderSubmenu;
+  renderSubmenu = function(root){
+    if(String(root||'').toLowerCase()!=='personal'){ _orig(root); return; }
+
+    var host = qs('#subpanel'); if(!host) return;
+    host.innerHTML='';
+    var card = document.createElement('div'); card.className='card';
+    var h2   = document.createElement('h2'); h2.textContent='Personal'; card.appendChild(h2);
+
+    var list = document.createElement('div'); list.className='actions';
+    list.style.flexDirection='column'; list.style.alignItems='stretch';
+
+    function node(txt,icon,fn){
+      var b=document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
+      b.innerHTML=icon+' '+txt; b.addEventListener('click',fn); return b;
+    }
+    list.appendChild(node('Dashboard (semana)','📅', personalDashboard));
+    list.appendChild(node('Deudas','💳', personalDeudasList));
+    list.appendChild(node('Ingresos','💵', personalIngresosList));
+    list.appendChild(node('Presupuestos','📝', personalPresupuestosList));
+    card.appendChild(list);
+    host.appendChild(card);
+
+    // abrir dashboard por defecto
+    personalDashboard();
+  };
+})();
+
+/* =================== DASHBOARD (Calendario semanal) =================== */
+function personalDashboard(){
+  openTab('pers-dash','Personal · Dashboard', function(host){
+    host.innerHTML='';
+    var wrap = document.createElement('div'); wrap.className='card';
+    var h = document.createElement('h2'); h.textContent='Calendario semanal (pagos/ingresos/presupuestos)'; wrap.appendChild(h);
+
+    var weekStart = startOfWeek(hoyStr());
+    var grid = document.createElement('div');
+    grid.style.display='grid'; grid.style.gridTemplateColumns='repeat(7,minmax(140px,1fr))'; grid.style.gap='10px';
+
+    var dias = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+    for(var i=0;i<7;i++){
+      (function(i){
+        var dayBox = document.createElement('div'); dayBox.className='card';
+        var dte = addDaysDate(weekStart, i);
+        var title = document.createElement('div'); title.innerHTML = '<b>'+dias[i]+'</b> · '+fmtISO(dte);
+        dayBox.appendChild(title);
+
+        var bag = document.createElement('div'); bag.className='actions'; bag.style.flexDirection='column'; bag.style.alignItems='stretch';
+
+        // 1) Deudas programadas ese día (por proximaFecha y frecuencia)
+        DB.personal.deudas.forEach(function(d){
+          // si proximaFecha coincide con este día, aparece
+          if(d.proximaFecha === fmtISO(dte) && Number(d.saldoPendiente||0)>0){
+            var pill = document.createElement('button'); pill.className='btn-warn';
+            pill.style.justifyContent='space-between';
+            pill.innerHTML = '💳 '+(d.acreedor||'Deuda')+'<span><b>$ '+Number(Math.max(0,(d.interesSugerido||0))).toFixed(2)+'</b> interés</span>';
+            pill.addEventListener('click', function(){ personalDeudaAbrir(d.id); });
+            bag.appendChild(pill);
+          }
+        });
+
+        // 2) Ingresos programados ese día
+        DB.personal.ingresos.forEach(function(ing){
+          if(ing.proximaFecha === fmtISO(dte)){
+            var pill2 = document.createElement('button'); pill2.className='btn'; pill2.style.borderColor='#16a34a';
+            pill2.style.justifyContent='space-between';
+            pill2.innerHTML = '💵 '+(ing.descripcion||'Ingreso')+'<span><b>$ '+Number(ing.monto||0).toFixed(2)+'</b></span>';
+            pill2.addEventListener('click', function(){ personalIngresoAbrir(ing.id); });
+            bag.appendChild(pill2);
+          }
+        });
+
+        // 3) Presupuestos objetivo ese día
+        DB.personal.presupuestos.forEach(function(p){
+          if(p.fechaObjetivo === fmtISO(dte)){
+            var pill3 = document.createElement('button'); pill3.className='btn';
+            pill3.style.justifyContent='space-between';
+            pill3.innerHTML = '📝 '+(p.concepto||'Presupuesto')+'<span><b>$ '+Number(p.monto||0).toFixed(2)+'</b></span>';
+            pill3.addEventListener('click', function(){ personalPresupuestoAbrir(p.id); });
+            bag.appendChild(pill3);
+          }
+        });
+
+        dayBox.appendChild(bag);
+        grid.appendChild(dayBox);
+      })(i);
+    }
+
+    // Leyenda
+    var legend=document.createElement('div'); legend.className='actions';
+    legend.innerHTML='<span class="pill orange">💳 Deuda (interés sugerido)</span><span class="pill">💵 Ingreso</span><span class="pill">📝 Presupuesto</span>';
+    wrap.appendChild(legend);
+    wrap.appendChild(grid);
+    host.appendChild(wrap);
+
+    // Precalcular interés sugerido del mes (simple) para cada deuda
+    DB.personal.deudas.forEach(function(d){
+      var tasaMensual = Number(d.tasaAnual||0)/12/100;
+      d.interesSugerido = Math.max(0, (Number(d.saldoPendiente||0)*tasaMensual));
+    });
+    saveDB(DB);
+  });
+}
+
+/* =================== DEUDAS =================== */
+function personalDeudasList(){
+  openTab('pers-deu','Personal · Deudas', function(host){
+    host.innerHTML='';
+    var head = document.createElement('div'); head.className='actions'; head.style.justifyContent='space-between';
+    var left = document.createElement('div'); left.className='actions';
+    var bNew = document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nueva deuda';
+    bNew.addEventListener('click', personalDeudaNueva);
+    left.appendChild(bNew);
+    head.appendChild(left);
+    host.appendChild(head);
+
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent='Listado de deudas'; card.appendChild(h);
+
+    var tbl=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Acreedor','Saldo pendiente','Próxima fecha','Frecuencia'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    card.appendChild(tbl); host.appendChild(card);
+
+    function pinta(){
+      tbody.innerHTML='';
+      DB.personal.deudas.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(d){
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click', function(){ personalDeudaAbrir(d.id); });
+        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
+        tr.appendChild(td(String(d.folio).padStart(3,'0')));
+        tr.appendChild(td(d.acreedor||'—'));
+        tr.appendChild(td('$ '+Number(d.saldoPendiente||0).toFixed(2)));
+        tr.appendChild(td(d.proximaFecha||'—'));
+        tr.appendChild(td(d.frecuencia||'mensual'));
+        tbody.appendChild(tr);
+      });
+    }
+    pinta();
+  });
+}
+
+function personalDeudaNueva(){
+  var d={
+    id: pNextId('DEUDA'),
+    folio: folioNext('deuda'),
+    ts: Date.now(),
+    acreedor: '',
+    saldoInicial: 0,
+    saldoPendiente: 0,
+    tasaAnual: 0,        // %
+    frecuencia: 'mensual', // mensual | quincenal | semanal | cada_x_dias
+    diaMes: 15,          // para mensual/quincenal (15=intereses por ejemplo)
+    cadaDias: 30,        // para cada_x_dias
+    proximaFecha: hoyStr(),
+    notas: '',
+    bloqueado: false
+  };
+  DB.personal.deudas.push(d); saveDB(DB);
+  personalDeudaAbrir(d.id);
+}
+
+function personalDeudaAbrir(id){
+  var d = DB.personal.deudas.find(function(x){return x.id===id;}); if(!d) return;
+
+  openTab('pers-deu-'+d.id, d.bloqueado?('Deuda '+String(d.folio).padStart(3,'0')):'Registrar deuda', function(host){
+    host.innerHTML='';
+
+    // Barra superior: GUARDAR o ✏️ Editar
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
+
+    var left=document.createElement('div'); left.className='actions';
+    var bPago=document.createElement('button'); bPago.className='btn'; bPago.textContent='Registrar pago';
+    bPago.addEventListener('click', function(){ dialogRegistrarPago(d); });
+    left.appendChild(bPago);
+
+    var right=document.createElement('div'); right.className='actions';
+    var bMain=document.createElement('button');
+    if(d.bloqueado){
+      bMain.className='btn'; bMain.textContent='✏️ Editar';
+      bMain.addEventListener('click', function(){ d.bloqueado=false; saveDB(DB); personalDeudaAbrir(d.id); });
+    }else{
+      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
+      bMain.addEventListener('click', function(){
+        if(!d.acreedor){ alert('Acreedor requerido'); return; }
+        if(Number(d.saldoInicial||0)<=0){ alert('Saldo inicial debe ser > 0'); return; }
+        d.saldoPendiente = Number(d.saldoPendiente||0) || Number(d.saldoInicial||0);
+        // calcular proximaFecha según frecuencia y día
+        if(d.frecuencia==='mensual'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'mensual',null, d.diaMes||15); }
+        else if(d.frecuencia==='quincenal'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'quincenal'); }
+        else if(d.frecuencia==='semanal'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'semanal'); }
+        else if(d.frecuencia==='cada_x_dias'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'cada_x_dias', d.cadaDias||30); }
+        d.bloqueado=true; saveDB(DB);
+        alert('Deuda guardada con éxito con folio '+String(d.folio).padStart(3,'0'));
+        personalDeudaAbrir(d.id);
+      });
+    }
+    right.appendChild(bMain);
+    top.appendChild(left); top.appendChild(right);
+    host.appendChild(top);
+
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent=d.bloqueado?('DEUDA FOLIO '+String(d.folio).padStart(3,'0')):'Registrar deuda';
+    card.appendChild(h);
+
+    var g=document.createElement('div'); g.className='grid';
+
+    function field(label, val, prop, type){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type=type||'text'; i.value=val||'';
+      if(d.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      else i.addEventListener('input', function(){ d[prop] = (i.type==='number')? parseFloat(i.value||'0'): i.value; saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+
+    field('Acreedor', d.acreedor, 'acreedor', 'text');
+    field('Saldo inicial ($)', d.saldoInicial, 'saldoInicial', 'number');
+    field('Saldo pendiente ($)', d.saldoPendiente, 'saldoPendiente', 'number');
+    field('Tasa anual (%)', d.tasaAnual, 'tasaAnual', 'number');
+
+    // Frecuencia
+    var dF=document.createElement('div'); var lF=document.createElement('label'); lF.textContent='Frecuencia de pago';
+    var sF=document.createElement('select'); [['mensual','Mensual'],['quincenal','Quincenal'],['semanal','Semanal'],['cada_x_dias','Cada X días']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(d.frecuencia===p[0]) op.selected=true; sF.appendChild(op); });
+    if(d.bloqueado){ sF.disabled=true; sF.classList.add('ro'); }
+    sF.addEventListener('change', function(){ d.frecuencia=sF.value; saveDB(DB); personalDeudaAbrir(d.id); });
+    dF.appendChild(lF); dF.appendChild(sF); g.appendChild(dF);
+
+    // Día del mes / Cada X días
+    if(d.frecuencia==='mensual' || d.frecuencia==='quincenal'){
+      var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Día del mes (1-31)';
+      var iM=document.createElement('input'); iM.type='number'; iM.value=d.diaMes||15;
+      if(d.bloqueado){ iM.readOnly=true; iM.classList.add('ro'); }
+      iM.addEventListener('input', function(){ d.diaMes=parseInt(iM.value||'15',10); saveDB(DB); });
+      dM.appendChild(lM); dM.appendChild(iM); g.appendChild(dM);
+    }else if(d.frecuencia==='cada_x_dias'){
+      var dX=document.createElement('div'); var lX=document.createElement('label'); lX.textContent='Cada cuántos días';
+      var iX=document.createElement('input'); iX.type='number'; iX.value=d.cadaDias||30;
+      if(d.bloqueado){ iX.readOnly=true; iX.classList.add('ro'); }
+      iX.addEventListener('input', function(){ d.cadaDias=parseInt(iX.value||'30',10); saveDB(DB); });
+      dX.appendChild(lX); dX.appendChild(iX); g.appendChild(dX);
+    }
+
+    field('Próxima fecha', d.proximaFecha, 'proximaFecha', 'date');
+
+    // Notas
+    var dN=document.createElement('div'); var lN=document.createElement('label'); lN.textContent='Notas';
+    var tN=document.createElement('textarea'); tN.value=d.notas||'';
+    if(d.bloqueado){ tN.readOnly=true; tN.classList.add('ro'); }
+    tN.addEventListener('input', function(){ d.notas=tN.value; saveDB(DB); });
+    dN.appendChild(lN); dN.appendChild(tN); g.appendChild(dN);
+
+    card.appendChild(g);
+    host.appendChild(card);
+  });
+}
+
+// Diálogo simple de pago (interés/capital/ambos)
+function dialogRegistrarPago(d){
+  var tipo = prompt('Tipo de pago: (interes | capital | ambos)','ambos');
+  if(!tipo) return;
+  tipo = tipo.toLowerCase();
+  var montoStr = prompt('Monto total pagado ($):','0');
+  var monto = parseFloat(montoStr||'0');
+  if(!(monto>0)){ alert('Monto inválido'); return; }
+
+  var tasaMensual = Number(d.tasaAnual||0)/12/100;
+  var interesEstimado = Math.max(0, (Number(d.saldoPendiente||0)*tasaMensual));
+
+  var pagInt=0, pagCap=0;
+  if(tipo==='interes'){ pagInt = Math.min(monto, interesEstimado); pagCap=0; }
+  else if(tipo==='capital'){ pagCap = Math.min(monto, Number(d.saldoPendiente||0)); pagInt=0; }
+  else { // ambos
+    pagInt = Math.min(interesEstimado, monto);
+    pagCap = Math.max(0, monto - pagInt);
+    pagCap = Math.min(pagCap, Number(d.saldoPendiente||0));
+  }
+
+  d.saldoPendiente = Math.max(0, Number(d.saldoPendiente||0) - pagCap);
+
+  // Reprograma próxima fecha
+  if(d.frecuencia==='mensual'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'mensual',null, d.diaMes||15); }
+  else if(d.frecuencia==='quincenal'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'quincenal'); }
+  else if(d.frecuencia==='semanal'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'semanal'); }
+  else if(d.frecuencia==='cada_x_dias'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'cada_x_dias', d.cadaDias||30); }
+
+  saveDB(DB);
+  alert('Pago registrado. Interés: $'+pagInt.toFixed(2)+' · Capital: $'+pagCap.toFixed(2)+' · Saldo: $'+Number(d.saldoPendiente||0).toFixed(2));
+  personalDeudaAbrir(d.id);
+}
+
+/* =================== INGRESOS =================== */
+function personalIngresosList(){
+  openTab('pers-ing','Personal · Ingresos', function(host){
+    host.innerHTML='';
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo ingreso';
+    bNew.addEventListener('click', personalIngresoNuevo); left.appendChild(bNew);
+    top.appendChild(left); host.appendChild(top);
+
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent='Listado de ingresos'; card.appendChild(h);
+
+    var tbl=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Descripción','Monto','Próxima fecha','Frecuencia'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    card.appendChild(tbl); host.appendChild(card);
+
+    function pinta(){
+      tbody.innerHTML='';
+      DB.personal.ingresos.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(ing){
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click', function(){ personalIngresoAbrir(ing.id); });
+        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
+        tr.appendChild(td(String(ing.folio).padStart(3,'0')));
+        tr.appendChild(td(ing.descripcion||'—'));
+        tr.appendChild(td('$ '+Number(ing.monto||0).toFixed(2)));
+        tr.appendChild(td(ing.proximaFecha||'—'));
+        tr.appendChild(td(ing.frecuencia||'mensual'));
+        tbody.appendChild(tr);
+      });
+    }
+    pinta();
+  });
+}
+
+function personalIngresoNuevo(){
+  var ing={
+    id: pNextId('ING'),
+    folio: folioNext('ingreso'),
+    ts: Date.now(),
+    descripcion: '',
+    monto: 0,
+    frecuencia: 'quincenal', // mensual | quincenal | semanal | cada_x_dias
+    diaMes: 1,
+    cadaDias: 15,
+    proximaFecha: hoyStr(),
+    notas: '',
+    bloqueado: false
+  };
+  DB.personal.ingresos.push(ing); saveDB(DB);
+  personalIngresoAbrir(ing.id);
+}
+
+function personalIngresoAbrir(id){
+  var ing=DB.personal.ingresos.find(function(x){return x.id===id;}); if(!ing) return;
+
+  openTab('pers-ing-'+ing.id, ing.bloqueado?('Ingreso '+String(ing.folio).padStart(3,'0')):'Registrar ingreso', function(host){
+    host.innerHTML='';
+
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='flex-end';
+    var bMain=document.createElement('button');
+    if(ing.bloqueado){
+      bMain.className='btn'; bMain.textContent='✏️ Editar';
+      bMain.addEventListener('click', function(){ ing.bloqueado=false; saveDB(DB); personalIngresoAbrir(ing.id); });
+    }else{
+      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
+      bMain.addEventListener('click', function(){
+        if(!ing.descripcion){ alert('Descripción requerida'); return; }
+        if(Number(ing.monto||0)<=0){ alert('Monto > 0'); return; }
+        // proxima fecha
+        if(ing.frecuencia==='mensual'){ ing.proximaFecha = addFreq(ing.proximaFecha||hoyStr(),'mensual',null, ing.diaMes||1); }
+        else if(ing.frecuencia==='quincenal'){ ing.proximaFecha = addFreq(ing.proximaFecha||hoyStr(),'quincenal'); }
+        else if(ing.frecuencia==='semanal'){ ing.proximaFecha = addFreq(ing.proximaFecha||hoyStr(),'semanal'); }
+        else if(ing.frecuencia==='cada_x_dias'){ ing.proximaFecha = addFreq(ing.proximaFecha||hoyStr(),'cada_x_dias', ing.cadaDias||15); }
+        ing.bloqueado=true; saveDB(DB);
+        alert('Ingreso guardado con éxito folio '+String(ing.folio).padStart(3,'0'));
+        personalIngresoAbrir(ing.id);
+      });
+    }
+    top.appendChild(bMain); host.appendChild(top);
+
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent=ing.bloqueado?('INGRESO FOLIO '+String(ing.folio).padStart(3,'0')):'Registrar ingreso';
+    card.appendChild(h);
+
+    var g=document.createElement('div'); g.className='grid';
+
+    function field(label, val, prop, type){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type=type||'text'; i.value=val||'';
+      if(ing.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      else i.addEventListener('input', function(){ ing[prop] = (i.type==='number')? parseFloat(i.value||'0') : i.value; saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+
+    field('Descripción', ing.descripcion,'descripcion','text');
+    field('Monto ($)', ing.monto,'monto','number');
+
+    var dF=document.createElement('div'); var lF=document.createElement('label'); lF.textContent='Frecuencia';
+    var sF=document.createElement('select'); [['mensual','Mensual'],['quincenal','Quincenal'],['semanal','Semanal'],['cada_x_dias','Cada X días']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(ing.frecuencia===p[0]) op.selected=true; sF.appendChild(op); });
+    if(ing.bloqueado){ sF.disabled=true; sF.classList.add('ro'); }
+    sF.addEventListener('change', function(){ ing.frecuencia=sF.value; saveDB(DB); personalIngresoAbrir(ing.id); });
+    dF.appendChild(lF); dF.appendChild(sF); g.appendChild(dF);
+
+    if(ing.frecuencia==='mensual'){
+      var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Día del mes (1–31)';
+      var iM=document.createElement('input'); iM.type='number'; iM.value=ing.diaMes||1;
+      if(ing.bloqueado){ iM.readOnly=true; iM.classList.add('ro'); }
+      iM.addEventListener('input', function(){ ing.diaMes=parseInt(iM.value||'1',10); saveDB(DB); });
+      dM.appendChild(lM); dM.appendChild(iM); g.appendChild(dM);
+    }else if(ing.frecuencia==='cada_x_dias'){
+      var dX=document.createElement('div'); var lX=document.createElement('label'); lX.textContent='Cada cuántos días';
+      var iX=document.createElement('input'); iX.type='number'; iX.value=ing.cadaDias||15;
+      if(ing.bloqueado){ iX.readOnly=true; iX.classList.add('ro'); }
+      iX.addEventListener('input', function(){ ing.cadaDias=parseInt(iX.value||'15',10); saveDB(DB); });
+      dX.appendChild(lX); dX.appendChild(iX); g.appendChild(dX);
+    }
+
+    field('Próxima fecha', ing.proximaFecha, 'proximaFecha', 'date');
+
+    var dN=document.createElement('div'); var lN=document.createElement('label'); lN.textContent='Notas';
+    var tN=document.createElement('textarea'); tN.value=ing.notas||'';
+    if(ing.bloqueado){ tN.readOnly=true; tN.classList.add('ro'); }
+    tN.addEventListener('input', function(){ ing.notas=tN.value; saveDB(DB); });
+    dN.appendChild(lN); dN.appendChild(tN); g.appendChild(dN);
+
+    card.appendChild(g); host.appendChild(card);
+  });
+}
+
+/* =================== PRESUPUESTOS =================== */
+function personalPresupuestosList(){
+  openTab('pers-pre','Personal · Presupuestos', function(host){
+    host.innerHTML='';
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo presupuesto';
+    bNew.addEventListener('click', personalPresupuestoNuevo);
+    left.appendChild(bNew);
+    top.appendChild(left); host.appendChild(top);
+
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent='Listado de presupuestos'; card.appendChild(h);
+
+    var tbl=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Concepto','Fecha objetivo','Monto'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    card.appendChild(tbl); host.appendChild(card);
+
+    function pinta(){
+      tbody.innerHTML='';
+      DB.personal.presupuestos.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(p){
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click', function(){ personalPresupuestoAbrir(p.id); });
+        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
+        tr.appendChild(td(String(p.folio).padStart(3,'0')));
+        tr.appendChild(td(p.concepto||'—'));
+        tr.appendChild(td(p.fechaObjetivo||'—'));
+        tr.appendChild(td('$ '+Number(p.monto||0).toFixed(2)));
+        tbody.appendChild(tr);
+      });
+    }
+    pinta();
+  });
+}
+
+function personalPresupuestoNuevo(){
+  var p={
+    id: pNextId('PRE'),
+    folio: folioNext('pres'),
+    ts: Date.now(),
+    concepto: '',
+    fechaObjetivo: hoyStr(),
+    monto: 0,
+    notas: '',
+    bloqueado: false
+  };
+  DB.personal.presupuestos.push(p); saveDB(DB);
+  personalPresupuestoAbrir(p.id);
+}
+
+function personalPresupuestoAbrir(id){
+  var p=DB.personal.presupuestos.find(function(x){return x.id===id;}); if(!p) return;
+
+  openTab('pers-pre-'+p.id, p.bloqueado?('Presupuesto '+String(p.folio).padStart(3,'0')):'Registrar presupuesto', function(host){
+    host.innerHTML='';
+
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='flex-end';
+    var bMain=document.createElement('button');
+    if(p.bloqueado){
+      bMain.className='btn'; bMain.textContent='✏️ Editar';
+      bMain.addEventListener('click', function(){ p.bloqueado=false; saveDB(DB); personalPresupuestoAbrir(p.id); });
+    }else{
+      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
+      bMain.addEventListener('click', function(){
+        if(!p.concepto){ alert('Concepto requerido'); return; }
+        if(Number(p.monto||0)<=0){ alert('Monto > 0'); return; }
+        p.bloqueado=true; saveDB(DB);
+        alert('Presupuesto guardado con éxito folio '+String(p.folio).padStart(3,'0'));
+        personalPresupuestoAbrir(p.id);
+      });
+    }
+    top.appendChild(bMain); host.appendChild(top);
+
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent=p.bloqueado?('PRESUPUESTO FOLIO '+String(p.folio).padStart(3,'0')):'Registrar presupuesto';
+    card.appendChild(h);
+
+    var g=document.createElement('div'); g.className='grid';
+
+    function field(label,val,prop,type){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type=type||'text'; i.value=val||'';
+      if(p.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      else i.addEventListener('input', function(){ p[prop] = (i.type==='number')? parseFloat(i.value||'0') : i.value; saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+    field('Concepto', p.concepto,'concepto','text');
+    field('Fecha objetivo', p.fechaObjetivo,'fechaObjetivo','date');
+    field('Monto ($)', p.monto,'monto','number');
+
+    var dN=document.createElement('div'); var lN=document.createElement('label'); lN.textContent='Notas';
+    var tN=document.createElement('textarea'); tN.value=p.notas||'';
+    if(p.bloqueado){ tN.readOnly=true; tN.classList.add('ro'); }
+    tN.addEventListener('input', function(){ p.notas=tN.value; saveDB(DB); });
+    dN.appendChild(lN); dN.appendChild(tN); g.appendChild(dN);
+
+    card.appendChild(g); host.appendChild(card);
+  });
+}
+
    
 })();
 
