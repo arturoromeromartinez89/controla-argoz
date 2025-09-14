@@ -3036,819 +3036,390 @@ function imprimirPDFVenta(v, isDraft){
   w.document.write(html); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
 }
 
-/* ================================================================
-   MÓDULO: 👨‍👩‍👧‍👦 PERSONAL v1.1
-   - Botón lateral “👨‍👩‍👧‍👦 Personal” con listener propio (garantiza clic)
-   - Submenús: Dashboard | Gastos | Conciliación de Cuentas
-   - Reglas UI: GUARDAR→bloquea, ✏️ Editar desbloquea; PDF/WhatsApp/Nuevo
-   - Semáforo textual arriba derecha (CONCILIADO / POR CONCILIAR / INCOMPLETO)
-   - Montos con $ y negritas; conciliación acepta negativos
-   - Catálogo familiar (con “Otros gastos” hasta arriba)
-================================================================ */
+/* ===================================================================
+   PERSONAL · MASTER v2.0 (UNIFICADO)
+   Pegar UNA sola vez dentro del IIFE de app.js (antes del último `})();`)
+   - Evita redefinir renderSubmenu múltiples veces
+   - Inyector del botón "👨‍👩‍👧 Personal" (idempotente)
+   - Submenús: Dashboard | Cuentas y Movimientos | Inventario de Plata
+                | Deudas | Ingresos | Presupuestos | Activos varios
+   - Dashboard: Balance General (Activos, Pasivos, Capital) + spot $/g
+                + Calendario semanal (pagos/ingresos/presupuestos)
+   - Listados + hojas con GUARDAR→bloquea y ✏️ Editar→desbloquea
+   - Todos los “＋ Nuevo …” abren su hoja correspondiente
+====================================================================*/
 
-/* ---------- Helpers locales ---------- */
-function moneyFmtP(n){ return '$ ' + (Number(n||0)).toFixed(2); }
-function moneyParseP(s){ return isNaN(s) ? parseFloat(String(s||'').replace(/[^\d.-]/g,''))||0 : Number(s); }
-
-/* ---------- Estado/persistencia: DB.personal ---------- */
-(function ensurePersonalState(){
-  if(!DB.personal){
-    DB.personal = {
-      consecutivoGasto: 0,
-      gastos: [],
-      concs: [],
-      cuentas: [
-        { id:'pers_caja_plata',  nombre:'Caja Plata Personal', tipo:'metal',  saldoGr:0, saldo:0 },
-        { id:'pers_banco',       nombre:'Banco Personal',      tipo:'dinero', saldo:0 },
-        { id:'pers_ahorros',     nombre:'Ahorros',             tipo:'dinero', saldo:0 }
-      ],
-      cuentasContables: [
-        { id:'otros',           nombre:'Otros gastos' },
-        { id:'super',           nombre:'Super / Despensa' },
-        { id:'renta',           nombre:'Renta / Hipoteca' },
-        { id:'servicios',       nombre:'Servicios (luz/agua/internet/gas)' },
-        { id:'colegiaturas',    nombre:'Colegios / Educación' },
-        { id:'salud',           nombre:'Salud / Seguros' },
-        { id:'transporte',      nombre:'Transporte / Combustible' },
-        { id:'entretenimiento', nombre:'Entretenimiento' },
-        { id:'ropa',            nombre:'Ropa / Calzado' },
-        { id:'mascotas',        nombre:'Mascotas' },
-        { id:'viajes',          nombre:'Viajes' },
-        { id:'mantenimiento',   nombre:'Mantenimiento hogar/auto' },
-        { id:'donativos',       nombre:'Donativos' },
-        { id:'ahorro',          nombre:'Ahorro / Inversión' }
-      ]
-    };
-    saveDB(DB);
+/* ---------- Utilidades base (aprovecha helpers globales si existen) ---------- */
+function PER_money(n){ return '$ ' + (Number(n||0)).toFixed(2); }
+function PER_parseMoney(s){ return isNaN(s) ? parseFloat(String(s||'').replace(/[^\d.-]/g,''))||0 : Number(s); }
+function PER_f2(n){ return (Number(n||0)).toFixed(2); }
+function PER_parseISO(d){ try{ var p=d.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }catch(e){ return new Date(); } }
+function PER_fmtISO(dt){ var m=String(dt.getMonth()+1).padStart(2,'0'); var d=String(dt.getDate()).padStart(2,'0'); return dt.getFullYear()+'-'+m+'-'+d; }
+function PER_startOfWeek(d){ var dt=(d instanceof Date)?new Date(d):PER_parseISO(d||hoyStr()); var day=(dt.getDay()+6)%7; dt.setDate(dt.getDate()-day); dt.setHours(0,0,0,0); return dt; }
+function PER_addDays(dt,n){ var x=new Date(dt); x.setDate(x.getDate()+n); return x; }
+function PER_nextByFreq(dateISO,freq,xdays,dom){
+  var d=PER_parseISO(dateISO||hoyStr());
+  if(freq==='mensual'){
+    var day = dom || d.getDate(); var m=d.getMonth()+1,y=d.getFullYear();
+    if(m===12){y+=1;m=1;}else{m+=1;}
+    return PER_fmtISO(new Date(y,m-1,Math.min(day,28)));
+  }else if(freq==='quincenal'){
+    var day2=d.getDate(); if(day2<=15) return PER_fmtISO(new Date(d.getFullYear(),d.getMonth(),16));
+    var m2=d.getMonth()+1,y2=d.getFullYear(); if(m2===12){y2+=1;m2=1;}else{m2+=1;}
+    return PER_fmtISO(new Date(y2,m2-1,1));
+  }else if(freq==='semanal'){
+    return PER_fmtISO(PER_addDays(d,7));
+  }else if(freq==='cada_x_dias'){
+    return PER_fmtISO(PER_addDays(d, Math.max(1, parseInt(xdays||'1',10))));
   }
+  return PER_fmtISO(PER_addDays(d,30));
+}
+
+/* ---------- Asegura estado DB.personal y catálogos ---------- */
+(function PER_ensureState(){
+  if(!DB.personal){
+    DB.personal = {};
+  }
+  // Cuentas solicitadas
+  if(!Array.isArray(DB.personal.cuentas)) DB.personal.cuentas=[];
+  [
+    { id:'pers_caja_plata',  nombre:'Caja de Plata Personal',     tipo:'metal',  saldoGr:0, saldo:0 },
+    { id:'pers_banco_sant',  nombre:'Banco Santander Personal',   tipo:'dinero', saldo:0 },
+    { id:'pers_banco_bbva',  nombre:'Bancomer Personal',          tipo:'dinero', saldo:0 },
+    { id:'pers_banco_nu',    nombre:'Nu Personal',                tipo:'dinero', saldo:0 },
+    { id:'pers_mp',          nombre:'Mercado Pago Personal',      tipo:'dinero', saldo:0 },
+    { id:'pers_ef_arturo',   nombre:'Efectivo Arturo',            tipo:'dinero', saldo:0 },
+    { id:'pers_ef_steph',    nombre:'Efectivo Stephanie',         tipo:'dinero', saldo:0 }
+  ].forEach(function(ct){
+    if(!DB.personal.cuentas.some(function(x){return x.id===ct.id;})){ DB.personal.cuentas.push(ct); }
+  });
+
+  // Catálogo familiar (Otros arriba)
+  if(!Array.isArray(DB.personal.cuentasContables)){
+    DB.personal.cuentasContables = [
+      { id:'otros',           nombre:'Otros gastos' },
+      { id:'super',           nombre:'Super / Despensa' },
+      { id:'renta',           nombre:'Renta / Hipoteca' },
+      { id:'servicios',       nombre:'Servicios (luz/agua/internet/gas)' },
+      { id:'colegiaturas',    nombre:'Colegios / Educación' },
+      { id:'salud',           nombre:'Salud / Seguros' },
+      { id:'transporte',      nombre:'Transporte / Combustible' },
+      { id:'entretenimiento', nombre:'Entretenimiento' },
+      { id:'ropa',            nombre:'Ropa / Calzado' },
+      { id:'mascotas',        nombre:'Mascotas' },
+      { id:'viajes',          nombre:'Viajes' },
+      { id:'mantenimiento',   nombre:'Mantenimiento hogar/auto' },
+      { id:'donativos',       nombre:'Donativos' },
+      { id:'ahorro',          nombre:'Ahorro / Inversión' }
+    ];
+  }
+
+  // Folios y colecciones
+  if(typeof DB.personal.folioInv      !== 'number') DB.personal.folioInv=0;
+  if(typeof DB.personal.folioDeuda    !== 'number') DB.personal.folioDeuda=0;
+  if(typeof DB.personal.folioIngreso  !== 'number') DB.personal.folioIngreso=0;
+  if(typeof DB.personal.folioPres     !== 'number') DB.personal.folioPres=0;
+  if(typeof DB.personal.folioActivo   !== 'number') DB.personal.folioActivo=0;
+
+  if(!Array.isArray(DB.personal.invMovs))      DB.personal.invMovs=[];
+  if(!Array.isArray(DB.personal.deudas))       DB.personal.deudas=[];
+  if(!Array.isArray(DB.personal.ingresos))     DB.personal.ingresos=[];
+  if(!Array.isArray(DB.personal.presupuestos)) DB.personal.presupuestos=[];
+  if(!Array.isArray(DB.personal.activos))      DB.personal.activos=[];
+
+  if(!DB.personal.parametros) DB.personal.parametros={};
+  if(typeof DB.personal.parametros.spotPlata !== 'number') DB.personal.parametros.spotPlata = 20; // $/g
+
+  saveDB(DB);
 })();
 
-/* ---------- Inyector del botón lateral (con CLICK PROPIO) ---------- */
-(function injectPersonalButton(){
-  var aside = document.querySelector('.left');
+/* ---------- Inyector seguro del botón lateral "Personal" ---------- */
+(function PER_injectBtn(){
+  var aside=document.querySelector('.left');
   if(!aside) return;
   if(aside.querySelector('[data-root="personal"]')) return;
-
-  var btn = document.createElement('button');
-  btn.className = 'side-item tree-btn';
+  var btn=document.createElement('button');
+  btn.className='side-item tree-btn';
   btn.setAttribute('data-root','personal');
-  btn.textContent = '👨‍👩‍👧‍👦 Personal';
-
-  // Insertamos antes de Catálogo si existe
+  btn.textContent='👨‍👩‍👧 Personal';
   var ref = aside.querySelector('.tree-btn[data-root="catalogo"]');
   if(ref && ref.parentNode){ ref.parentNode.insertBefore(btn, ref); } else { aside.appendChild(btn); }
-
-  // Listener propio que garantiza la apertura del submódulo
   btn.addEventListener('click', function(){
-    // Visual activo en barra lateral
-    Array.prototype.forEach.call(document.querySelectorAll('.tree-btn'), function(b){ b.classList.remove('active'); });
+    document.querySelectorAll('.tree-btn').forEach(function(b){ b.classList.remove('active'); });
     btn.classList.add('active');
-    // Renderiza submenú y abre por defecto Gastos
-    renderSubmenu('personal');
+    PER_renderSubmenu();
   });
 })();
 
-/* ---------- Parche de pestañas (si hace falta) ---------- */
-(function fixTabClicksP(){
-  var tabsHost = document.getElementById('tabs');
-  if(!tabsHost || tabsHost.__patchedPersonal) return;
-  tabsHost.__patchedPersonal = true;
-  tabsHost.addEventListener('click', function(e){
-    var tab = e.target.closest('.tab');
+/* ---------- Pestañas: click = activa su vista (patch idempotente) ---------- */
+(function PER_tabsPatch(){
+  var tabs=document.getElementById('tabs');
+  if(!tabs || tabs.__perPatch) return;
+  tabs.__perPatch=true;
+  tabs.addEventListener('click', function(e){
+    var tab=e.target.closest('.tab');
     if(!tab || e.target.classList.contains('x')) return;
-    var id = tab.getAttribute('data-tab'); if(!id) return;
-    Array.prototype.forEach.call(tabsHost.querySelectorAll('.tab'), function(t){ t.classList.remove('active'); });
+    var id=tab.getAttribute('data-tab'); if(!id) return;
+    tabs.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
     tab.classList.add('active');
-    var viewsHost = document.getElementById('views');
-    Array.prototype.forEach.call(viewsHost.querySelectorAll('.view'), function(v){ v.classList.remove('active'); });
-    var v = document.getElementById('view-'+id);
+    var views=document.getElementById('views');
+    views.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
+    var v=document.getElementById('view-'+id);
     if(v) v.classList.add('active');
   });
 })();
 
-/* ---------- Semáforo textual (top-right) ---------- */
-function estadoSemaforoTextP(g){
-  var okMonto = Number(g.monto||0) > 0;
-  var okCC    = !!g.cuentaContableId;
-  if(!okMonto || !okCC) return 'INCOMPLETO';
-  if(g.tipo==='pagado'){
-    return g.cuentaId ? (g.conciliado?'CONCILIADO':'POR CONCILIAR') : 'INCOMPLETO';
+/* ---------- Submenú Personal (único patch) ---------- */
+function PER_renderSubmenu(){
+  var host = qs('#subpanel'); if(!host) return;
+  host.innerHTML='';
+  var card=document.createElement('div'); card.className='card';
+  var h2=document.createElement('h2'); h2.textContent='Personal'; card.appendChild(h2);
+
+  var list=document.createElement('div'); list.className='actions';
+  list.style.flexDirection='column'; list.style.alignItems='stretch';
+
+  function add(txt,icon,fn){
+    var b=document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
+    b.innerHTML=icon+' '+txt; b.addEventListener('click',fn); return b;
   }
-  if(g.tipo==='por_pagar'){
-    return g.pagado ? (g.conciliado?'CONCILIADO':'POR CONCILIAR') : 'POR CONCILIAR';
-  }
-  if(g.tipo==='recurrente'){
-    return g.conciliado ? 'CONCILIADO' : 'POR CONCILIAR';
-  }
-  return 'INCOMPLETO';
-}
-function semaforoTopRightP(texto){
-  var color = '#ef4444'; // rojo
-  if(texto==='POR CONCILIAR'){ color='#f59e0b'; }
-  if(texto==='CONCILIADO'){ color='#16a34a'; }
-  var wrap = document.createElement('div');
-  wrap.style.display='flex';
-  wrap.style.alignItems='center';
-  wrap.style.gap='6px';
-  var dot = document.createElement('span');
-  dot.textContent = (color==='#16a34a'?'🟢':color==='#f59e0b'?'🟡':'🔴');
-  var txt = document.createElement('span');
-  txt.textContent = texto;
-  txt.style.fontWeight='800';
-  txt.style.color = color;
-  wrap.appendChild(dot); wrap.appendChild(txt);
-  return wrap;
+
+  list.appendChild(add('Dashboard','📊', PER_dashboard));
+  list.appendChild(add('Cuentas y Movimientos','📦', PER_movsList));
+  list.appendChild(add('Inventario de Plata','🥈', PER_plataList));
+  list.appendChild(add('Deudas','💳', PER_deudasList));
+  list.appendChild(add('Ingresos','💵', PER_ingresosList));
+  list.appendChild(add('Presupuestos','📝', PER_presupuestosList));
+  list.appendChild(add('Activos varios','🛠️', PER_activosList));
+  card.appendChild(list);
+  host.appendChild(card);
+
+  // Abre Dashboard por defecto
+  PER_dashboard();
 }
 
-/* ---------- Barra de acciones (retorna el contenedor completo) ---------- */
-function topActionsP(opts){
-  var bar = document.createElement('div');
-  bar.className='actions';
-  bar.style.justifyContent='space-between';
-  var left = document.createElement('div'); left.className='actions';
-  var right = document.createElement('div'); right.className='actions';
-
-  var bNuevo=document.createElement('button'); bNuevo.className='btn'; bNuevo.textContent='＋ Nuevo';
-  if(opts && opts.onNuevo){ bNuevo.addEventListener('click', opts.onNuevo); } else { bNuevo.disabled=true; }
-
-  var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir';
-  if(opts && opts.onPdf){ bPrint.addEventListener('click', opts.onPdf); } else { bPrint.disabled=true; }
-
-  var bWa=document.createElement('button'); bWa.className='btn'; bWa.textContent='WhatsApp';
-  if(opts && opts.onWhats){ bWa.addEventListener('click', opts.onWhats); } else { bWa.disabled=true; }
-
-  left.appendChild(bNuevo); left.appendChild(bPrint); left.appendChild(bWa);
-
-  var bMain=document.createElement('button');
-  var bloqueado = !!(opts && opts.bloqueado);
-  if(bloqueado){
-    bMain.className='btn';
-    bMain.textContent='✏️ Editar';
-    if(opts && opts.onEditar){ bMain.addEventListener('click', opts.onEditar); }
-  }else{
-    bMain.className='btn-primary';
-    bMain.textContent='GUARDAR';
-    if(opts && opts.onGuardar){ bMain.addEventListener('click', opts.onGuardar); }
-  }
-  right.appendChild(bMain);
-
-  bar.appendChild(left);
-  bar.appendChild(right);
-
-  // Exponer pequeñas utilidades si deseas manipular fuera
-  bar._setModo = function(isLocked){
-    right.innerHTML='';
-    var b=document.createElement('button');
-    if(isLocked){ b.className='btn'; b.textContent='✏️ Editar'; opts && opts.onEditar && b.addEventListener('click', opts.onEditar); }
-    else{ b.className='btn-primary'; b.textContent='GUARDAR'; opts && opts.onGuardar && b.addEventListener('click', opts.onGuardar); }
-    right.appendChild(b);
-  };
-
-  return bar;
-}
-
-/* ---------- Patch de renderSubmenu para “personal” ---------- */
-(function patchRenderSubmenu_Personal(){
-  var _orig = renderSubmenu;
-  renderSubmenu = function(root){
-    var r = String(root||'').toLowerCase();
-    if(r!=='personal'){ _orig(root); return; }
-
-    var host = qs('#subpanel'); if(!host) return;
-    host.innerHTML = '';
-
-    var card = document.createElement('div'); card.className='card';
-    var h2 = document.createElement('h2'); h2.textContent = 'Personal'; card.appendChild(h2);
-
-    var list = document.createElement('div');
-    list.className='actions';
-    list.style.flexDirection='column';
-    list.style.alignItems='stretch';
-
-    function item(txt, icon, fn){
-      var b = document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
-      b.innerHTML = icon+' '+txt;
-      b.addEventListener('click', fn);
-      return b;
-    }
-
-    list.appendChild(item('Dashboard','📊', personalDashboard));
-    list.appendChild(item('Gastos','💸', personalGastosList));
-    list.appendChild(item('Conciliación de Cuentas','🧾', personalConciliacion));
-    card.appendChild(list);
-    host.appendChild(card);
-
-    // Abre Gastos por defecto
-    personalGastosList();
-  };
-})();
-
-/* ====================== SUBMÓDULOS ====================== */
-
-/* --- Dashboard --- */
-function personalDashboard(){
-  openTab('pers-dash','Personal · Dashboard', function(host){
-    host.innerHTML='';
-    var c=document.createElement('div'); c.className='card';
-    var h=document.createElement('h2'); h.textContent='Dashboard Personal'; c.appendChild(h);
-
-    var g=document.createElement('div'); g.className='grid';
-    var totDin=0, totGr=0;
-    DB.personal.cuentas.forEach(function(ct){
-      if(ct.tipo==='dinero'){ totDin += Number(ct.saldo||0); }
-      if(ct.tipo==='metal'){ totGr  += Number(ct.saldoGr||0); }
-    });
-    var d1=document.createElement('div'); d1.innerHTML='<label>Total dinero</label><input readonly class="ro" value="'+moneyFmtP(totDin)+'">';
-    var d2=document.createElement('div'); d2.innerHTML='<label>Plata personal (g)</label><input readonly class="ro" value="'+(Number(totGr||0)).toFixed(2)+' g">';
-    g.appendChild(d1); g.appendChild(d2);
-    c.appendChild(g);
-
-    host.appendChild(c);
+/* ===================================================================
+   DASHBOARD: Balance General + Calendario semanal
+====================================================================*/
+function PER_totales(){
+  var spot = Number(DB.personal.parametros.spotPlata||0);
+  var totalDin=0, totalGr=0;
+  DB.personal.cuentas.forEach(function(c){
+    if(c.tipo==='dinero') totalDin += Number(c.saldo||0);
+    if(c.tipo==='metal')  totalGr += Number(c.saldoGr||0);
   });
+  var activosVarios = DB.personal.activos.reduce(function(s,a){ return s + Number(a.cantidad||0)*Number(a.precio||0); }, 0);
+  var activos = totalDin + totalGr*spot + activosVarios;
+
+  var pasivos = DB.personal.deudas.reduce(function(s,d){
+    // usa saldoPendiente si existe; si no, usa saldoActual/montoOriginal
+    var v = (d.saldoPendiente!=null)? d.saldoPendiente : (d.saldoActual!=null? d.saldoActual : (d.montoOriginal||0));
+    return s + Number(v||0);
+  },0);
+
+  return {spot, totalDin, totalGr, activosVarios, activos, pasivos, capital: activos-pasivos};
 }
 
-/* --- Gastos: listado + alta/edición --- */
-function nextGastoIdP(){ DB.personal.consecutivoGasto+=1; saveDB(DB); return 'PG'+Date.now()+'-'+DB.personal.consecutivoGasto; }
-
-function personalGastosList(){
-  openTab('pers-gastos','Personal · Gastos', function(host){
+function PER_dashboard(){
+  openTab('per-dash','Personal · Dashboard', function(host){
     host.innerHTML='';
 
-    // Encabezado + botón registrar
-    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
-    var title=document.createElement('h2'); title.textContent='Gastos personales';
-    var bNew=document.createElement('button'); bNew.className='btn-primary'; bNew.textContent='+ Registrar gasto';
-    bNew.addEventListener('click', function(){ personalGastoNuevo(); });
-    top.appendChild(title); top.appendChild(bNew);
-    host.appendChild(top);
-
-    var c = document.createElement('div'); c.className='card';
-
-    var g=document.createElement('div'); g.className='grid';
-    var f1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Fecha inicio'; var i1=document.createElement('input'); i1.type='date'; f1.appendChild(l1); f1.appendChild(i1); g.appendChild(f1);
-    var f2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Fecha fin';    var i2=document.createElement('input'); i2.type='date'; f2.appendChild(l2); f2.appendChild(i2); g.appendChild(f2);
-    var f4=document.createElement('div'); var l4=document.createElement('label'); l4.textContent='Cuenta';      var s4=document.createElement('select'); var opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas'; s4.appendChild(opAll); DB.personal.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; s4.appendChild(op); }); f4.appendChild(l4); f4.appendChild(s4); g.appendChild(f4);
-    var f3=document.createElement('div'); var l3=document.createElement('label'); l3.textContent='Tipo';        var s3=document.createElement('select'); [['','Todos'],['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; s3.appendChild(op); }); f3.appendChild(l3); f3.appendChild(s3); g.appendChild(f3);
-
-    var rowAct=document.createElement('div'); rowAct.className='actions';
-    var spacer=document.createElement('div'); spacer.style.flex='1';
-    var bFil=document.createElement('button'); bFil.className='btn'; bFil.textContent='Buscar';
-    bFil.style.background='#0a3a74'; bFil.style.color='#fff'; bFil.style.border='1px solid #0a3a74';
-    rowAct.appendChild(spacer); rowAct.appendChild(bFil);
-
-    c.appendChild(g);
-    c.appendChild(rowAct);
-
-    // Tabla
-    var tbl=document.createElement('table');
-    var thead=document.createElement('thead'); var trh=document.createElement('tr');
-    ['Folio','Fecha','Tipo','Cuenta pago','Cuenta contable','Monto','Estatus',' '].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-    thead.appendChild(trh); tbl.appendChild(thead);
-    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
-    c.appendChild(tbl);
-
-    function pinta(){
-      tbody.innerHTML='';
-      var rows = DB.personal.gastos.slice().sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
-      rows.forEach(function(gst){
-        var ok=true;
-        if(i1.value){ ok=ok && gst.fecha>=i1.value; }
-        if(i2.value){ ok=ok && gst.fecha<=i2.value; }
-        if(s3.value){ ok=ok && gst.tipo===s3.value; }
-        if(s4.value){ ok=ok && gst.cuentaId===s4.value; }
-        if(!ok) return;
-
-        var tr=document.createElement('tr'); tr.style.cursor='pointer';
-        tr.addEventListener('click', function(){ personalGastoAbrir(gst.id); });
-
-        function td(t){ var d=document.createElement('td'); d.textContent=t; return d; }
-        var ctaPago=(DB.personal.cuentas.find(function(cu){return cu.id===gst.cuentaId;})||{}).nombre || '—';
-        var ctaCont=(DB.personal.cuentasContables.find(function(cc){return cc.id===gst.cuentaContableId;})||{}).nombre || '—';
-        var estTxt = estadoSemaforoTextP(gst);
-
-        tr.appendChild(td(String(gst.folio).padStart(3,'0')));
-        tr.appendChild(td(gst.fecha||'—'));
-        tr.appendChild(td(gst.tipo||'—'));
-        tr.appendChild(td(ctaPago));
-        tr.appendChild(td(ctaCont));
-        var tdm=document.createElement('td'); tdm.innerHTML='<b style="color:#0f9d58">'+moneyFmtP(gst.monto||0)+'</b>'; tr.appendChild(tdm);
-
-        var tds=document.createElement('td');
-        var icon = estTxt==='CONCILIADO'?'🟢':estTxt==='POR CONCILIAR'?'🟡':'🔴';
-        tds.textContent = icon + ' ' + estTxt;
-        tr.appendChild(tds);
-
-        var tdArrow=document.createElement('td'); tdArrow.textContent='›'; tdArrow.style.textAlign='right'; tr.appendChild(tdArrow);
-
-        tbody.appendChild(tr);
-      });
-    }
-    bFil.addEventListener('click', pinta);
-    pinta();
-
-    host.appendChild(c);
-  });
-}
-
-function personalGastoNuevo(){
-  var g={
-    id: nextGastoIdP(),
-    folio: DB.personal.consecutivoGasto,
-    ts: Date.now(),
-    bloqueado: false,
-    tipo: 'pagado',         // pagado | por_pagar | recurrente
-    fecha: hoyStr(),
-    cuentaId: '',           // obligatoria si pagado
-    cuentaContableId: '',   // obligatoria siempre
-    monto: 0,
-    conciliado: false,
-    // por pagar
-    fechaDevengo: '',
-    pagado: false,
-    // recurrente
-    periodicidad: 'mensual', // mensual | quincenal | semanal | cada_x_dias
-    diaMes: 1,
-    diaSemana: 'viernes',
-    cadaDias: 30,
-    evidencia: ''
-  };
-  DB.personal.gastos.push(g); saveDB(DB);
-  personalGastoAbrir(g.id);
-}
-
-function personalGastoAbrir(id){
-  var g = DB.personal.gastos.find(function(x){ return x.id===id; });
-  if(!g) return;
-
-  var tabId = 'personal-gasto-'+g.id;
-  var titulo = g.bloqueado ? ('Gasto Personal '+String(g.folio).padStart(3,'0')) : 'Registrar nuevo gasto personal';
-
-  openTab(tabId, titulo, function(host){
-    host.innerHTML='';
-
-    // Cabecera con acciones y semáforo (garantiza layout)
-    var header = document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between'; header.style.alignItems='center';
-    var actions = topActionsP({
-      onNuevo: personalGastoNuevo,
-      onPdf: function(){ alert('PDF listo (personal).'); },
-      onWhats: function(){ alert('Enviar PDF por WhatsApp (personal).'); },
-      onGuardar: function(){
-        if(!g.cuentaContableId){ alert('Selecciona la cuenta contable.'); return; }
-        if(Number(g.monto||0)<=0){ alert('Captura un monto mayor a cero.'); return; }
-        if(g.tipo==='pagado' && !g.cuentaId){ alert('En “Pagado”, la cuenta de pago es obligatoria.'); return; }
-        g.bloqueado = true; saveDB(DB);
-        alert('Gasto guardado con éxito con número '+String(g.folio).padStart(3,'0'));
-        personalGastoAbrir(g.id);
-      },
-      onEditar: function(){ g.bloqueado=false; saveDB(DB); personalGastoAbrir(g.id); },
-      bloqueado: !!g.bloqueado
-    });
-    var sem = semaforoTopRightP(estadoSemaforoTextP(g));
-    header.appendChild(actions);
-    header.appendChild(sem);
-    host.appendChild(header);
-
+    // KPI / Balance
     var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent='Balance General (Personal)'; card.appendChild(h);
 
-    // Título
-    var h = document.createElement('h2');
-    h.textContent = g.bloqueado ? ('Gasto Personal '+String(g.folio).padStart(3,'0')) : 'Registrar nuevo gasto personal';
-    card.appendChild(h);
+    var ctl=document.createElement('div'); ctl.className='actions';
+    var l=document.createElement('label'); l.textContent='Precio de plata ($/g)';
+    var i=document.createElement('input'); i.type='number'; i.step='0.01'; i.value=DB.personal.parametros.spotPlata||0;
+    i.addEventListener('input', function(){ DB.personal.parametros.spotPlata=parseFloat(i.value||'0'); saveDB(DB); pintaKPIs(); });
+    ctl.appendChild(l); ctl.appendChild(i);
+    card.appendChild(ctl);
 
-    // Encabezado
-    var head=document.createElement('div'); head.className='grid';
+    var kpis=document.createElement('div'); kpis.className='grid'; card.appendChild(kpis);
 
-    // Tipo
-    var dT=document.createElement('div'); var lT=document.createElement('label'); lT.textContent='Tipo de gasto';
-    var sT=document.createElement('select'); [['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(g.tipo===p[0]) op.selected=true; sT.appendChild(op); });
-    sT.disabled=!!g.bloqueado;
-    sT.addEventListener('change', function(){ g.tipo=sT.value; saveDB(DB); renderVars(); refreshSem(); });
-    dT.appendChild(lT); dT.appendChild(sT); head.appendChild(dT);
-
-    // Fecha
-    var dF=document.createElement('div'); var lF=document.createElement('label'); lF.textContent='Fecha';
-    var iF=document.createElement('input'); iF.type='date'; iF.value=g.fecha||hoyStr(); iF.readOnly=!!g.bloqueado; if(g.bloqueado){ iF.classList.add('ro'); }
-    iF.addEventListener('change', function(){ g.fecha=iF.value; saveDB(DB); });
-    dF.appendChild(lF); dF.appendChild(iF); head.appendChild(dF);
-
-    // Cuenta pago
-    var dC=document.createElement('div'); var lC=document.createElement('label'); lC.textContent='Cuenta de pago';
-    var sC=document.createElement('select'); var opV=document.createElement('option'); opV.value=''; opV.textContent='(Selecciona)'; sC.appendChild(opV);
-    DB.personal.cuentas.forEach(function(cu){ if(cu.tipo==='dinero'){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; if(g.cuentaId===cu.id) op.selected=true; sC.appendChild(op); }});
-    sC.disabled=!!g.bloqueado;
-    sC.addEventListener('change', function(){ g.cuentaId=sC.value; saveDB(DB); refreshSem(); });
-    dC.appendChild(lC); dC.appendChild(sC); head.appendChild(dC);
-
-    // Cuenta contable
-    var dCC=document.createElement('div'); var lCC=document.createElement('label'); lCC.textContent='Cuenta contable';
-    var sCC=document.createElement('select'); var op0=document.createElement('option'); op0.value=''; op0.textContent='(Selecciona)'; sCC.appendChild(op0);
-    DB.personal.cuentasContables.forEach(function(cc){ var op=document.createElement('option'); op.value=cc.id; op.textContent=cc.nombre; if(g.cuentaContableId===cc.id) op.selected=true; sCC.appendChild(op); });
-    sCC.disabled=!!g.bloqueado;
-    sCC.addEventListener('change', function(){ g.cuentaContableId=sCC.value; saveDB(DB); refreshSem(); });
-    dCC.appendChild(lCC); dCC.appendChild(sCC); head.appendChild(dCC);
-
-    // Monto
-    var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Monto';
-    var iM=document.createElement('input'); iM.type='text'; iM.value=moneyFmtP(g.monto||0); iM.style.fontWeight='800'; iM.style.color='#0f9d58';
-    iM.readOnly=!!g.bloqueado; if(g.bloqueado){ iM.classList.add('ro'); }
-    iM.addEventListener('focus', function(){ if(g.bloqueado) return; iM.value=String(moneyParseP(iM.value)); });
-    iM.addEventListener('blur', function(){ if(g.bloqueado) return; g.monto=moneyParseP(iM.value); iM.value=moneyFmtP(g.monto); saveDB(DB); refreshSem(); });
-    dM.appendChild(lM); dM.appendChild(iM); head.appendChild(dM);
-
-    // Conciliado
-    var dK=document.createElement('div'); var lK=document.createElement('label'); lK.textContent='Conciliado';
-    var cK=document.createElement('input'); cK.type='checkbox'; cK.checked=!!g.conciliado; cK.disabled=!!g.bloqueado;
-    cK.addEventListener('change', function(){ g.conciliado=cK.checked; saveDB(DB); refreshSem(); });
-    dK.appendChild(lK); dK.appendChild(cK); head.appendChild(dK);
-
-    card.appendChild(head);
-
-    // Evidencia
-    var ev=document.createElement('div'); ev.className='actions';
-    var evLbl=document.createElement('span'); evLbl.textContent='📷 Evidencia (ticket/factura)';
-    var evIn=document.createElement('input'); evIn.type='file'; evIn.accept='image/*'; evIn.disabled=!!g.bloqueado; if(g.bloqueado){ evIn.classList.add('ro'); }
-    var prev=document.createElement('div'); prev.className='preview';
-    evIn.addEventListener('change', function(){
-      if(evIn.files && evIn.files[0]){
-        var r=new FileReader(); r.onload=function(e){ g.evidencia=e.target.result; saveDB(DB); paintPrev(); }; r.readAsDataURL(evIn.files[0]);
-      }
-    });
-    function paintPrev(){ prev.innerHTML=''; if(g.evidencia){ var im=document.createElement('img'); im.src=g.evidencia; prev.appendChild(im); } }
-    paintPrev();
-    ev.appendChild(evLbl); ev.appendChild(evIn); ev.appendChild(prev);
-    card.appendChild(ev);
+    var boxCtas=document.createElement('div'); boxCtas.className='card';
+    var hC=document.createElement('h2'); hC.textContent='Cuentas'; boxCtas.appendChild(hC);
+    var gridC=document.createElement('div'); gridC.className='grid'; boxCtas.appendChild(gridC);
 
     host.appendChild(card);
+    host.appendChild(boxCtas);
 
-    function refreshSem(){
-      var headerSem = semaforoTopRightP(estadoSemaforoTextP(g));
-      header.replaceChild(headerSem, header.lastChild);
-    }
-    function renderVars(){
-      var old = qs('#varsP', host); if(old) old.remove();
-      var varsCard=document.createElement('div'); varsCard.className='card'; varsCard.id='varsP';
-      var grid=document.createElement('div'); grid.className='grid'; varsCard.appendChild(grid);
-
-      if(g.tipo==='por_pagar'){
-        var d1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Fecha compromiso / devengo';
-        var i1=document.createElement('input'); i1.type='date'; i1.value=g.fechaDevengo||''; i1.readOnly=!!g.bloqueado; if(g.bloqueado){ i1.classList.add('ro'); }
-        i1.addEventListener('change', function(){ g.fechaDevengo=i1.value; saveDB(DB); });
-        d1.appendChild(l1); d1.appendChild(i1); grid.appendChild(d1);
-
-        var d2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Marcar como pagado';
-        var c2=document.createElement('input'); c2.type='checkbox'; c2.checked=!!g.pagado; c2.disabled=!!g.bloqueado;
-        c2.addEventListener('change', function(){ g.pagado=c2.checked; saveDB(DB); refreshSem(); });
-        d2.appendChild(l2); d2.appendChild(c2); grid.appendChild(d2);
-      }
-
-      if(g.tipo==='recurrente'){
-        var dP=document.createElement('div'); var lP=document.createElement('label'); lP.textContent='Periodicidad';
-        var sP=document.createElement('select');
-        [['mensual','Mensual (día del mes)'],['quincenal','Quincenal (1/16)'],['semanal','Semanal (día de la semana)'],['cada_x_dias','Cada X días']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(g.periodicidad===p[0]) op.selected=true; sP.appendChild(op); });
-        sP.disabled=!!g.bloqueado;
-        sP.addEventListener('change', function(){ g.periodicidad=sP.value; saveDB(DB); renderVars(); });
-        dP.appendChild(lP); dP.appendChild(sP); grid.appendChild(dP);
-
-        if(g.periodicidad==='mensual'){
-          var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Día del mes (1–31)';
-          var iM=document.createElement('input'); iM.type='number'; iM.min='1'; iM.max='31'; iM.value=g.diaMes||1; iM.readOnly=!!g.bloqueado; if(g.bloqueado){ iM.classList.add('ro'); }
-          iM.addEventListener('input', function(){ g.diaMes=parseInt(iM.value||'1',10); saveDB(DB); });
-          dM.appendChild(lM); dM.appendChild(iM); grid.appendChild(dM);
-        } else if(g.periodicidad==='quincenal'){
-          var dQ=document.createElement('div'); dQ.innerHTML='Se generará el cargo los días <b>1</b> y <b>16</b> de cada mes.'; grid.appendChild(dQ);
-        } else if(g.periodicidad==='semanal'){
-          var dS=document.createElement('div'); var lS=document.createElement('label'); lS.textContent='Día de la semana';
-          var sS=document.createElement('select'); ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'].forEach(function(dia){ var op=document.createElement('option'); op.value=dia; op.textContent=dia; if(g.diaSemana===dia) op.selected=true; sS.appendChild(op); });
-          sS.disabled=!!g.bloqueado;
-          sS.addEventListener('change', function(){ g.diaSemana=sS.value; saveDB(DB); });
-          dS.appendChild(lS); dS.appendChild(sS); grid.appendChild(dS);
-        } else if(g.periodicidad==='cada_x_dias'){
-          var dX=document.createElement('div'); var lX=document.createElement('label'); lX.textContent='Cada cuántos días';
-          var iX=document.createElement('input'); iX.type='number'; iX.min='1'; iX.value=g.cadaDias||30; iX.readOnly=!!g.bloqueado; if(g.bloqueado){ iX.classList.add('ro'); }
-          iX.addEventListener('input', function(){ g.cadaDias=parseInt(iX.value||'1',10); saveDB(DB); });
-          dX.appendChild(lX); dX.appendChild(iX); grid.appendChild(dX);
-        }
-      }
-
-      host.appendChild(varsCard);
-    }
-    renderVars();
-  });
-}
-
-/* --- Conciliación de cuentas (personal) --- */
-function personalConciliacion(){
-  openTab('pers-conc','Personal · Conciliación', function(host){
-    host.innerHTML='';
-
-    var header = document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between'; header.style.alignItems='center';
-    var actions = topActionsP({
-      onNuevo: function(){ /* opcional: crear versión foliada */ },
-      onPdf: function(){ alert('PDF de conciliación (personal).'); },
-      onWhats: function(){ alert('Enviar PDF a WhatsApp (personal).'); },
-      onGuardar: function(){
-        alert('Conciliación guardada (personal).');
-        // Aquí podrías bloquear edición y cambiar a ✏️ Editar si lo deseas
-      },
-      onEditar: function(){ /* desbloquear si guardaste */ },
-      bloqueado: false
-    });
-    var sem = semaforoTopRightP('POR CONCILIAR');
-    header.appendChild(actions); header.appendChild(sem);
-    host.appendChild(header);
-
-    var c = document.createElement('div'); c.className='card';
-    var h = document.createElement('h2'); h.textContent='Conciliación de cuentas (personal)'; c.appendChild(h);
-
-    var g = document.createElement('div'); g.className='grid';
-    var dC=document.createElement('div'); var lC=document.createElement('label'); lC.textContent='Cuenta';
-    var sC=document.createElement('select'); DB.personal.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; sC.appendChild(op); });
-    dC.appendChild(lC); dC.appendChild(sC); g.appendChild(dC);
-
-    var dF1=document.createElement('div'); var lF1=document.createElement('label'); lF1.textContent='Desde'; var iF1=document.createElement('input'); iF1.type='date';
-    dF1.appendChild(lF1); dF1.appendChild(iF1); g.appendChild(dF1);
-    var dF2=document.createElement('div'); var lF2=document.createElement('label'); lF2.textContent='Hasta'; var iF2=document.createElement('input'); iF2.type='date';
-    dF2.appendChild(lF2); dF2.appendChild(iF2); g.appendChild(dF2);
-
-    var dSR=document.createElement('div'); var lSR=document.createElement('label'); lSR.textContent='Saldo real contado (permite negativos)';
-    var iSR=document.createElement('input'); iSR.type='number'; iSR.step='0.01'; iSR.value='0'; // negativos ok
-    dSR.appendChild(lSR); dSR.appendChild(iSR); g.appendChild(dSR);
-
-    var rowAct=document.createElement('div'); rowAct.className='actions';
-    var spacer=document.createElement('div'); spacer.style.flex='1';
-    var bBuscar=document.createElement('button'); bBuscar.className='btn'; bBuscar.textContent='Buscar';
-    bBuscar.style.background='#0a3a74'; bBuscar.style.color='#fff'; bBuscar.style.border='1px solid #0a3a74';
-    rowAct.appendChild(spacer); rowAct.appendChild(bBuscar);
-
-    c.appendChild(g);
-    c.appendChild(rowAct);
-
-    // Tabla
-    var tbl=document.createElement('table');
-    var thead=document.createElement('thead'); var trh=document.createElement('tr');
-    ['Fecha','Descripción','Cuenta Contable','Monto','Estatus'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-    thead.appendChild(trh); tbl.appendChild(thead);
-    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
-    c.appendChild(tbl);
-
-    var totCard=document.createElement('div'); totCard.className='actions'; totCard.style.justifyContent='flex-end';
-    var lab1=document.createElement('span'); lab1.innerHTML='<b>Total movimientos (–):</b> ';
-    var val1=document.createElement('span'); val1.textContent=moneyFmtP(0);
-    var lab2=document.createElement('span'); lab2.style.marginLeft='12px'; lab2.innerHTML='<b>Saldo esperado:</b> ';
-    var val2=document.createElement('span'); val2.textContent=moneyFmtP(0);
-    var lab3=document.createElement('span'); lab3.style.marginLeft='12px'; lab3.innerHTML='<b>Diferencia vs real:</b> ';
-    var val3=document.createElement('span'); val3.textContent=moneyFmtP(0);
-    totCard.appendChild(lab1); totCard.appendChild(val1);
-    totCard.appendChild(lab2); totCard.appendChild(val2);
-    totCard.appendChild(lab3); totCard.appendChild(val3);
-    c.appendChild(totCard);
-
-    host.appendChild(c);
-
-    function calcYpinta(){
-      var cuentaSel = DB.personal.cuentas.find(function(x){ return x.id===sC.value; });
-      var saldoBase = Number(cuentaSel && cuentaSel.saldo || 0);
-
-      tbody.innerHTML='';
-      var totalMov=0;
-
-      var rows = DB.personal.gastos.filter(function(gst){
-        var ok = true;
-        if(gst.tipo==='pagado'){
-          ok = ok && gst.cuentaId===sC.value;
-        }else{
-          ok = ok && gst.pagado && gst.cuentaId===sC.value;
-        }
-        if(iF1.value){ ok = ok && (gst.fecha>=iF1.value); }
-        if(iF2.value){ ok = ok && (gst.fecha<=iF2.value); }
-        return ok;
-      }).sort(function(a,b){ return (a.fecha || '').localeCompare(b.fecha || ''); });
-
-      rows.forEach(function(gst){
-        var tr=document.createElement('tr');
-        var ctaCont=(DB.personal.cuentasContables.find(function(cc){return cc.id===gst.cuentaContableId;})||{}).nombre || '—';
-        var m = Number(gst.monto||0);
-        totalMov += m;
-        function td(t){ var d=document.createElement('td'); d.textContent=t; return d; }
-        tr.appendChild(td(gst.fecha||'—'));
-        tr.appendChild(td('Gasto '+String(gst.folio).padStart(3,'0')));
-        tr.appendChild(td(ctaCont));
-        var tdm=document.createElement('td'); tdm.innerHTML='<b>'+moneyFmtP(m)+'</b>'; tr.appendChild(tdm);
-        var tds=document.createElement('td'); tds.textContent='🟡 POR CONCILIAR'; tr.appendChild(tds);
-        tbody.appendChild(tr);
+    function pintaKPIs(){
+      var t=PER_totales();
+      kpis.innerHTML='';
+      [
+        ['Activos', PER_money(t.activos)],
+        ['Pasivos (Deudas)', PER_money(t.pasivos)],
+        ['Capital', PER_money(t.capital)],
+        ['Dinero en cuentas', PER_money(t.totalDin)],
+        ['Plata (g)', PER_f2(t.totalGr)+' g'],
+        ['Activos varios', PER_money(t.activosVarios)],
+        ['$ por g', PER_money(t.spot)]
+      ].forEach(function(row){
+        var b=document.createElement('div');
+        var ll=document.createElement('label'); ll.textContent=row[0];
+        var v=document.createElement('input'); v.readOnly=true; v.className='ro'; v.value=row[1];
+        b.appendChild(ll); b.appendChild(v); kpis.appendChild(b);
       });
 
-      val1.textContent = moneyFmtP(totalMov);
-      var saldoEsp = saldoBase - totalMov;
-      val2.textContent = moneyFmtP(saldoEsp);
-
-      var real = Number(iSR.value||0);
-      var dif = real - saldoEsp;
-      val3.textContent = moneyFmtP(dif);
-
-      var semNuevo = semaforoTopRightP( Math.abs(dif) <= 0.01 ? 'CONCILIADO' : 'POR CONCILIAR' );
-      header.replaceChild(semNuevo, header.lastChild);
+      gridC.innerHTML='';
+      DB.personal.cuentas.forEach(function(c){
+        var b=document.createElement('div');
+        var ll=document.createElement('label'); ll.textContent=c.nombre + (c.tipo==='metal'?' (g)':'');
+        var v=document.createElement('input'); v.readOnly=true; v.className='ro';
+        v.value = (c.tipo==='metal') ? (PER_f2(c.saldoGr||0)+' g  ≈  '+PER_money((c.saldoGr||0)*t.spot))
+                                     : PER_money(c.saldo||0);
+        b.appendChild(ll); b.appendChild(v); gridC.appendChild(b);
+      });
     }
+    pintaKPIs();
 
-    bBuscar.addEventListener('click', calcYpinta);
-    iSR.addEventListener('input', calcYpinta);
+    /* ---- Calendario semanal ---- */
+    var wrap=document.createElement('div'); wrap.className='card';
+    var h2=document.createElement('h2'); h2.textContent='Semana actual'; wrap.appendChild(h2);
+
+    var weekStart = PER_startOfWeek(hoyStr());
+    var grid=document.createElement('div'); grid.style.display='grid'; grid.style.gridTemplateColumns='repeat(7,minmax(160px,1fr))'; grid.style.gap='10px';
+
+    var dias=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+    for(var iDay=0;iDay<7;iDay++){
+      (function(iDay){
+        var dayBox=document.createElement('div'); dayBox.className='card';
+        var dte=PER_addDays(weekStart,iDay);
+        var title=document.createElement('div'); title.innerHTML='<b>'+dias[iDay]+'</b> · '+PER_fmtISO(dte);
+        dayBox.appendChild(title);
+
+        var bag=document.createElement('div'); bag.className='actions'; bag.style.flexDirection='column'; bag.style.alignItems='stretch';
+
+        DB.personal.deudas.forEach(function(d){
+          if(d.proximaFecha===PER_fmtISO(dte) && Number((d.saldoPendiente!=null?d.saldoPendiente:d.saldoActual)||0)>0){
+            var pill=document.createElement('button'); pill.className='btn-warn';
+            pill.style.justifyContent='space-between';
+            var tasaM=Number(d.tasaAnual||0)/12/100;
+            var base=(d.saldoPendiente!=null?d.saldoPendiente:d.saldoActual)||0;
+            var interes=Math.max(0,Number(base)*tasaM);
+            pill.innerHTML='💳 '+(d.acreedor||'Deuda')+'<span><b>'+PER_money(interes)+'</b> interés</span>';
+            pill.addEventListener('click', function(){ PER_deudaAbrir(d.id); });
+            bag.appendChild(pill);
+          }
+        });
+
+        DB.personal.ingresos.forEach(function(ing){
+          if(ing.proximaFecha===PER_fmtISO(dte)){
+            var pill2=document.createElement('button'); pill2.className='btn';
+            pill2.style.justifyContent='space-between';
+            pill2.innerHTML='💵 '+(ing.descripcion||'Ingreso')+'<span><b>'+PER_money(ing.monto||0)+'</b></span>';
+            pill2.addEventListener('click', function(){ PER_ingresoAbrir(ing.id); });
+            bag.appendChild(pill2);
+          }
+        });
+
+        DB.personal.presupuestos.forEach(function(p){
+          if(p.fechaObjetivo===PER_fmtISO(dte)){
+            var pill3=document.createElement('button'); pill3.className='btn';
+            pill3.style.justifyContent='space-between';
+            pill3.innerHTML='📝 '+(p.concepto||'Presupuesto')+'<span><b>'+PER_money(p.monto||0)+'</b></span>';
+            pill3.addEventListener('click', function(){ PER_presupuestoAbrir(p.id); });
+            bag.appendChild(pill3);
+          }
+        });
+
+        dayBox.appendChild(bag); grid.appendChild(dayBox);
+      })(iDay);
+    }
+    wrap.appendChild(grid); host.appendChild(wrap);
   });
 }
 
-/* ================================================================
-   PERSONAL · INVENTARIOS v1.0
-   - Agrega cuentas solicitadas
-   - Submenú "Inventarios"
-   - Listado + formulario de movimiento con GUARDAR/✏️ Editar
-   - Saldos por cuenta (dinero $ y metal g)
-================================================================ */
-
-/* ---------- Utilidades ---------- */
-function moneyFmtPI(n){ return '$ ' + (Number(n||0)).toFixed(2); }
-function moneyParsePI(s){ return isNaN(s) ? parseFloat(String(s||'').replace(/[^\d.-]/g,''))||0 : Number(s); }
-function gramosFmtPI(n){ return (Number(n||0)).toFixed(2) + ' g'; }
-
-/* ---------- Asegura DB.personal y CUENTAS solicitadas ---------- */
-(function ensurePersonalInventoryAccounts(){
-  if(!DB.personal){
-    DB.personal = { consecutivoGasto:0, gastos:[], concs:[], cuentas:[], cuentasContables:[] };
-  }
-  if(!DB.personal.invMovs){ DB.personal.invMovs = []; }
-  if(typeof DB.personal.folioInv !== 'number'){ DB.personal.folioInv = 0; }
-
-  var wanted = [
-    { id:'pers_caja_plata',  nombre:'Caja de Plata Personal', tipo:'metal',  saldoGr:0, saldo:0 },
-    { id:'pers_banco_sant',  nombre:'Banco Santander Personal', tipo:'dinero', saldo:0 },
-    { id:'pers_banco_bbva',  nombre:'Bancomer Personal',        tipo:'dinero', saldo:0 },
-    { id:'pers_banco_nu',    nombre:'Nu Personal',              tipo:'dinero', saldo:0 },
-    { id:'pers_mp',          nombre:'Mercado Pago Personal',    tipo:'dinero', saldo:0 },
-    { id:'pers_ef_arturo',   nombre:'Efectivo Arturo',          tipo:'dinero', saldo:0 },
-    { id:'pers_ef_steph',    nombre:'Efectivo Stephanie',       tipo:'dinero', saldo:0 }
-  ];
-  if(!Array.isArray(DB.personal.cuentas)){ DB.personal.cuentas = []; }
-
-  wanted.forEach(function(nueva){
-    var exists = DB.personal.cuentas.some(function(c){ return c.id === nueva.id; });
-    if(!exists){ DB.personal.cuentas.push(nueva); }
-  });
-  saveDB(DB);
-})();
-
-/* ---------- Folio de movimiento de inventario ---------- */
-function nextInvFolioPI(){ DB.personal.folioInv += 1; saveDB(DB); return DB.personal.folioInv; }
-function nextInvIdPI(){ return 'PIM'+Date.now(); }
-
-/* ---------- Efecto sobre saldos (aplicar / revertir) ---------- */
-function applyInvEffectPI(mov, sign){
-  // sign: +1 aplica, -1 revierte
-  var cta = DB.personal.cuentas.find(function(c){ return c.id===mov.cuentaId; });
+/* ===================================================================
+   CUENTAS Y MOVIMIENTOS (dinero/metal) + INVENTARIO DE PLATA
+====================================================================*/
+function PER_nextInvId(){ return 'PIM'+Date.now(); }
+function PER_nextInvFolio(){ DB.personal.folioInv+=1; saveDB(DB); return DB.personal.folioInv; }
+function PER_applyMov(mov, sign){
+  var cta=DB.personal.cuentas.find(function(c){return c.id===mov.cuentaId;});
   if(!cta) return;
-  if(cta.tipo==='dinero'){
-    var q = Number(mov.monto||0) * (mov.tipo==='egreso' ? -1 : 1) * (sign||1);
-    cta.saldo = Number(cta.saldo||0) + q;
-  }else{ // metal
-    var qg = Number(mov.gramos||0) * (mov.tipo==='egreso' ? -1 : 1) * (sign||1);
-    cta.saldoGr = Number(cta.saldoGr||0) + qg;
-  }
+  var s=(sign||1)* (mov.tipo==='egreso'?-1:1);
+  if(cta.tipo==='dinero'){ cta.saldo = Number(cta.saldo||0) + s*Number(mov.monto||0); }
+  else { cta.saldoGr = Number(cta.saldoGr||0) + s*Number(mov.gramos||0); }
   saveDB(DB);
 }
 
-/* ---------- Render: Submenú PERSONAL (extiende con Inventarios) ---------- */
-(function repatchRenderSubmenu_Personal_WithInventarios(){
-  var _orig = renderSubmenu;
-  renderSubmenu = function(root){
-    var r = String(root||'').toLowerCase();
-    if(r!=='personal'){ _orig(root); return; }
-
-    var host = qs('#subpanel'); if(!host) return;
-    host.innerHTML = '';
-
-    var card = document.createElement('div'); card.className='card';
-    var h2 = document.createElement('h2'); h2.textContent = 'Personal'; card.appendChild(h2);
-
-    var list = document.createElement('div');
-    list.className='actions';
-    list.style.flexDirection='column';
-    list.style.alignItems='stretch';
-
-    function item(txt, icon, fn){
-      var b = document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
-      b.innerHTML = icon+' '+txt;
-      b.addEventListener('click', fn);
-      return b;
-    }
-
-    list.appendChild(item('Dashboard','📊', personalDashboard));
-    list.appendChild(item('Gastos','💸', personalGastosList));
-    list.appendChild(item('Conciliación de Cuentas','🧾', personalConciliacion));
-    list.appendChild(item('Inventarios','📦', personalInventarios)); // ← NUEVO
-    card.appendChild(list);
-    host.appendChild(card);
-
-    // Mantengo el comportamiento anterior (abre Gastos por defecto)
-    personalGastosList();
-  };
-})();
-
-/* ===================== SUBMÓDULO: INVENTARIOS ===================== */
-function personalInventarios(){
-  openTab('pers-inv','Personal · Inventarios', function(host){
+function PER_movsList(){
+  openTab('per-movs','Personal · Cuentas y Movimientos', function(host){
     host.innerHTML='';
 
-    /* ---- Header con acciones (Nuevo / Imprimir / WhatsApp / Guardar) ---- */
-    var header = document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between'; header.style.alignItems='center';
-    var left = document.createElement('div'); left.className='actions';
-    var bNuevo=document.createElement('button'); bNuevo.className='btn'; bNuevo.textContent='＋ Nuevo movimiento';
-    bNuevo.addEventListener('click', function(){ personalInvNuevoMovimiento(); });
-    var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir';
-    bPrint.addEventListener('click', function(){ alert('PDF de inventarios (personal).'); });
-    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp';
-    bWA.addEventListener('click', function(){ alert('Enviar PDF por WhatsApp (personal).'); });
-    left.appendChild(bNuevo); left.appendChild(bPrint); left.appendChild(bWA);
-    header.appendChild(left);
+    // Header acciones
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo movimiento';
+    bNew.addEventListener('click', function(){ PER_movNuevo(); });
+    left.appendChild(bNew); top.appendChild(left); host.appendChild(top);
 
-    // (Inventarios listados no se “guardan” como documento completo; cada movimiento se guarda en su propia hoja)
-    var right = document.createElement('div'); right.className='actions';
-    header.appendChild(right);
-    host.appendChild(header);
-
-    /* ---- Resumen de saldos por cuenta ---- */
-    var resumen = document.createElement('div'); resumen.className='card';
-    var hR = document.createElement('h2'); hR.textContent='Saldos personales'; resumen.appendChild(hR);
-
-    var grid = document.createElement('div'); grid.className='grid';
-    DB.personal.cuentas.forEach(function(ct){
-      var box = document.createElement('div');
-      var lab = document.createElement('label'); lab.textContent = ct.nombre + (ct.tipo==='metal' ? ' (g)' : '');
-      var inp = document.createElement('input'); inp.readOnly=true; inp.className='ro';
-      inp.value = ct.tipo==='metal' ? gramosFmtPI(ct.saldoGr||0) : moneyFmtPI(ct.saldo||0);
-      box.appendChild(lab); box.appendChild(inp);
-      grid.appendChild(box);
+    // Saldos
+    var resumen=document.createElement('div'); resumen.className='card';
+    var h=document.createElement('h2'); h.textContent='Saldos'; resumen.appendChild(h);
+    var grid=document.createElement('div'); grid.className='grid';
+    DB.personal.cuentas.forEach(function(c){
+      var d=document.createElement('div');
+      var l=document.createElement('label'); l.textContent=c.nombre+(c.tipo==='metal'?' (g)':'');
+      var i=document.createElement('input'); i.readOnly=true; i.className='ro';
+      i.value=(c.tipo==='metal')? (PER_f2(c.saldoGr||0)+' g') : PER_money(c.saldo||0);
+      d.appendChild(l); d.appendChild(i); grid.appendChild(d);
     });
-    resumen.appendChild(grid);
-    host.appendChild(resumen);
+    resumen.appendChild(grid); host.appendChild(resumen);
 
-    /* ---- Filtros de movimientos ---- */
-    var filtros = document.createElement('div'); filtros.className='card';
-    var hF = document.createElement('h2'); hF.textContent='Movimientos'; filtros.appendChild(hF);
+    // Filtros + tabla
+    var card=document.createElement('div'); card.className='card';
+    var h2=document.createElement('h2'); h2.textContent='Movimientos'; card.appendChild(h2);
 
-    var gF=document.createElement('div'); gF.className='grid';
+    var gf=document.createElement('div'); gf.className='grid';
     var dC=document.createElement('div'); var lC=document.createElement('label'); lC.textContent='Cuenta';
     var sC=document.createElement('select'); var opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas'; sC.appendChild(opAll);
-    DB.personal.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; sC.appendChild(op); });
-    dC.appendChild(lC); dC.appendChild(sC); gF.appendChild(dC);
-
+    DB.personal.cuentas.forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; sC.appendChild(op); });
+    dC.appendChild(lC); dC.appendChild(sC); gf.appendChild(dC);
     var dF1=document.createElement('div'); var lF1=document.createElement('label'); lF1.textContent='Desde'; var iF1=document.createElement('input'); iF1.type='date';
-    dF1.appendChild(lF1); dF1.appendChild(iF1); gF.appendChild(dF1);
-
+    dF1.appendChild(lF1); dF1.appendChild(iF1); gf.appendChild(dF1);
     var dF2=document.createElement('div'); var lF2=document.createElement('label'); lF2.textContent='Hasta'; var iF2=document.createElement('input'); iF2.type='date';
-    dF2.appendChild(lF2); dF2.appendChild(iF2); gF.appendChild(dF2);
-
-    filtros.appendChild(gF);
+    dF2.appendChild(lF2); dF2.appendChild(iF2); gf.appendChild(dF2);
+    card.appendChild(gf);
 
     var rowAct=document.createElement('div'); rowAct.className='actions';
     var spacer=document.createElement('div'); spacer.style.flex='1';
     var bBuscar=document.createElement('button'); bBuscar.className='btn'; bBuscar.textContent='Buscar';
     bBuscar.style.background='#0a3a74'; bBuscar.style.color='#fff'; bBuscar.style.border='1px solid #0a3a74';
-    rowAct.appendChild(spacer); rowAct.appendChild(bBuscar);
-    filtros.appendChild(rowAct);
+    rowAct.appendChild(spacer); rowAct.appendChild(bBuscar); card.appendChild(rowAct);
 
-    /* ---- Tabla movimientos ---- */
     var tbl=document.createElement('table');
     var thead=document.createElement('thead'); var trh=document.createElement('tr');
     ['Folio','Fecha','Cuenta','Tipo','Unidad','Cantidad','Concepto',' '].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
     thead.appendChild(trh); tbl.appendChild(thead);
     var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
-    filtros.appendChild(tbl);
-    host.appendChild(filtros);
+    card.appendChild(tbl); host.appendChild(card);
 
     function pintar(){
       tbody.innerHTML='';
-      var rows = DB.personal.invMovs.slice().sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
-      rows.forEach(function(m){
+      DB.personal.invMovs.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(m){
         var ok=true;
-        if(sC.value){ ok = ok && m.cuentaId===sC.value; }
-        if(iF1.value){ ok = ok && m.fecha>=iF1.value; }
-        if(iF2.value){ ok = ok && m.fecha<=iF2.value; }
+        if(sC.value) ok=ok && m.cuentaId===sC.value;
+        if(iF1.value) ok=ok && m.fecha>=iF1.value;
+        if(iF2.value) ok=ok && m.fecha<=iF2.value;
         if(!ok) return;
 
         var tr=document.createElement('tr'); tr.style.cursor='pointer';
-        tr.addEventListener('click', function(){ personalInvAbrirMovimiento(m.id); });
+        tr.addEventListener('click', function(){ PER_movAbrir(m.id); });
         function td(t){ var d=document.createElement('td'); d.textContent=t; return d; }
-
         var cta=(DB.personal.cuentas.find(function(c){return c.id===m.cuentaId;})||{}).nombre || '—';
-        var unidad = (m.unidad==='metal') ? 'Gramos' : 'Dinero';
-        var cant = (m.unidad==='metal') ? (Number(m.gramos||0)).toFixed(2)+' g' : moneyFmtPI(m.monto||0);
-
+        var unidad=(m.unidad==='metal')?'Gramos':'Dinero';
+        var cant=(m.unidad==='metal')? (PER_f2(m.gramos||0)+' g') : PER_money(m.monto||0);
         tr.appendChild(td(String(m.folio).padStart(3,'0')));
         tr.appendChild(td(m.fecha||'—'));
         tr.appendChild(td(cta));
-        tr.appendChild(td(m.tipo||'—')); // ingreso / egreso / ajuste
+        tr.appendChild(td(m.tipo||'—'));
         tr.appendChild(td(unidad));
         tr.appendChild(td(cant));
         tr.appendChild(td(m.concepto||''));
-        var tdArrow=document.createElement('td'); tdArrow.textContent='›'; tdArrow.style.textAlign='right'; tr.appendChild(tdArrow);
-
+        var tda=document.createElement('td'); tda.textContent='›'; tda.style.textAlign='right'; tr.appendChild(tda);
         tbody.appendChild(tr);
       });
     }
@@ -3857,926 +3428,225 @@ function personalInventarios(){
   });
 }
 
-/* ---------- Crear & abrir movimiento ---------- */
-function personalInvNuevoMovimiento(){
-  var mov = {
-    id: nextInvIdPI(),
-    folio: nextInvFolioPI(),
-    ts: Date.now(),
-    bloqueado: false,
-    fecha: hoyStr(),
-    cuentaId: '',
-    tipo: 'ingreso',        // ingreso | egreso | ajuste
-    unidad: 'dinero',       // dinero | metal (se ajusta al elegir cuenta)
-    monto: 0,               // si dinero
-    gramos: 0,              // si metal
-    concepto: '',
-    evidencia: ''
-  };
-  DB.personal.invMovs.push(mov); saveDB(DB);
-  personalInvAbrirMovimiento(mov.id);
-}
-
-function personalInvAbrirMovimiento(id){
-  var m = DB.personal.invMovs.find(function(x){ return x.id===id; });
-  if(!m) return;
-
-  openTab('pers-inv-'+m.id, (m.bloqueado ? ('Movimiento '+String(m.folio).padStart(3,'0')) : 'Registrar movimiento de inventario'), function(host){
+// Inventario de plata (atajo a movimientos filtrados a metal)
+function PER_plataList(){
+  openTab('per-plata','Personal · Inventario de Plata', function(host){
     host.innerHTML='';
 
-    /* ---- Barra superior: Nuevo / Imprimir / WhatsApp + GUARDAR o ✏️ Editar ---- */
-    var header = document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between'; header.style.alignItems='center';
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
     var left=document.createElement('div'); left.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo ingreso de plata';
+    bNew.addEventListener('click', function(){ PER_movNuevo('metal','ingreso'); });
+    left.appendChild(bNew); top.appendChild(left); host.appendChild(top);
 
-    var bNuevo=document.createElement('button'); bNuevo.className='btn'; bNuevo.textContent='＋ Nuevo movimiento';
-    bNuevo.addEventListener('click', personalInvNuevoMovimiento);
-    var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir';
-    bPrint.addEventListener('click', function(){ alert('PDF del movimiento (personal).'); });
-    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp';
-    bWA.addEventListener('click', function(){ alert('Enviar PDF por WhatsApp (personal).'); });
-    left.appendChild(bNuevo); left.appendChild(bPrint); left.appendChild(bWA);
+    var ctaPlata = DB.personal.cuentas.find(function(c){return c.tipo==='metal';});
+    var saldoCard=document.createElement('div'); saldoCard.className='card';
+    var h=document.createElement('h2'); h.textContent='Saldo de plata'; saldoCard.appendChild(h);
+    var box=document.createElement('div'); box.className='grid';
+    var d=document.createElement('div'); var l=document.createElement('label'); l.textContent=ctaPlata?ctaPlata.nombre+' (g)':'Plata (g)';
+    var inp=document.createElement('input'); inp.readOnly=true; inp.className='ro'; inp.value=PER_f2((ctaPlata&&ctaPlata.saldoGr)||0)+' g';
+    d.appendChild(l); d.appendChild(inp); box.appendChild(d); saldoCard.appendChild(box); host.appendChild(saldoCard);
 
-    var right=document.createElement('div'); right.className='actions';
-    var bMain=document.createElement('button');
-    if(m.bloqueado){
-      bMain.className='btn'; bMain.textContent='✏️ Editar';
-      bMain.addEventListener('click', function(){ m.bloqueado=false; saveDB(DB); personalInvAbrirMovimiento(m.id); });
-    }else{
-      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
-      bMain.addEventListener('click', function(){
-        // Validaciones
-        if(!m.cuentaId){ alert('Selecciona la cuenta.'); return; }
-        var cta = DB.personal.cuentas.find(function(c){ return c.id===m.cuentaId; });
-        if(!cta){ alert('Cuenta inválida.'); return; }
-        if(m.tipo!=='ajuste'){
-          if(cta.tipo==='dinero' && !(Number(m.monto||0))) { alert('Captura un monto.'); return; }
-          if(cta.tipo==='metal'  && !(Number(m.gramos||0))) { alert('Captura gramos.'); return; }
-        }
-        // Si ya estaba guardado antes y se está re-guardando (por si permitimos editar), revertir efecto anterior
-        if(m.__aplicado){
-          applyInvEffectPI(m, -1);
-        }
-        // Aplica efecto y bloquea
-        applyInvEffectPI(m, +1);
-        m.__aplicado = true;
-        m.bloqueado = true;
-        saveDB(DB);
-        alert('Movimiento guardado con éxito con folio '+String(m.folio).padStart(3,'0'));
-        personalInvAbrirMovimiento(m.id);
-      });
-    }
-    right.appendChild(bMain);
-
-    header.appendChild(left); header.appendChild(right);
-    host.appendChild(header);
-
-    /* ---- Tarjeta principal ---- */
-    var card = document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent = m.bloqueado ? ('Movimiento '+String(m.folio).padStart(3,'0')) : 'Registrar movimiento de inventario';
-    card.appendChild(h);
-
-    var g=document.createElement('div'); g.className='grid';
-
-    // Fecha
-    var dF=document.createElement('div'); var lF=document.createElement('label'); lF.textContent='Fecha';
-    var iF=document.createElement('input'); iF.type='date'; iF.value=m.fecha; iF.readOnly=!!m.bloqueado; if(m.bloqueado){ iF.classList.add('ro'); }
-    iF.addEventListener('change', function(){ m.fecha=iF.value; saveDB(DB); });
-    dF.appendChild(lF); dF.appendChild(iF); g.appendChild(dF);
-
-    // Cuenta
-    var dC=document.createElement('div'); var lC=document.createElement('label'); lC.textContent='Cuenta';
-    var sC=document.createElement('select'); var opV=document.createElement('option'); opV.value=''; opV.textContent='(Selecciona)'; sC.appendChild(opV);
-    DB.personal.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; if(m.cuentaId===cu.id) op.selected=true; sC.appendChild(op); });
-    sC.disabled=!!m.bloqueado;
-    sC.addEventListener('change', function(){
-      m.cuentaId=sC.value;
-      var cta=DB.personal.cuentas.find(function(c){ return c.id===m.cuentaId; });
-      if(cta){ m.unidad = (cta.tipo==='metal') ? 'metal' : 'dinero'; }
-      saveDB(DB); renderUnidad(); 
-    });
-    dC.appendChild(lC); dC.appendChild(sC); g.appendChild(dC);
-
-    // Tipo
-    var dT=document.createElement('div'); var lT=document.createElement('label'); lT.textContent='Tipo de movimiento';
-    var sT=document.createElement('select'); [['ingreso','Ingreso'],['egreso','Egreso']/*,['ajuste','Ajuste']*/].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(m.tipo===p[0]) op.selected=true; sT.appendChild(op); });
-    sT.disabled=!!m.bloqueado;
-    sT.addEventListener('change', function(){ m.tipo=sT.value; saveDB(DB); });
-    dT.appendChild(lT); dT.appendChild(sT); g.appendChild(dT);
-
-    // Concepto
-    var dX=document.createElement('div'); var lX=document.createElement('label'); lX.textContent='Concepto / Descripción';
-    var iX=document.createElement('input'); iX.type='text'; iX.value=m.concepto||''; iX.readOnly=!!m.bloqueado; if(m.bloqueado){ iX.classList.add('ro'); }
-    iX.addEventListener('input', function(){ m.concepto=iX.value; saveDB(DB); });
-    dX.appendChild(lX); dX.appendChild(iX); g.appendChild(dX);
-
-    card.appendChild(g);
-
-    // Evidencia
-    var ev=document.createElement('div'); ev.className='actions';
-    var evLbl=document.createElement('span'); evLbl.textContent='📷 Evidencia (opcional)';
-    var evIn=document.createElement('input'); evIn.type='file'; evIn.accept='image/*'; evIn.disabled=!!m.bloqueado; if(m.bloqueado){ evIn.classList.add('ro'); }
-    var prev=document.createElement('div'); prev.className='preview';
-    evIn.addEventListener('change', function(){
-      if(evIn.files && evIn.files[0]){
-        var r=new FileReader(); r.onload=function(e){ m.evidencia=e.target.result; saveDB(DB); paintPrev(); }; r.readAsDataURL(evIn.files[0]);
-      }
-    });
-    function paintPrev(){ prev.innerHTML=''; if(m.evidencia){ var im=document.createElement('img'); im.src=m.evidencia; prev.appendChild(im); } }
-    paintPrev();
-    ev.appendChild(evLbl); ev.appendChild(evIn); ev.appendChild(prev);
-    card.appendChild(ev);
-
-    host.appendChild(card);
-
-    // Renderiza inputs de unidad (dinero vs metal)
-    function renderUnidad(){
-      var old = qs('#unidadWrap', host); if(old) old.remove();
-      var wrap = document.createElement('div'); wrap.className='card'; wrap.id='unidadWrap';
-      var gg = document.createElement('div'); gg.className='grid';
-
-      var cta = DB.personal.cuentas.find(function(c){ return c.id===m.cuentaId; });
-      var esMetal = cta ? (cta.tipo==='metal') : (m.unidad==='metal');
-
-      if(esMetal){
-        // GRAMOS (permite negativos)
-        var dG=document.createElement('div'); var lG=document.createElement('label'); lG.textContent='Gramos (permite negativos)'; 
-        var iG=document.createElement('input'); iG.type='number'; iG.step='0.01'; iG.value=Number(m.gramos||0); 
-        iG.readOnly=!!m.bloqueado; if(m.bloqueado){ iG.classList.add('ro'); }
-        iG.addEventListener('input', function(){ m.gramos=parseFloat(iG.value||'0'); saveDB(DB); });
-        dG.appendChild(lG); dG.appendChild(iG); gg.appendChild(dG);
-      }else{
-        // DINERO (permite negativos; se formatea al salir)
-        var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Monto (permite negativos)';
-        var iM=document.createElement('input'); iM.type='text'; iM.value=moneyFmtPI(m.monto||0); iM.style.fontWeight='800'; iM.style.color='#0f9d58';
-        iM.readOnly=!!m.bloqueado; if(m.bloqueado){ iM.classList.add('ro'); }
-        iM.addEventListener('focus', function(){ if(m.bloqueado) return; iM.value=String(moneyParsePI(iM.value)); });
-        iM.addEventListener('blur', function(){ if(m.bloqueado) return; m.monto=moneyParsePI(iM.value); iM.value=moneyFmtPI(m.monto); saveDB(DB); });
-        dM.appendChild(lM); dM.appendChild(iM); gg.appendChild(dM);
-      }
-
-      wrap.appendChild(gg);
-      host.appendChild(wrap);
-    }
-    renderUnidad();
-  });
-}
-
-/* ================================================================
-   PERSONAL · Dashboard + Cuentas y Movimientos + Deudas  v1.1
-   - Renombra "Inventarios" → "Cuentas y Movimientos"
-   - Agrega submódulo "Deudas"
-   - Dashboard con Balance General (Activos/Pasivos/Capital) y $/g
-================================================================ */
-
-/* ====== Estado base / parámetros ====== */
-(function ensurePersonalCore(){
-  if(!DB.personal){ DB.personal = {}; }
-  if(!Array.isArray(DB.personal.cuentas)){ DB.personal.cuentas = []; }
-  if(!DB.personal.invMovs){ DB.personal.invMovs = []; }
-  if(!DB.personal.deudas){ DB.personal.deudas = []; }
-  if(typeof DB.personal.folioInv !== 'number'){ DB.personal.folioInv = 0; }
-  if(typeof DB.personal.folioDeuda !== 'number'){ DB.personal.folioDeuda = 0; }
-  if(!DB.personal.parametros){ DB.personal.parametros = {}; }
-  if(typeof DB.personal.parametros.spotPlata !== 'number'){ DB.personal.parametros.spotPlata = 20; } // $/g referencia
-  saveDB(DB);
-})();
-
-/* ====== Helpers ====== */
-function pfMoney(n){ return '$ ' + (Number(n||0)).toFixed(2); }
-function pfParseMoney(s){ return isNaN(s)? parseFloat(String(s||'').replace(/[^\d.-]/g,''))||0 : Number(s); }
-function f2PI(n){ return (Number(n||0)).toFixed(2); }
-
-/* ====== Totales p/ Dashboard ====== */
-function personalTotals(){
-  var spot = Number(DB.personal.parametros.spotPlata||0);
-  var totalDinero = 0, totalGr = 0;
-  DB.personal.cuentas.forEach(function(c){
-    if(c.tipo==='dinero'){ totalDinero += Number(c.saldo||0); }
-    if(c.tipo==='metal'){ totalGr += Number(c.saldoGr||0); }
-  });
-  var activos = totalDinero + (totalGr * spot);
-
-  var pasivos = 0;
-  DB.personal.deudas.forEach(function(d){
-    pasivos += Number(d.saldoActual||0);
-  });
-
-  var capital = activos - pasivos;
-  return { spot: spot, totalDinero: totalDinero, totalGr: totalGr, activos: activos, pasivos: pasivos, capital: capital };
-}
-
-/* ====== Patch de submenú PERSONAL (renombre + nuevo ítem) ====== */
-(function repatchRenderSubmenu_Personal_Final(){
-  var _orig = renderSubmenu;
-  renderSubmenu = function(root){
-    var r = String(root||'').toLowerCase();
-    if(r!=='personal'){ _orig(root); return; }
-
-    var host = qs('#subpanel'); if(!host) return;
-    host.innerHTML = '';
-
-    var card = document.createElement('div'); card.className='card';
-    var h2 = document.createElement('h2'); h2.textContent='Personal'; card.appendChild(h2);
-
-    var list = document.createElement('div'); list.className='actions';
-    list.style.flexDirection='column'; list.style.alignItems='stretch';
-
-    function item(txt, icon, fn){
-      var b=document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
-      b.innerHTML = icon+' '+txt; b.addEventListener('click', fn); return b;
-    }
-
-    list.appendChild(item('Dashboard','📊', personalDashboard));                       // abre Balance
-    list.appendChild(item('Gastos','💸', personalGastosList || function(){ alert('Gastos personales aún no cargados.'); }));
-    list.appendChild(item('Conciliación de Cuentas','🧾', personalConciliacion || function(){ alert('Conciliación personal aún no cargada.'); }));
-    list.appendChild(item('Cuentas y Movimientos','📦', personalCuentasMovs));        // ← renombrado
-    list.appendChild(item('Deudas','📉', personalDeudas));                             // ← nuevo
-    card.appendChild(list);
-    host.appendChild(card);
-
-    // Abre Dashboard por defecto
-    personalDashboard();
-  };
-})();
-
-/* ===================== DASHBOARD (Balance General) ===================== */
-function personalDashboard(){
-  openTab('pers-dash','Personal · Dashboard', function(host){
-    host.innerHTML='';
-
-    var card = document.createElement('div'); card.className='card';
-    var h = document.createElement('h2'); h.textContent = 'Balance General (Personal)'; card.appendChild(h);
-
-    // Control spot $/g
-    var ctl=document.createElement('div'); ctl.className='actions';
-    var l=document.createElement('label'); l.textContent='Precio de plata ($/g)'; 
-    var i=document.createElement('input'); i.type='number'; i.step='0.01'; i.value=DB.personal.parametros.spotPlata||0;
-    i.addEventListener('input', function(){ DB.personal.parametros.spotPlata = parseFloat(i.value||'0'); saveDB(DB); pinta(); });
-    ctl.appendChild(l); ctl.appendChild(i);
-    card.appendChild(ctl);
-
-    // KPIs
-    var kpis = document.createElement('div'); kpis.className='grid'; card.appendChild(kpis);
-
-    // Tabla de cuentas
-    var boxCtas = document.createElement('div'); boxCtas.className='card';
-    var hC=document.createElement('h2'); hC.textContent='Cuentas personales'; boxCtas.appendChild(hC);
-    var gridC=document.createElement('div'); gridC.className='grid'; boxCtas.appendChild(gridC);
-
-    // Tabla de deudas
-    var boxDeu = document.createElement('div'); boxDeu.className='card';
-    var hD=document.createElement('h2'); hD.textContent='Deudas'; boxDeu.appendChild(hD);
-    var tbl=document.createElement('table');
-    var thead=document.createElement('thead'); var trh=document.createElement('tr');
-    ['Folio','Acreedor','Tipo','Saldo actual','Vence'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-    thead.appendChild(trh); tbl.appendChild(thead);
-    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
-    boxDeu.appendChild(tbl);
-
-    host.appendChild(card);
-    host.appendChild(boxCtas);
-    host.appendChild(boxDeu);
-
-    function pinta(){
-      var t=personalTotals();
-
-      kpis.innerHTML='';
-      [
-        ['Activos', pfMoney(t.activos)],
-        ['Pasivos (Deudas)', pfMoney(t.pasivos)],
-        ['Capital Neto', pfMoney(t.capital)],
-        ['Dinero en cuentas', pfMoney(t.totalDinero)],
-        ['Plata (g)', f2PI(t.totalGr)+' g'],
-        ['$ por g', pfMoney(t.spot)]
-      ].forEach(function(row){
-        var box=document.createElement('div'); 
-        var ll=document.createElement('label'); ll.textContent=row[0];
-        var inp=document.createElement('input'); inp.readOnly=true; inp.className='ro'; inp.value=row[1];
-        box.appendChild(ll); box.appendChild(inp); kpis.appendChild(box);
-      });
-
-      gridC.innerHTML='';
-      DB.personal.cuentas.forEach(function(c){
-        var b=document.createElement('div');
-        var lab=document.createElement('label'); lab.textContent=c.nombre + (c.tipo==='metal'?' (g)':'');
-        var val=document.createElement('input'); val.readOnly=true; val.className='ro';
-        val.value = c.tipo==='metal' ? (f2PI(c.saldoGr||0)+' g  ≈  '+pfMoney((c.saldoGr||0)*t.spot)) : pfMoney(c.saldo||0);
-        b.appendChild(lab); b.appendChild(val); gridC.appendChild(b);
-      });
-
-      tbody.innerHTML='';
-      DB.personal.deudas.slice().sort(function(a,b){ return (a.vencimiento||'').localeCompare(b.vencimiento||''); }).forEach(function(d){
-        var tr=document.createElement('tr'); tr.style.cursor='pointer';
-        tr.addEventListener('click', function(){ personalDeudaAbrir(d.id); });
-        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
-        tr.appendChild(td(String(d.folio).padStart(3,'0')));
-        tr.appendChild(td(d.acreedor||'—'));
-        tr.appendChild(td(d.tipo||'—'));
-        tr.appendChild(td(pfMoney(d.saldoActual||0)));
-        tr.appendChild(td(d.vencimiento||'—'));
-        tbody.appendChild(tr);
-      });
-    }
-    pinta();
-  });
-}
-
-/* ===================== CUENTAS Y MOVIMIENTOS (renombrado) ===================== */
-/* Reutiliza tu implementación anterior de "Inventarios" personal.
-   Sólo cambiamos el entry point para abrir la misma UI. */
-function personalCuentasMovs(){
-  // Si ya tienes personalInventarios() (de mi entrega anterior), lo reusamos:
-  if(typeof personalInventarios === 'function'){ personalInventarios(); return; }
-
-  // Fallback mínimo (por si no pegaste la parte previa): abre un placeholder.
-  openTab('pers-movs','Personal · Cuentas y Movimientos', function(host){
-    host.innerHTML='';
-    var c=document.createElement('div'); c.className='card';
-    var h=document.createElement('h2'); h.textContent='Cuentas y Movimientos'; c.appendChild(h);
-    var p=document.createElement('p'); p.textContent='Falta cargar módulo de movimientos personales.'; c.appendChild(p);
-    host.appendChild(c);
-  });
-}
-
-/* ===================== DEUDAS ===================== */
-function nextDeudaId(){ return 'PDEU'+Date.now(); }
-function nextDeudaFolio(){ DB.personal.folioDeuda += 1; saveDB(DB); return DB.personal.folioDeuda; }
-
-function personalDeudas(){
-  openTab('pers-deu','Personal · Deudas', function(host){
-    host.innerHTML='';
-
-    // Barra superior
-    var header=document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between';
-    var left=document.createElement('div'); left.className='actions';
-    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nueva deuda';
-    bNew.addEventListener('click', function(){ personalDeudaNueva(); });
-    var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir';
-    bPrint.addEventListener('click', function(){ alert('PDF de deudas (personal).'); });
-    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp';
-    bWA.addEventListener('click', function(){ alert('Enviar PDF por WhatsApp (personal).'); });
-    left.appendChild(bNew); left.appendChild(bPrint); left.appendChild(bWA);
-    header.appendChild(left);
-    host.appendChild(header);
-
-    // Tabla
-    var c=document.createElement('div'); c.className='card';
-    var h=document.createElement('h2'); h.textContent='Listado de deudas'; c.appendChild(h);
+    // Reutilizamos la lista de movimientos con filtro a metal
+    var card=document.createElement('div'); card.className='card';
+    var h2=document.createElement('h2'); h2.textContent='Movimientos de plata'; card.appendChild(h2);
 
     var tbl=document.createElement('table');
     var thead=document.createElement('thead'); var trh=document.createElement('tr');
-    ['Folio','Acreedor','Tipo','Monto original','Saldo actual','Tasa anual','Vencimiento','Estatus'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-    thead.appendChild(trh); tbl.appendChild(thead);
-    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
-    c.appendChild(tbl);
-    host.appendChild(c);
-
-    function estatusDeuda(d){
-      var hoy = new Date().toISOString().slice(0,10);
-      if(d.vencimiento && d.vencimiento < hoy) return 'Vencido';
-      var ms7 = new Date(Date.now()+7*24*60*60*1000).toISOString().slice(0,10);
-      if(d.vencimiento && d.vencimiento <= ms7) return 'Por vencer';
-      return 'Al corriente';
-    }
-
-    function pinta(){
-      tbody.innerHTML='';
-      DB.personal.deudas.slice().sort(function(a,b){ return (a.vencimiento||'').localeCompare(b.vencimiento||''); }).forEach(function(d){
-        var tr=document.createElement('tr'); tr.style.cursor='pointer';
-        tr.addEventListener('click', function(){ personalDeudaAbrir(d.id); });
-        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
-        tr.appendChild(td(String(d.folio).padStart(3,'0')));
-        tr.appendChild(td(d.acreedor||'—'));
-        tr.appendChild(td(d.tipo||'—'));
-        tr.appendChild(td(pfMoney(d.montoOriginal||0)));
-        tr.appendChild(td(pfMoney(d.saldoActual||0)));
-        tr.appendChild(td((Number(d.tasaAnual||0)).toFixed(2)+'%'));
-        tr.appendChild(td(d.vencimiento||'—'));
-        tr.appendChild(td(estatusDeuda(d)));
-        tbody.appendChild(tr);
-      });
-    }
-    pinta();
-  });
-}
-
-function personalDeudaNueva(){
-  var d = {
-    id: nextDeudaId(),
-    folio: nextDeudaFolio(),
-    bloqueado: false,
-    ts: Date.now(),
-    fechaAlta: hoyStr(),
-    tipo: 'crédito',               // crédito | tarjeta | préstamo
-    acreedor: '',
-    montoOriginal: 0,
-    saldoActual: 0,
-    tasaAnual: 0,
-    pagoMinimo: 0,
-    fechaCorte: '',
-    vencimiento: '',
-    evidencia: ''
-  };
-  DB.personal.deudas.push(d); saveDB(DB);
-  personalDeudaAbrir(d.id);
-}
-
-function personalDeudaAbrir(id){
-  var d = DB.personal.deudas.find(function(x){ return x.id===id; });
-  if(!d) return;
-
-  openTab('pers-deu-'+d.id, d.bloqueado ? ('Deuda '+String(d.folio).padStart(3,'0')) : 'Registrar deuda', function(host){
-    host.innerHTML='';
-
-    // Barra superior
-    var header=document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between';
-    var left=document.createElement('div'); left.className='actions';
-    var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir';
-    bPrint.addEventListener('click', function(){ alert('PDF de la deuda.'); });
-    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp';
-    bWA.addEventListener('click', function(){ alert('Enviar PDF por WhatsApp.'); });
-    left.appendChild(bPrint); left.appendChild(bWA);
-    header.appendChild(left);
-
-    var right=document.createElement('div'); right.className='actions';
-    var bMain=document.createElement('button');
-    if(d.bloqueado){
-      bMain.className='btn'; bMain.textContent='✏️ Editar';
-      bMain.addEventListener('click', function(){ d.bloqueado=false; saveDB(DB); personalDeudaAbrir(d.id); });
-    }else{
-      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
-      bMain.addEventListener('click', function(){
-        if(!d.acreedor){ alert('Captura el acreedor.'); return; }
-        if(Number(d.montoOriginal||0)<=0){ alert('Monto original debe ser > 0'); return; }
-        if(Number(d.saldoActual||0)<0){ alert('Saldo actual no puede ser negativo'); return; }
-        d.bloqueado = true; saveDB(DB);
-        alert('Deuda guardada con éxito con folio '+String(d.folio).padStart(3,'0'));
-        personalDeudaAbrir(d.id);
-      });
-    }
-    right.appendChild(bMain);
-    header.appendChild(right);
-    host.appendChild(header);
-
-    // Hoja
-    var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent = d.bloqueado ? ('DEUDA FOLIO '+String(d.folio).padStart(3,'0')) : 'Registrar deuda';
-    card.appendChild(h);
-
-    var g=document.createElement('div'); g.className='grid';
-
-    function addText(label, val, oninput){
-      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
-      var i=document.createElement('input'); i.type='text'; i.value=val||''; i.readOnly=!!d.bloqueado; if(d.bloqueado){ i.classList.add('ro'); }
-      if(oninput) i.addEventListener('input', function(){ oninput(i.value); });
-      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
-    }
-    function addNumber(label, val, step, onblur){
-      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
-      var i=document.createElement('input'); i.type='text'; i.value=pfMoney(val||0); i.style.fontWeight='800'; i.style.color='#b45309';
-      if(d.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
-      else{
-        i.addEventListener('focus', function(){ i.value=String(pfParseMoney(i.value)); });
-        i.addEventListener('blur', function(){ var v=pfParseMoney(i.value); if(onblur) onblur(v); i.value=pfMoney(v); });
-      }
-      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
-    }
-    function addDate(label, val, onchange){
-      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
-      var i=document.createElement('input'); i.type='date'; i.value=val||''; i.readOnly=!!d.bloqueado; if(d.bloqueado){ i.classList.add('ro'); }
-      if(onchange) i.addEventListener('change', function(){ onchange(i.value); });
-      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
-    }
-    function addSelect(label, val, opts, onchange){
-      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
-      var s=document.createElement('select'); opts.forEach(function(o){ var op=document.createElement('option'); op.value=o[0]; op.textContent=o[1]; if(val===o[0]) op.selected=true; s.appendChild(op); });
-      s.disabled=!!d.bloqueado; if(onchange) s.addEventListener('change', function(){ onchange(s.value); });
-      dv.appendChild(l); dv.appendChild(s); g.appendChild(dv);
-    }
-
-    addSelect('Tipo', d.tipo, [['crédito','Crédito'],['tarjeta','Tarjeta'],['préstamo','Préstamo']], function(v){ d.tipo=v; saveDB(DB); });
-    addText('Acreedor', d.acreedor, function(v){ d.acreedor=v; saveDB(DB); });
-    addNumber('Monto original', d.montoOriginal, 0.01, function(v){ d.montoOriginal=v; saveDB(DB); });
-    addNumber('Saldo actual', d.saldoActual, 0.01, function(v){ d.saldoActual=v; saveDB(DB); });
-    // tasa %
-    (function(){
-      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Tasa anual (%)';
-      var i=document.createElement('input'); i.type='number'; i.step='0.01'; i.min='0'; i.value=(Number(d.tasaAnual||0)).toFixed(2);
-      i.readOnly=!!d.bloqueado; if(d.bloqueado){ i.classList.add('ro'); }
-      i.addEventListener('input', function(){ d.tasaAnual=parseFloat(i.value||'0'); saveDB(DB); });
-      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
-    })();
-    addNumber('Pago mínimo sugerido', d.pagoMinimo, 0.01, function(v){ d.pagoMinimo=v; saveDB(DB); });
-    addDate('Fecha de corte', d.fechaCorte, function(v){ d.fechaCorte=v; saveDB(DB); });
-    addDate('Vencimiento', d.vencimiento, function(v){ d.vencimiento=v; saveDB(DB); });
-
-    // Evidencia
-    var ev=document.createElement('div'); ev.className='actions';
-    var evLbl=document.createElement('span'); evLbl.textContent='📷 Evidencia (contrato/estado)';
-    var evIn=document.createElement('input'); evIn.type='file'; evIn.accept='image/*'; evIn.disabled=!!d.bloqueado; if(d.bloqueado){ evIn.classList.add('ro'); }
-    var prev=document.createElement('div'); prev.className='preview';
-    evIn.addEventListener('change', function(){
-      if(evIn.files && evIn.files[0]){
-        var r=new FileReader(); r.onload=function(e){ d.evidencia=e.target.result; saveDB(DB); paintPrev(); }; r.readAsDataURL(evIn.files[0]);
-      }
-    });
-    function paintPrev(){ prev.innerHTML=''; if(d.evidencia){ var im=document.createElement('img'); im.src=d.evidencia; prev.appendChild(im); } }
-    paintPrev();
-    ev.appendChild(evLbl); ev.appendChild(evIn); ev.appendChild(prev);
-
-    card.appendChild(g);
-    card.appendChild(ev);
-    host.appendChild(card);
-  });
-}
-
-/* ================================================================
-   PERSONAL · Submódulo "Activos varios"  v1.0
-   - Permite registrar activos (herramientas, muebles, etc.)
-   - Cantidad · Descripción · Precio unitario
-   - Se suman al Balance General como parte de Activos
-=================================================================*/
-
-(function ensurePersonalActivos(){
-  if(!DB.personal){ DB.personal = {}; }
-  if(!DB.personal.activos){ DB.personal.activos = []; }
-  if(typeof DB.personal.folioActivo !== 'number'){ DB.personal.folioActivo = 0; }
-  saveDB(DB);
-})();
-
-function nextActivoId(){ return 'PACT'+Date.now(); }
-function nextActivoFolio(){ DB.personal.folioActivo += 1; saveDB(DB); return DB.personal.folioActivo; }
-
-/* ---- Hook al submenú Personal para incluir "Activos varios" ---- */
-(function repatchRenderSubmenu_Personal_AddActivos(){
-  var _orig = renderSubmenu;
-  renderSubmenu = function(root){
-    var r = String(root||'').toLowerCase();
-    if(r!=='personal'){ _orig(root); return; }
-
-    var host = qs('#subpanel'); if(!host) return;
-    host.innerHTML='';
-
-    var card=document.createElement('div'); card.className='card';
-    var h2=document.createElement('h2'); h2.textContent='Personal'; card.appendChild(h2);
-
-    var list=document.createElement('div'); list.className='actions';
-    list.style.flexDirection='column'; list.style.alignItems='stretch';
-
-    function item(txt,icon,fn){
-      var b=document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
-      b.innerHTML=icon+' '+txt; b.addEventListener('click',fn); return b;
-    }
-
-    list.appendChild(item('Dashboard','📊',personalDashboard));
-    list.appendChild(item('Gastos','💸',personalGastosList||function(){alert('Gastos personales aún no cargados.');}));
-    list.appendChild(item('Conciliación de Cuentas','🧾',personalConciliacion||function(){alert('Conciliación personal aún no cargada.');}));
-    list.appendChild(item('Cuentas y Movimientos','📦',personalCuentasMovs));
-    list.appendChild(item('Deudas','📉',personalDeudas));
-    list.appendChild(item('Activos varios','🛠️',personalActivos));   // ← NUEVO
-    card.appendChild(list);
-    host.appendChild(card);
-
-    personalDashboard();
-  };
-})();
-
-/* ---- Submódulo Activos varios ---- */
-function personalActivos(){
-  openTab('pers-act','Personal · Activos varios',function(host){
-    host.innerHTML='';
-
-    var header=document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between';
-    var left=document.createElement('div'); left.className='actions';
-    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo activo';
-    bNew.addEventListener('click',function(){ personalActivoNuevo(); });
-    left.appendChild(bNew);
-    header.appendChild(left);
-    host.appendChild(header);
-
-    var c=document.createElement('div'); c.className='card';
-    var h=document.createElement('h2'); h.textContent='Listado de activos'; c.appendChild(h);
-
-    var tbl=document.createElement('table');
-    var thead=document.createElement('thead'); var trh=document.createElement('tr');
-    ['Folio','Fecha','Descripción','Cantidad','PU','Total'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
-    thead.appendChild(trh); tbl.appendChild(thead);
-    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
-    c.appendChild(tbl);
-    host.appendChild(c);
-
-    function pinta(){
-      tbody.innerHTML='';
-      DB.personal.activos.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(a){
-        var tr=document.createElement('tr'); tr.style.cursor='pointer';
-        tr.addEventListener('click',function(){ personalActivoAbrir(a.id); });
-        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
-        tr.appendChild(td(String(a.folio).padStart(3,'0')));
-        tr.appendChild(td(a.fecha||'—'));
-        tr.appendChild(td(a.descripcion||'—'));
-        tr.appendChild(td(a.cantidad||0));
-        tr.appendChild(td('$ '+Number(a.precio||0).toFixed(2)));
-        tr.appendChild(td('$ '+Number((a.cantidad||0)*(a.precio||0)).toFixed(2)));
-        tbody.appendChild(tr);
-      });
-    }
-    pinta();
-  });
-}
-
-function personalActivoNuevo(){
-  var a={
-    id:nextActivoId(),
-    folio:nextActivoFolio(),
-    ts:Date.now(),
-    fecha:hoyStr(),
-    descripcion:'',
-    cantidad:1,
-    precio:0,
-    bloqueado:false
-  };
-  DB.personal.activos.push(a); saveDB(DB);
-  personalActivoAbrir(a.id);
-}
-
-function personalActivoAbrir(id){
-  var a=DB.personal.activos.find(function(x){return x.id===id;}); if(!a) return;
-
-  openTab('pers-act-'+a.id,a.bloqueado?('Activo '+String(a.folio).padStart(3,'0')):'Registrar activo',function(host){
-    host.innerHTML='';
-
-    var header=document.createElement('div'); header.className='actions'; header.style.justifyContent='flex-end';
-    var bMain=document.createElement('button');
-    if(a.bloqueado){
-      bMain.className='btn'; bMain.textContent='✏️ Editar';
-      bMain.addEventListener('click',function(){ a.bloqueado=false; saveDB(DB); personalActivoAbrir(a.id); });
-    }else{
-      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
-      bMain.addEventListener('click',function(){
-        if(!a.descripcion){ alert('Captura una descripción.'); return; }
-        if(Number(a.cantidad||0)<=0){ alert('Cantidad debe ser > 0'); return; }
-        if(Number(a.precio||0)<=0){ alert('Precio debe ser > 0'); return; }
-        a.bloqueado=true; saveDB(DB);
-        alert('Activo guardado con éxito con folio '+String(a.folio).padStart(3,'0'));
-        personalActivoAbrir(a.id);
-      });
-    }
-    header.appendChild(bMain);
-    host.appendChild(header);
-
-    var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent=a.bloqueado?('ACTIVO FOLIO '+String(a.folio).padStart(3,'0')):'Registrar activo';
-    card.appendChild(h);
-
-    var g=document.createElement('div'); g.className='grid';
-
-    function addField(label,val,prop){
-      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
-      var i=document.createElement('input'); i.type='text'; i.value=val||''; 
-      if(a.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
-      else i.addEventListener('input',function(){ a[prop]=i.value; saveDB(DB); });
-      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
-    }
-    function addNumber(label,val,prop){
-      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
-      var i=document.createElement('input'); i.type='number'; i.value=val||0;
-      if(a.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
-      else i.addEventListener('input',function(){ a[prop]=parseFloat(i.value||'0'); saveDB(DB); });
-      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
-    }
-
-    addField('Descripción',a.descripcion,'descripcion');
-    addNumber('Cantidad',a.cantidad,'cantidad');
-    addNumber('Precio unitario',a.precio,'precio');
-
-    card.appendChild(g);
-    host.appendChild(card);
-  });
-}
-
-/* ================================================================
-   PERSONAL · Dashboard semanal, Deudas, Ingresos, Presupuestos  v1.2
-   - Inyector del botón "Personal" (idempotente)
-   - Estado inicial DB.personal
-   - Submenú Personal: Dashboard (calendario semanal), Deudas, Ingresos, Presupuestos
-   - Reglas visuales: GUARDAR bloquea, aparece ✏️ Editar
-   - Pagos de deuda: interés/capital/ambos + recálculo y próxima fecha
-=================================================================*/
-
-/* ------------ Helpers fecha/semana ------------ */
-function parseISO(d){ try{ var p=d.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }catch(e){ return new Date(); } }
-function fmtISO(dt){ var m=String(dt.getMonth()+1).padStart(2,'0'); var d=String(dt.getDate()).padStart(2,'0'); return dt.getFullYear()+'-'+m+'-'+d; }
-function startOfWeek(d){ // Lunes
-  var dt = (d instanceof Date)? new Date(d) : parseISO(d||hoyStr());
-  var day = (dt.getDay()+6)%7; // Mon=0 ... Sun=6
-  dt.setDate(dt.getDate()-day); dt.setHours(0,0,0,0);
-  return dt;
-}
-function addDaysDate(dt, n){ var x=new Date(dt); x.setDate(x.getDate()+n); return x; }
-function addFreq(dateISO, freq, xdays, dom){ // siguiente fecha según frecuencia
-  var d=parseISO(dateISO);
-  if(freq==='mensual'){
-    // usa mismo día del mes si dom, sino mismo día que 'dateISO'
-    var day = dom || d.getDate();
-    var m = d.getMonth()+1, y=d.getFullYear();
-    if(m===12){ y+=1; m=1; } else { m+=1; }
-    var next = new Date(y,m-1,Math.min(day,28)); // seguro
-    return fmtISO(next);
-  }else if(freq==='quincenal'){
-    // si <=15, lleva al 16; si >15, al 1 del siguiente mes
-    var day=d.getDate();
-    if(day<=15){ var n=new Date(d.getFullYear(), d.getMonth(), 16); return fmtISO(n); }
-    else{
-      var m=d.getMonth()+1, y=d.getFullYear();
-      if(m===12){ y+=1; m=1; } else { m+=1; }
-      var n2=new Date(y,m-1,1); return fmtISO(n2);
-    }
-  }else if(freq==='semanal'){
-    return fmtISO(addDaysDate(d,7));
-  }else if(freq==='cada_x_dias'){
-    var nd = addDaysDate(d, Math.max(1, parseInt(xdays||'1',10)));
-    return fmtISO(nd);
-  }
-  // por defecto, mensual
-  return fmtISO(addDaysDate(d,30));
-}
-
-/* ------------ Inyector seguro del botón "Personal" ------------ */
-(function injectPersonalButton(){
-  var aside = document.querySelector('.left');
-  if(!aside) return;
-  if(aside.querySelector('[data-root="personal"]')) return;
-  var btn = document.createElement('button');
-  btn.className='side-item tree-btn';
-  btn.setAttribute('data-root','personal');
-  btn.textContent='👨‍👩‍👧 Personal';
-  var ref = aside.querySelector('.tree-btn[data-root="catalogo"]');
-  if(ref && ref.parentNode){ ref.parentNode.insertBefore(btn, ref); } else { aside.appendChild(btn); }
-})();
-
-/* ------------ Estado inicial DB.personal ------------ */
-(function ensurePersonalState(){
-  if(!DB.personal){
-    DB.personal = {
-      deudas: [],     // {id, folio, ts, acreedor, saldoInicial, saldoPendiente, tasaAnual, frecuencia, diaMes, cadaDias, proximaFecha, notas, bloqueado}
-      ingresos: [],   // {id, folio, ts, descripcion, monto, frecuencia, diaMes, cadaDias, proximaFecha, notas, bloqueado}
-      presupuestos: [], // {id, folio, ts, concepto, fechaObjetivo, monto, notas, bloqueado}
-      folioDeuda: 0,
-      folioIngreso: 0,
-      folioPres: 0
-    };
-    saveDB(DB);
-  }
-  if(typeof DB.personal.folioDeuda !== 'number'){ DB.personal.folioDeuda = 0; saveDB(DB); }
-  if(typeof DB.personal.folioIngreso !== 'number'){ DB.personal.folioIngreso = 0; saveDB(DB); }
-  if(typeof DB.personal.folioPres !== 'number'){ DB.personal.folioPres = 0; saveDB(DB); }
-})();
-
-/* ------------ IDs ------------ */
-function pNextId(p){ return 'P-'+p+'-'+Date.now(); }
-function folioNext(kind){
-  if(kind==='deuda'){ DB.personal.folioDeuda+=1; saveDB(DB); return DB.personal.folioDeuda; }
-  if(kind==='ingreso'){ DB.personal.folioIngreso+=1; saveDB(DB); return DB.personal.folioIngreso; }
-  DB.personal.folioPres+=1; saveDB(DB); return DB.personal.folioPres;
-}
-
-/* ------------ Submenú Personal (parche renderSubmenu) ------------ */
-(function patchRenderSubmenu_Personal(){
-  var _orig = renderSubmenu;
-  renderSubmenu = function(root){
-    if(String(root||'').toLowerCase()!=='personal'){ _orig(root); return; }
-
-    var host = qs('#subpanel'); if(!host) return;
-    host.innerHTML='';
-    var card = document.createElement('div'); card.className='card';
-    var h2   = document.createElement('h2'); h2.textContent='Personal'; card.appendChild(h2);
-
-    var list = document.createElement('div'); list.className='actions';
-    list.style.flexDirection='column'; list.style.alignItems='stretch';
-
-    function node(txt,icon,fn){
-      var b=document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
-      b.innerHTML=icon+' '+txt; b.addEventListener('click',fn); return b;
-    }
-    list.appendChild(node('Dashboard (semana)','📅', personalDashboard));
-    list.appendChild(node('Deudas','💳', personalDeudasList));
-    list.appendChild(node('Ingresos','💵', personalIngresosList));
-    list.appendChild(node('Presupuestos','📝', personalPresupuestosList));
-    card.appendChild(list);
-    host.appendChild(card);
-
-    // abrir dashboard por defecto
-    personalDashboard();
-  };
-})();
-
-/* =================== DASHBOARD (Calendario semanal) =================== */
-function personalDashboard(){
-  openTab('pers-dash','Personal · Dashboard', function(host){
-    host.innerHTML='';
-    var wrap = document.createElement('div'); wrap.className='card';
-    var h = document.createElement('h2'); h.textContent='Calendario semanal (pagos/ingresos/presupuestos)'; wrap.appendChild(h);
-
-    var weekStart = startOfWeek(hoyStr());
-    var grid = document.createElement('div');
-    grid.style.display='grid'; grid.style.gridTemplateColumns='repeat(7,minmax(140px,1fr))'; grid.style.gap='10px';
-
-    var dias = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-    for(var i=0;i<7;i++){
-      (function(i){
-        var dayBox = document.createElement('div'); dayBox.className='card';
-        var dte = addDaysDate(weekStart, i);
-        var title = document.createElement('div'); title.innerHTML = '<b>'+dias[i]+'</b> · '+fmtISO(dte);
-        dayBox.appendChild(title);
-
-        var bag = document.createElement('div'); bag.className='actions'; bag.style.flexDirection='column'; bag.style.alignItems='stretch';
-
-        // 1) Deudas programadas ese día (por proximaFecha y frecuencia)
-        DB.personal.deudas.forEach(function(d){
-          // si proximaFecha coincide con este día, aparece
-          if(d.proximaFecha === fmtISO(dte) && Number(d.saldoPendiente||0)>0){
-            var pill = document.createElement('button'); pill.className='btn-warn';
-            pill.style.justifyContent='space-between';
-            pill.innerHTML = '💳 '+(d.acreedor||'Deuda')+'<span><b>$ '+Number(Math.max(0,(d.interesSugerido||0))).toFixed(2)+'</b> interés</span>';
-            pill.addEventListener('click', function(){ personalDeudaAbrir(d.id); });
-            bag.appendChild(pill);
-          }
-        });
-
-        // 2) Ingresos programados ese día
-        DB.personal.ingresos.forEach(function(ing){
-          if(ing.proximaFecha === fmtISO(dte)){
-            var pill2 = document.createElement('button'); pill2.className='btn'; pill2.style.borderColor='#16a34a';
-            pill2.style.justifyContent='space-between';
-            pill2.innerHTML = '💵 '+(ing.descripcion||'Ingreso')+'<span><b>$ '+Number(ing.monto||0).toFixed(2)+'</b></span>';
-            pill2.addEventListener('click', function(){ personalIngresoAbrir(ing.id); });
-            bag.appendChild(pill2);
-          }
-        });
-
-        // 3) Presupuestos objetivo ese día
-        DB.personal.presupuestos.forEach(function(p){
-          if(p.fechaObjetivo === fmtISO(dte)){
-            var pill3 = document.createElement('button'); pill3.className='btn';
-            pill3.style.justifyContent='space-between';
-            pill3.innerHTML = '📝 '+(p.concepto||'Presupuesto')+'<span><b>$ '+Number(p.monto||0).toFixed(2)+'</b></span>';
-            pill3.addEventListener('click', function(){ personalPresupuestoAbrir(p.id); });
-            bag.appendChild(pill3);
-          }
-        });
-
-        dayBox.appendChild(bag);
-        grid.appendChild(dayBox);
-      })(i);
-    }
-
-    // Leyenda
-    var legend=document.createElement('div'); legend.className='actions';
-    legend.innerHTML='<span class="pill orange">💳 Deuda (interés sugerido)</span><span class="pill">💵 Ingreso</span><span class="pill">📝 Presupuesto</span>';
-    wrap.appendChild(legend);
-    wrap.appendChild(grid);
-    host.appendChild(wrap);
-
-    // Precalcular interés sugerido del mes (simple) para cada deuda
-    DB.personal.deudas.forEach(function(d){
-      var tasaMensual = Number(d.tasaAnual||0)/12/100;
-      d.interesSugerido = Math.max(0, (Number(d.saldoPendiente||0)*tasaMensual));
-    });
-    saveDB(DB);
-  });
-}
-
-/* =================== DEUDAS =================== */
-function personalDeudasList(){
-  openTab('pers-deu','Personal · Deudas', function(host){
-    host.innerHTML='';
-    var head = document.createElement('div'); head.className='actions'; head.style.justifyContent='space-between';
-    var left = document.createElement('div'); left.className='actions';
-    var bNew = document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nueva deuda';
-    bNew.addEventListener('click', personalDeudaNueva);
-    left.appendChild(bNew);
-    head.appendChild(left);
-    host.appendChild(head);
-
-    var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent='Listado de deudas'; card.appendChild(h);
-
-    var tbl=document.createElement('table');
-    var thead=document.createElement('thead'); var trh=document.createElement('tr');
-    ['Folio','Acreedor','Saldo pendiente','Próxima fecha','Frecuencia'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    ['Folio','Fecha','Tipo','Gramos','Concepto',' '].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
     thead.appendChild(trh); tbl.appendChild(thead);
     var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
     card.appendChild(tbl); host.appendChild(card);
 
     function pinta(){
       tbody.innerHTML='';
+      DB.personal.invMovs.filter(function(m){
+        var cta=DB.personal.cuentas.find(function(c){return c.id===m.cuentaId;});
+        return cta && cta.tipo==='metal';
+      }).sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(m){
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click', function(){ PER_movAbrir(m.id); });
+        function td(t){ var d=document.createElement('td'); d.textContent=t; return d; }
+        tr.appendChild(td(String(m.folio).padStart(3,'0')));
+        tr.appendChild(td(m.fecha||'—'));
+        tr.appendChild(td(m.tipo||'—'));
+        tr.appendChild(td(PER_f2(m.gramos||0)+' g'));
+        tr.appendChild(td(m.concepto||''));
+        var tda=document.createElement('td'); tda.textContent='›'; tda.style.textAlign='right'; tr.appendChild(tda);
+        tbody.appendChild(tr);
+      });
+    }
+    pinta();
+  });
+}
+
+function PER_movNuevo(forceUnidad, forceTipo){
+  var mov={
+    id: PER_nextInvId(),
+    folio: PER_nextInvFolio(),
+    ts: Date.now(),
+    bloqueado: false,
+    fecha: hoyStr(),
+    cuentaId: '',
+    tipo: forceTipo || 'ingreso',   // ingreso | egreso
+    unidad: forceUnidad || 'dinero',// dinero | metal (se ajusta por cuenta)
+    monto: 0,
+    gramos: 0,
+    concepto: '',
+    evidencia: ''
+  };
+  // si fuerza metal, preselecciona cuenta metal
+  if(forceUnidad==='metal'){
+    var metal=DB.personal.cuentas.find(function(c){return c.tipo==='metal';});
+    if(metal) mov.cuentaId=metal.id;
+  }
+  DB.personal.invMovs.push(mov); saveDB(DB);
+  PER_movAbrir(mov.id);
+}
+
+function PER_movAbrir(id){
+  var m=DB.personal.invMovs.find(function(x){return x.id===id;}); if(!m) return;
+
+  openTab('per-mov-'+m.id, m.bloqueado?('Movimiento '+String(m.folio).padStart(3,'0')):'Registrar movimiento', function(host){
+    host.innerHTML='';
+
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo movimiento';
+    bNew.addEventListener('click', function(){ PER_movNuevo(); });
+    var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir';
+    bPrint.addEventListener('click', function(){ alert('PDF del movimiento.'); });
+    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp';
+    bWA.addEventListener('click', function(){ alert('Enviar PDF por WhatsApp.'); });
+    left.appendChild(bNew); left.appendChild(bPrint); left.appendChild(bWA); top.appendChild(left);
+
+    var right=document.createElement('div'); right.className='actions';
+    var bMain=document.createElement('button');
+    if(m.bloqueado){
+      bMain.className='btn'; bMain.textContent='✏️ Editar';
+      bMain.addEventListener('click', function(){ m.bloqueado=false; saveDB(DB); PER_movAbrir(m.id); });
+    }else{
+      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
+      bMain.addEventListener('click', function(){
+        if(!m.cuentaId){ alert('Selecciona la cuenta.'); return; }
+        var cta=DB.personal.cuentas.find(function(c){return c.id===m.cuentaId;});
+        if(!cta){ alert('Cuenta inválida.'); return; }
+        if(cta.tipo==='dinero' && !(Number(m.monto||0))) { alert('Captura un monto.'); return; }
+        if(cta.tipo==='metal'  && !(Number(m.gramos||0))) { alert('Captura gramos.'); return; }
+        if(m.__aplicado){ PER_applyMov(m,-1); }
+        PER_applyMov(m,+1);
+        m.__aplicado=true; m.bloqueado=true; saveDB(DB);
+        alert('Movimiento guardado con folio '+String(m.folio).padStart(3,'0'));
+        PER_movAbrir(m.id);
+      });
+    }
+    right.appendChild(bMain); top.appendChild(right); host.appendChild(top);
+
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent=m.bloqueado?('Movimiento '+String(m.folio).padStart(3,'0')):'Registrar movimiento'; card.appendChild(h);
+
+    var g=document.createElement('div'); g.className='grid';
+
+    // Fecha
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Fecha';
+      var i=document.createElement('input'); i.type='date'; i.value=m.fecha; if(m.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      i.addEventListener('change', function(){ m.fecha=i.value; saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    })();
+
+    // Cuenta
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Cuenta';
+      var s=document.createElement('select'); var op0=document.createElement('option'); op0.value=''; op0.textContent='(Selecciona)'; s.appendChild(op0);
+      DB.personal.cuentas.forEach(function(c){ var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; if(m.cuentaId===c.id) op.selected=true; s.appendChild(op); });
+      if(m.bloqueado){ s.disabled=true; s.classList.add('ro'); }
+      s.addEventListener('change', function(){ m.cuentaId=s.value; var cta=DB.personal.cuentas.find(function(c){return c.id===m.cuentaId;}); m.unidad=cta&&cta.tipo==='metal'?'metal':'dinero'; saveDB(DB); renderUnidad(); });
+      dv.appendChild(l); dv.appendChild(s); g.appendChild(dv);
+    })();
+
+    // Tipo
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Tipo de movimiento';
+      var s=document.createElement('select'); [['ingreso','Ingreso'],['egreso','Egreso']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(m.tipo===p[0]) op.selected=true; s.appendChild(op); });
+      if(m.bloqueado){ s.disabled=true; s.classList.add('ro'); }
+      s.addEventListener('change', function(){ m.tipo=s.value; saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(s); g.appendChild(dv);
+    })();
+
+    // Concepto
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Concepto / Descripción';
+      var i=document.createElement('input'); i.type='text'; i.value=m.concepto||''; if(m.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      i.addEventListener('input', function(){ m.concepto=i.value; saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    })();
+
+    card.appendChild(g); host.appendChild(card);
+
+    function renderUnidad(){
+      var old=qs('#per-unidad',host); if(old) old.remove();
+      var wrap=document.createElement('div'); wrap.className='card'; wrap.id='per-unidad';
+      var gg=document.createElement('div'); gg.className='grid';
+      var cta=DB.personal.cuentas.find(function(c){return c.id===m.cuentaId;});
+      var esMetal = cta? cta.tipo==='metal' : (m.unidad==='metal');
+
+      if(esMetal){
+        var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Gramos (permite negativos)';
+        var i=document.createElement('input'); i.type='number'; i.step='0.01'; i.value=Number(m.gramos||0);
+        if(m.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+        i.addEventListener('input', function(){ m.gramos=parseFloat(i.value||'0'); saveDB(DB); });
+        dv.appendChild(l); dv.appendChild(i); gg.appendChild(dv);
+      }else{
+        var dv2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Monto (permite negativos)';
+        var i2=document.createElement('input'); i2.type='text'; i2.value=PER_money(m.monto||0); i2.style.fontWeight='800';
+        if(m.bloqueado){ i2.readOnly=true; i2.classList.add('ro'); }
+        i2.addEventListener('focus', function(){ if(m.bloqueado) return; i2.value=String(PER_parseMoney(i2.value)); });
+        i2.addEventListener('blur', function(){ if(m.bloqueado) return; m.monto=PER_parseMoney(i2.value); i2.value=PER_money(m.monto); saveDB(DB); });
+        dv2.appendChild(l2); dv2.appendChild(i2); gg.appendChild(dv2);
+      }
+
+      wrap.appendChild(gg); host.appendChild(wrap);
+    }
+    renderUnidad();
+  });
+}
+
+/* ===================================================================
+   DEUDAS
+====================================================================*/
+function PER_nextDeudaId(){ return 'PDEU'+Date.now(); }
+function PER_nextDeudaFolio(){ DB.personal.folioDeuda+=1; saveDB(DB); return DB.personal.folioDeuda; }
+
+function PER_deudasList(){
+  openTab('per-deu','Personal · Deudas', function(host){
+    host.innerHTML='';
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nueva deuda';
+    bNew.addEventListener('click', function(){ PER_deudaNueva(); });
+    left.appendChild(bNew); top.appendChild(left); host.appendChild(top);
+
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Listado de deudas'; c.appendChild(h);
+
+    var tbl=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Acreedor','Saldo','Próxima fecha','Frecuencia'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    c.appendChild(tbl); host.appendChild(c);
+
+    function pinta(){
+      tbody.innerHTML='';
       DB.personal.deudas.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(d){
         var tr=document.createElement('tr'); tr.style.cursor='pointer';
-        tr.addEventListener('click', function(){ personalDeudaAbrir(d.id); });
+        tr.addEventListener('click', function(){ PER_deudaAbrir(d.id); });
         function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
+        var saldo = (d.saldoPendiente!=null?d.saldoPendiente:(d.saldoActual!=null?d.saldoActual:d.montoOriginal))||0;
         tr.appendChild(td(String(d.folio).padStart(3,'0')));
         tr.appendChild(td(d.acreedor||'—'));
-        tr.appendChild(td('$ '+Number(d.saldoPendiente||0).toFixed(2)));
+        tr.appendChild(td(PER_money(saldo)));
         tr.appendChild(td(d.proximaFecha||'—'));
         tr.appendChild(td(d.frecuencia||'mensual'));
         tbody.appendChild(tr);
@@ -4786,185 +3656,164 @@ function personalDeudasList(){
   });
 }
 
-function personalDeudaNueva(){
+function PER_deudaNueva(){
   var d={
-    id: pNextId('DEUDA'),
-    folio: folioNext('deuda'),
+    id: PER_nextDeudaId(),
+    folio: PER_nextDeudaFolio(),
     ts: Date.now(),
+    bloqueado: false,
     acreedor: '',
-    saldoInicial: 0,
-    saldoPendiente: 0,
-    tasaAnual: 0,        // %
+    montoOriginal: 0,
+    saldoPendiente: 0,     // usaremos este como saldo principal
+    tasaAnual: 0,
     frecuencia: 'mensual', // mensual | quincenal | semanal | cada_x_dias
-    diaMes: 15,          // para mensual/quincenal (15=intereses por ejemplo)
-    cadaDias: 30,        // para cada_x_dias
+    diaMes: 15,
+    cadaDias: 30,
     proximaFecha: hoyStr(),
-    notas: '',
-    bloqueado: false
+    notas: ''
   };
   DB.personal.deudas.push(d); saveDB(DB);
-  personalDeudaAbrir(d.id);
+  PER_deudaAbrir(d.id);
 }
 
-function personalDeudaAbrir(id){
-  var d = DB.personal.deudas.find(function(x){return x.id===id;}); if(!d) return;
+function PER_deudaAbrir(id){
+  var d=DB.personal.deudas.find(function(x){return x.id===id;}); if(!d) return;
 
-  openTab('pers-deu-'+d.id, d.bloqueado?('Deuda '+String(d.folio).padStart(3,'0')):'Registrar deuda', function(host){
+  openTab('per-deu-'+d.id, d.bloqueado?('Deuda '+String(d.folio).padStart(3,'0')):'Registrar deuda', function(host){
     host.innerHTML='';
 
-    // Barra superior: GUARDAR o ✏️ Editar
     var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
-
     var left=document.createElement('div'); left.className='actions';
     var bPago=document.createElement('button'); bPago.className='btn'; bPago.textContent='Registrar pago';
-    bPago.addEventListener('click', function(){ dialogRegistrarPago(d); });
-    left.appendChild(bPago);
+    bPago.addEventListener('click', function(){ PER_deudaPagoDialog(d); });
+    left.appendChild(bPago); top.appendChild(left);
 
     var right=document.createElement('div'); right.className='actions';
     var bMain=document.createElement('button');
     if(d.bloqueado){
       bMain.className='btn'; bMain.textContent='✏️ Editar';
-      bMain.addEventListener('click', function(){ d.bloqueado=false; saveDB(DB); personalDeudaAbrir(d.id); });
+      bMain.addEventListener('click', function(){ d.bloqueado=false; saveDB(DB); PER_deudaAbrir(d.id); });
     }else{
       bMain.className='btn-primary'; bMain.textContent='GUARDAR';
       bMain.addEventListener('click', function(){
         if(!d.acreedor){ alert('Acreedor requerido'); return; }
-        if(Number(d.saldoInicial||0)<=0){ alert('Saldo inicial debe ser > 0'); return; }
-        d.saldoPendiente = Number(d.saldoPendiente||0) || Number(d.saldoInicial||0);
-        // calcular proximaFecha según frecuencia y día
-        if(d.frecuencia==='mensual'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'mensual',null, d.diaMes||15); }
-        else if(d.frecuencia==='quincenal'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'quincenal'); }
-        else if(d.frecuencia==='semanal'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'semanal'); }
-        else if(d.frecuencia==='cada_x_dias'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'cada_x_dias', d.cadaDias||30); }
+        if(Number(d.montoOriginal||0)<=0){ alert('Monto original > 0'); return; }
+        if(Number(d.saldoPendiente||0)<=0){ d.saldoPendiente = Number(d.montoOriginal||0); }
+        // reprograma próxima fecha
+        if(d.frecuencia==='mensual'){ d.proximaFecha=PER_nextByFreq(d.proximaFecha,'mensual',null,d.diaMes||15); }
+        else if(d.frecuencia==='quincenal'){ d.proximaFecha=PER_nextByFreq(d.proximaFecha,'quincenal'); }
+        else if(d.frecuencia==='semanal'){ d.proximaFecha=PER_nextByFreq(d.proximaFecha,'semanal'); }
+        else if(d.frecuencia==='cada_x_dias'){ d.proximaFecha=PER_nextByFreq(d.proximaFecha,'cada_x_dias',d.cadaDias||30); }
         d.bloqueado=true; saveDB(DB);
-        alert('Deuda guardada con éxito con folio '+String(d.folio).padStart(3,'0'));
-        personalDeudaAbrir(d.id);
+        alert('Deuda guardada con folio '+String(d.folio).padStart(3,'0'));
+        PER_deudaAbrir(d.id);
       });
     }
-    right.appendChild(bMain);
-    top.appendChild(left); top.appendChild(right);
-    host.appendChild(top);
+    right.appendChild(bMain); top.appendChild(right); host.appendChild(top);
 
     var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent=d.bloqueado?('DEUDA FOLIO '+String(d.folio).padStart(3,'0')):'Registrar deuda';
-    card.appendChild(h);
+    var h=document.createElement('h2'); h.textContent=d.bloqueado?('DEUDA FOLIO '+String(d.folio).padStart(3,'0')):'Registrar deuda'; card.appendChild(h);
 
     var g=document.createElement('div'); g.className='grid';
 
-    function field(label, val, prop, type){
+    function text(label,val,setter,typ){
       var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
-      var i=document.createElement('input'); i.type=type||'text'; i.value=val||'';
-      if(d.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
-      else i.addEventListener('input', function(){ d[prop] = (i.type==='number')? parseFloat(i.value||'0'): i.value; saveDB(DB); });
+      var i=document.createElement('input'); i.type=typ||'text'; i.value=val||''; if(d.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      i.addEventListener('input', function(){ setter(i.value); saveDB(DB); });
       dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
     }
-
-    field('Acreedor', d.acreedor, 'acreedor', 'text');
-    field('Saldo inicial ($)', d.saldoInicial, 'saldoInicial', 'number');
-    field('Saldo pendiente ($)', d.saldoPendiente, 'saldoPendiente', 'number');
-    field('Tasa anual (%)', d.tasaAnual, 'tasaAnual', 'number');
-
-    // Frecuencia
-    var dF=document.createElement('div'); var lF=document.createElement('label'); lF.textContent='Frecuencia de pago';
-    var sF=document.createElement('select'); [['mensual','Mensual'],['quincenal','Quincenal'],['semanal','Semanal'],['cada_x_dias','Cada X días']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(d.frecuencia===p[0]) op.selected=true; sF.appendChild(op); });
-    if(d.bloqueado){ sF.disabled=true; sF.classList.add('ro'); }
-    sF.addEventListener('change', function(){ d.frecuencia=sF.value; saveDB(DB); personalDeudaAbrir(d.id); });
-    dF.appendChild(lF); dF.appendChild(sF); g.appendChild(dF);
-
-    // Día del mes / Cada X días
-    if(d.frecuencia==='mensual' || d.frecuencia==='quincenal'){
-      var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Día del mes (1-31)';
-      var iM=document.createElement('input'); iM.type='number'; iM.value=d.diaMes||15;
-      if(d.bloqueado){ iM.readOnly=true; iM.classList.add('ro'); }
-      iM.addEventListener('input', function(){ d.diaMes=parseInt(iM.value||'15',10); saveDB(DB); });
-      dM.appendChild(lM); dM.appendChild(iM); g.appendChild(dM);
-    }else if(d.frecuencia==='cada_x_dias'){
-      var dX=document.createElement('div'); var lX=document.createElement('label'); lX.textContent='Cada cuántos días';
-      var iX=document.createElement('input'); iX.type='number'; iX.value=d.cadaDias||30;
-      if(d.bloqueado){ iX.readOnly=true; iX.classList.add('ro'); }
-      iX.addEventListener('input', function(){ d.cadaDias=parseInt(iX.value||'30',10); saveDB(DB); });
-      dX.appendChild(lX); dX.appendChild(iX); g.appendChild(dX);
+    function money(label,val,setter){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type='text'; i.value=PER_money(val||0); i.style.fontWeight='800'; if(d.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      i.addEventListener('focus', function(){ if(d.bloqueado) return; i.value=String(PER_parseMoney(i.value)); });
+      i.addEventListener('blur', function(){ if(d.bloqueado) return; var v=PER_parseMoney(i.value); setter(v); saveDB(DB); i.value=PER_money(v); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+    function select(label,val,opts,setter){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var s=document.createElement('select'); opts.forEach(function(o){ var op=document.createElement('option'); op.value=o[0]; op.textContent=o[1]; if(val===o[0]) op.selected=true; s.appendChild(op); });
+      if(d.bloqueado){ s.disabled=true; s.classList.add('ro'); }
+      s.addEventListener('change', function(){ setter(s.value); saveDB(DB); PER_deudaAbrir(d.id); });
+      dv.appendChild(l); dv.appendChild(s); g.appendChild(dv);
     }
 
-    field('Próxima fecha', d.proximaFecha, 'proximaFecha', 'date');
+    text('Acreedor', d.acreedor, function(v){ d.acreedor=v; });
+    money('Monto original', d.montoOriginal, function(v){ d.montoOriginal=v; });
+    money('Saldo pendiente', d.saldoPendiente, function(v){ d.saldoPendiente=v; });
+    text('Tasa anual (%)', d.tasaAnual, function(v){ d.tasaAnual=parseFloat(v||'0'); }, 'number');
+
+    select('Frecuencia', d.frecuencia, [['mensual','Mensual'],['quincenal','Quincenal'],['semanal','Semanal'],['cada_x_dias','Cada X días']], function(v){ d.frecuencia=v; });
+
+    if(d.frecuencia==='mensual' || d.frecuencia==='quincenal'){
+      text('Día del mes (1-31)', d.diaMes, function(v){ d.diaMes=parseInt(v||'15',10); }, 'number');
+    }else if(d.frecuencia==='cada_x_dias'){
+      text('Cada cuántos días', d.cadaDias, function(v){ d.cadaDias=parseInt(v||'30',10); }, 'number');
+    }
+
+    text('Próxima fecha', d.proximaFecha, function(v){ d.proximaFecha=v; }, 'date');
 
     // Notas
     var dN=document.createElement('div'); var lN=document.createElement('label'); lN.textContent='Notas';
-    var tN=document.createElement('textarea'); tN.value=d.notas||'';
-    if(d.bloqueado){ tN.readOnly=true; tN.classList.add('ro'); }
+    var tN=document.createElement('textarea'); tN.value=d.notas||''; if(d.bloqueado){ tN.readOnly=true; tN.classList.add('ro'); }
     tN.addEventListener('input', function(){ d.notas=tN.value; saveDB(DB); });
     dN.appendChild(lN); dN.appendChild(tN); g.appendChild(dN);
 
-    card.appendChild(g);
-    host.appendChild(card);
+    card.appendChild(g); host.appendChild(card);
   });
 }
 
-// Diálogo simple de pago (interés/capital/ambos)
-function dialogRegistrarPago(d){
-  var tipo = prompt('Tipo de pago: (interes | capital | ambos)','ambos');
-  if(!tipo) return;
-  tipo = tipo.toLowerCase();
-  var montoStr = prompt('Monto total pagado ($):','0');
-  var monto = parseFloat(montoStr||'0');
-  if(!(monto>0)){ alert('Monto inválido'); return; }
-
-  var tasaMensual = Number(d.tasaAnual||0)/12/100;
-  var interesEstimado = Math.max(0, (Number(d.saldoPendiente||0)*tasaMensual));
-
+function PER_deudaPagoDialog(d){
+  var tipo=prompt('Tipo de pago (interes | capital | ambos)','ambos'); if(!tipo) return; tipo=tipo.toLowerCase();
+  var monto=parseFloat(prompt('Monto total pagado ($)','0')||'0'); if(!(monto>0)){ alert('Monto inválido'); return; }
+  var tasaM=Number(d.tasaAnual||0)/12/100;
+  var interesEst=Math.max(0, Number(d.saldoPendiente||0)*tasaM);
   var pagInt=0, pagCap=0;
-  if(tipo==='interes'){ pagInt = Math.min(monto, interesEstimado); pagCap=0; }
-  else if(tipo==='capital'){ pagCap = Math.min(monto, Number(d.saldoPendiente||0)); pagInt=0; }
-  else { // ambos
-    pagInt = Math.min(interesEstimado, monto);
-    pagCap = Math.max(0, monto - pagInt);
-    pagCap = Math.min(pagCap, Number(d.saldoPendiente||0));
-  }
-
-  d.saldoPendiente = Math.max(0, Number(d.saldoPendiente||0) - pagCap);
-
-  // Reprograma próxima fecha
-  if(d.frecuencia==='mensual'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'mensual',null, d.diaMes||15); }
-  else if(d.frecuencia==='quincenal'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'quincenal'); }
-  else if(d.frecuencia==='semanal'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'semanal'); }
-  else if(d.frecuencia==='cada_x_dias'){ d.proximaFecha = addFreq(d.proximaFecha||hoyStr(),'cada_x_dias', d.cadaDias||30); }
-
+  if(tipo==='interes'){ pagInt=Math.min(monto,interesEst); }
+  else if(tipo==='capital'){ pagCap=Math.min(monto, Number(d.saldoPendiente||0)); }
+  else { pagInt=Math.min(interesEst,monto); pagCap=Math.max(0, monto-pagInt); pagCap=Math.min(pagCap, Number(d.saldoPendiente||0)); }
+  d.saldoPendiente=Math.max(0, Number(d.saldoPendiente||0)-pagCap);
+  d.proximaFecha = PER_nextByFreq(d.proximaFecha||hoyStr(), d.frecuencia, d.cadaDias||30, d.diaMes||15);
   saveDB(DB);
-  alert('Pago registrado. Interés: $'+pagInt.toFixed(2)+' · Capital: $'+pagCap.toFixed(2)+' · Saldo: $'+Number(d.saldoPendiente||0).toFixed(2));
-  personalDeudaAbrir(d.id);
+  alert('Pago registrado. Interés: '+PER_money(pagInt)+' · Capital: '+PER_money(pagCap)+' · Saldo: '+PER_money(d.saldoPendiente));
+  PER_deudaAbrir(d.id);
 }
 
-/* =================== INGRESOS =================== */
-function personalIngresosList(){
-  openTab('pers-ing','Personal · Ingresos', function(host){
+/* ===================================================================
+   INGRESOS
+====================================================================*/
+function PER_nextIngresoId(){ return 'PING'+Date.now(); }
+function PER_nextIngresoFolio(){ DB.personal.folioIngreso+=1; saveDB(DB); return DB.personal.folioIngreso; }
+
+function PER_ingresosList(){
+  openTab('per-ing','Personal · Ingresos', function(host){
     host.innerHTML='';
     var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
     var left=document.createElement('div'); left.className='actions';
     var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo ingreso';
-    bNew.addEventListener('click', personalIngresoNuevo); left.appendChild(bNew);
-    top.appendChild(left); host.appendChild(top);
+    bNew.addEventListener('click', function(){ PER_ingresoNuevo(); });
+    left.appendChild(bNew); top.appendChild(left); host.appendChild(top);
 
-    var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent='Listado de ingresos'; card.appendChild(h);
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Listado de ingresos'; c.appendChild(h);
 
     var tbl=document.createElement('table');
     var thead=document.createElement('thead'); var trh=document.createElement('tr');
     ['Folio','Descripción','Monto','Próxima fecha','Frecuencia'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
     thead.appendChild(trh); tbl.appendChild(thead);
     var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
-    card.appendChild(tbl); host.appendChild(card);
+    c.appendChild(tbl); host.appendChild(c);
 
     function pinta(){
       tbody.innerHTML='';
-      DB.personal.ingresos.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(ing){
+      DB.personal.ingresos.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(i){
         var tr=document.createElement('tr'); tr.style.cursor='pointer';
-        tr.addEventListener('click', function(){ personalIngresoAbrir(ing.id); });
+        tr.addEventListener('click', function(){ PER_ingresoAbrir(i.id); });
         function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
-        tr.appendChild(td(String(ing.folio).padStart(3,'0')));
-        tr.appendChild(td(ing.descripcion||'—'));
-        tr.appendChild(td('$ '+Number(ing.monto||0).toFixed(2)));
-        tr.appendChild(td(ing.proximaFecha||'—'));
-        tr.appendChild(td(ing.frecuencia||'mensual'));
+        tr.appendChild(td(String(i.folio).padStart(3,'0')));
+        tr.appendChild(td(i.descripcion||'—'));
+        tr.appendChild(td(PER_money(i.monto||0)));
+        tr.appendChild(td(i.proximaFecha||'—'));
+        tr.appendChild(td(i.frecuencia||'mensual'));
         tbody.appendChild(tr);
       });
     }
@@ -4972,55 +3821,53 @@ function personalIngresosList(){
   });
 }
 
-function personalIngresoNuevo(){
-  var ing={
-    id: pNextId('ING'),
-    folio: folioNext('ingreso'),
+function PER_ingresoNuevo(){
+  var i={
+    id: PER_nextIngresoId(),
+    folio: PER_nextIngresoFolio(),
     ts: Date.now(),
-    descripcion: '',
-    monto: 0,
-    frecuencia: 'quincenal', // mensual | quincenal | semanal | cada_x_dias
-    diaMes: 1,
-    cadaDias: 15,
-    proximaFecha: hoyStr(),
-    notas: '',
-    bloqueado: false
+    bloqueado:false,
+    descripcion:'',
+    monto:0,
+    frecuencia:'quincenal', // mensual | quincenal | semanal | cada_x_dias
+    diaMes:1,
+    cadaDias:15,
+    proximaFecha:hoyStr(),
+    notas:''
   };
-  DB.personal.ingresos.push(ing); saveDB(DB);
-  personalIngresoAbrir(ing.id);
+  DB.personal.ingresos.push(i); saveDB(DB);
+  PER_ingresoAbrir(i.id);
 }
 
-function personalIngresoAbrir(id){
+function PER_ingresoAbrir(id){
   var ing=DB.personal.ingresos.find(function(x){return x.id===id;}); if(!ing) return;
 
-  openTab('pers-ing-'+ing.id, ing.bloqueado?('Ingreso '+String(ing.folio).padStart(3,'0')):'Registrar ingreso', function(host){
+  openTab('per-ing-'+ing.id, ing.bloqueado?('Ingreso '+String(ing.folio).padStart(3,'0')):'Registrar ingreso', function(host){
     host.innerHTML='';
 
     var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='flex-end';
     var bMain=document.createElement('button');
     if(ing.bloqueado){
       bMain.className='btn'; bMain.textContent='✏️ Editar';
-      bMain.addEventListener('click', function(){ ing.bloqueado=false; saveDB(DB); personalIngresoAbrir(ing.id); });
+      bMain.addEventListener('click', function(){ ing.bloqueado=false; saveDB(DB); PER_ingresoAbrir(ing.id); });
     }else{
       bMain.className='btn-primary'; bMain.textContent='GUARDAR';
       bMain.addEventListener('click', function(){
         if(!ing.descripcion){ alert('Descripción requerida'); return; }
         if(Number(ing.monto||0)<=0){ alert('Monto > 0'); return; }
-        // proxima fecha
-        if(ing.frecuencia==='mensual'){ ing.proximaFecha = addFreq(ing.proximaFecha||hoyStr(),'mensual',null, ing.diaMes||1); }
-        else if(ing.frecuencia==='quincenal'){ ing.proximaFecha = addFreq(ing.proximaFecha||hoyStr(),'quincenal'); }
-        else if(ing.frecuencia==='semanal'){ ing.proximaFecha = addFreq(ing.proximaFecha||hoyStr(),'semanal'); }
-        else if(ing.frecuencia==='cada_x_dias'){ ing.proximaFecha = addFreq(ing.proximaFecha||hoyStr(),'cada_x_dias', ing.cadaDias||15); }
+        if(ing.frecuencia==='mensual'){ ing.proximaFecha=PER_nextByFreq(ing.proximaFecha,'mensual',null,ing.diaMes||1); }
+        else if(ing.frecuencia==='quincenal'){ ing.proximaFecha=PER_nextByFreq(ing.proximaFecha,'quincenal'); }
+        else if(ing.frecuencia==='semanal'){ ing.proximaFecha=PER_nextByFreq(ing.proximaFecha,'semanal'); }
+        else if(ing.frecuencia==='cada_x_dias'){ ing.proximaFecha=PER_nextByFreq(ing.proximaFecha,'cada_x_dias',ing.cadaDias||15); }
         ing.bloqueado=true; saveDB(DB);
-        alert('Ingreso guardado con éxito folio '+String(ing.folio).padStart(3,'0'));
-        personalIngresoAbrir(ing.id);
+        alert('Ingreso guardado con folio '+String(ing.folio).padStart(3,'0'));
+        PER_ingresoAbrir(ing.id);
       });
     }
     top.appendChild(bMain); host.appendChild(top);
 
     var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent=ing.bloqueado?('INGRESO FOLIO '+String(ing.folio).padStart(3,'0')):'Registrar ingreso';
-    card.appendChild(h);
+    var h=document.createElement('h2'); h.textContent=ing.bloqueado?('INGRESO FOLIO '+String(ing.folio).padStart(3,'0')):'Registrar ingreso'; card.appendChild(h);
 
     var g=document.createElement('div'); g.className='grid';
 
@@ -5028,31 +3875,33 @@ function personalIngresoAbrir(id){
       var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
       var i=document.createElement('input'); i.type=type||'text'; i.value=val||'';
       if(ing.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
-      else i.addEventListener('input', function(){ ing[prop] = (i.type==='number')? parseFloat(i.value||'0') : i.value; saveDB(DB); });
+      i.addEventListener('input', function(){ ing[prop] = (i.type==='number')? parseFloat(i.value||'0') : i.value; saveDB(DB); });
       dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
     }
 
-    field('Descripción', ing.descripcion,'descripcion','text');
-    field('Monto ($)', ing.monto,'monto','number');
+    field('Descripción', ing.descripcion, 'descripcion', 'text');
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Monto ($)';
+      var i=document.createElement('input'); i.type='text'; i.value=PER_money(ing.monto||0); i.style.fontWeight='800';
+      if(ing.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      i.addEventListener('focus', function(){ if(ing.bloqueado) return; i.value=String(PER_parseMoney(i.value)); });
+      i.addEventListener('blur', function(){ if(ing.bloqueado) return; ing.monto=PER_parseMoney(i.value); i.value=PER_money(ing.monto); saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    })();
 
-    var dF=document.createElement('div'); var lF=document.createElement('label'); lF.textContent='Frecuencia';
-    var sF=document.createElement('select'); [['mensual','Mensual'],['quincenal','Quincenal'],['semanal','Semanal'],['cada_x_dias','Cada X días']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(ing.frecuencia===p[0]) op.selected=true; sF.appendChild(op); });
-    if(ing.bloqueado){ sF.disabled=true; sF.classList.add('ro'); }
-    sF.addEventListener('change', function(){ ing.frecuencia=sF.value; saveDB(DB); personalIngresoAbrir(ing.id); });
-    dF.appendChild(lF); dF.appendChild(sF); g.appendChild(dF);
+    // Frecuencia
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Frecuencia';
+      var s=document.createElement('select'); [['mensual','Mensual'],['quincenal','Quincenal'],['semanal','Semanal'],['cada_x_dias','Cada X días']].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(ing.frecuencia===p[0]) op.selected=true; s.appendChild(op); });
+      if(ing.bloqueado){ s.disabled=true; s.classList.add('ro'); }
+      s.addEventListener('change', function(){ ing.frecuencia=s.value; saveDB(DB); PER_ingresoAbrir(ing.id); });
+      dv.appendChild(l); dv.appendChild(s); g.appendChild(dv);
+    })();
 
     if(ing.frecuencia==='mensual'){
-      var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Día del mes (1–31)';
-      var iM=document.createElement('input'); iM.type='number'; iM.value=ing.diaMes||1;
-      if(ing.bloqueado){ iM.readOnly=true; iM.classList.add('ro'); }
-      iM.addEventListener('input', function(){ ing.diaMes=parseInt(iM.value||'1',10); saveDB(DB); });
-      dM.appendChild(lM); dM.appendChild(iM); g.appendChild(dM);
+      field('Día del mes (1–31)', ing.diaMes, 'diaMes', 'number');
     }else if(ing.frecuencia==='cada_x_dias'){
-      var dX=document.createElement('div'); var lX=document.createElement('label'); lX.textContent='Cada cuántos días';
-      var iX=document.createElement('input'); iX.type='number'; iX.value=ing.cadaDias||15;
-      if(ing.bloqueado){ iX.readOnly=true; iX.classList.add('ro'); }
-      iX.addEventListener('input', function(){ ing.cadaDias=parseInt(iX.value||'15',10); saveDB(DB); });
-      dX.appendChild(lX); dX.appendChild(iX); g.appendChild(dX);
+      field('Cada cuántos días', ing.cadaDias, 'cadaDias', 'number');
     }
 
     field('Próxima fecha', ing.proximaFecha, 'proximaFecha', 'date');
@@ -5067,37 +3916,41 @@ function personalIngresoAbrir(id){
   });
 }
 
-/* =================== PRESUPUESTOS =================== */
-function personalPresupuestosList(){
-  openTab('pers-pre','Personal · Presupuestos', function(host){
+/* ===================================================================
+   PRESUPUESTOS  (＋ corregido: abre siempre)
+====================================================================*/
+function PER_nextPresId(){ return 'PPRE'+Date.now(); }
+function PER_nextPresFolio(){ DB.personal.folioPres+=1; saveDB(DB); return DB.personal.folioPres; }
+
+function PER_presupuestosList(){
+  openTab('per-pre','Personal · Presupuestos', function(host){
     host.innerHTML='';
     var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
     var left=document.createElement('div'); left.className='actions';
     var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo presupuesto';
-    bNew.addEventListener('click', personalPresupuestoNuevo);
-    left.appendChild(bNew);
-    top.appendChild(left); host.appendChild(top);
+    bNew.addEventListener('click', function(){ PER_presupuestoNuevo(); });
+    left.appendChild(bNew); top.appendChild(left); host.appendChild(top);
 
-    var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent='Listado de presupuestos'; card.appendChild(h);
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Listado de presupuestos'; c.appendChild(h);
 
     var tbl=document.createElement('table');
     var thead=document.createElement('thead'); var trh=document.createElement('tr');
     ['Folio','Concepto','Fecha objetivo','Monto'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
     thead.appendChild(trh); tbl.appendChild(thead);
     var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
-    card.appendChild(tbl); host.appendChild(card);
+    c.appendChild(tbl); host.appendChild(c);
 
     function pinta(){
       tbody.innerHTML='';
       DB.personal.presupuestos.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(p){
         var tr=document.createElement('tr'); tr.style.cursor='pointer';
-        tr.addEventListener('click', function(){ personalPresupuestoAbrir(p.id); });
+        tr.addEventListener('click', function(){ PER_presupuestoAbrir(p.id); });
         function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
         tr.appendChild(td(String(p.folio).padStart(3,'0')));
         tr.appendChild(td(p.concepto||'—'));
         tr.appendChild(td(p.fechaObjetivo||'—'));
-        tr.appendChild(td('$ '+Number(p.monto||0).toFixed(2)));
+        tr.appendChild(td(PER_money(p.monto||0)));
         tbody.appendChild(tr);
       });
     }
@@ -5105,47 +3958,46 @@ function personalPresupuestosList(){
   });
 }
 
-function personalPresupuestoNuevo(){
+function PER_presupuestoNuevo(){
   var p={
-    id: pNextId('PRE'),
-    folio: folioNext('pres'),
+    id: PER_nextPresId(),
+    folio: PER_nextPresFolio(),
     ts: Date.now(),
-    concepto: '',
+    bloqueado:false,
+    concepto:'',
     fechaObjetivo: hoyStr(),
-    monto: 0,
-    notas: '',
-    bloqueado: false
+    monto:0,
+    notas:''
   };
   DB.personal.presupuestos.push(p); saveDB(DB);
-  personalPresupuestoAbrir(p.id);
+  PER_presupuestoAbrir(p.id);
 }
 
-function personalPresupuestoAbrir(id){
+function PER_presupuestoAbrir(id){
   var p=DB.personal.presupuestos.find(function(x){return x.id===id;}); if(!p) return;
 
-  openTab('pers-pre-'+p.id, p.bloqueado?('Presupuesto '+String(p.folio).padStart(3,'0')):'Registrar presupuesto', function(host){
+  openTab('per-pre-'+p.id, p.bloqueado?('Presupuesto '+String(p.folio).padStart(3,'0')):'Registrar presupuesto', function(host){
     host.innerHTML='';
 
     var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='flex-end';
     var bMain=document.createElement('button');
     if(p.bloqueado){
       bMain.className='btn'; bMain.textContent='✏️ Editar';
-      bMain.addEventListener('click', function(){ p.bloqueado=false; saveDB(DB); personalPresupuestoAbrir(p.id); });
+      bMain.addEventListener('click', function(){ p.bloqueado=false; saveDB(DB); PER_presupuestoAbrir(p.id); });
     }else{
       bMain.className='btn-primary'; bMain.textContent='GUARDAR';
       bMain.addEventListener('click', function(){
         if(!p.concepto){ alert('Concepto requerido'); return; }
         if(Number(p.monto||0)<=0){ alert('Monto > 0'); return; }
         p.bloqueado=true; saveDB(DB);
-        alert('Presupuesto guardado con éxito folio '+String(p.folio).padStart(3,'0'));
-        personalPresupuestoAbrir(p.id);
+        alert('Presupuesto guardado con folio '+String(p.folio).padStart(3,'0'));
+        PER_presupuestoAbrir(p.id);
       });
     }
     top.appendChild(bMain); host.appendChild(top);
 
     var card=document.createElement('div'); card.className='card';
-    var h=document.createElement('h2'); h.textContent=p.bloqueado?('PRESUPUESTO FOLIO '+String(p.folio).padStart(3,'0')):'Registrar presupuesto';
-    card.appendChild(h);
+    var h=document.createElement('h2'); h.textContent=p.bloqueado?('PRESUPUESTO FOLIO '+String(p.folio).padStart(3,'0')):'Registrar presupuesto'; card.appendChild(h);
 
     var g=document.createElement('div'); g.className='grid';
 
@@ -5153,16 +4005,22 @@ function personalPresupuestoAbrir(id){
       var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
       var i=document.createElement('input'); i.type=type||'text'; i.value=val||'';
       if(p.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
-      else i.addEventListener('input', function(){ p[prop] = (i.type==='number')? parseFloat(i.value||'0') : i.value; saveDB(DB); });
+      i.addEventListener('input', function(){ p[prop]=(i.type==='number')?parseFloat(i.value||'0'):i.value; saveDB(DB); });
       dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
     }
     field('Concepto', p.concepto,'concepto','text');
     field('Fecha objetivo', p.fechaObjetivo,'fechaObjetivo','date');
-    field('Monto ($)', p.monto,'monto','number');
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Monto ($)';
+      var i=document.createElement('input'); i.type='text'; i.value=PER_money(p.monto||0); i.style.fontWeight='800';
+      if(p.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      i.addEventListener('focus', function(){ if(p.bloqueado) return; i.value=String(PER_parseMoney(i.value)); });
+      i.addEventListener('blur', function(){ if(p.bloqueado) return; p.monto=PER_parseMoney(i.value); i.value=PER_money(p.monto); saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    })();
 
     var dN=document.createElement('div'); var lN=document.createElement('label'); lN.textContent='Notas';
-    var tN=document.createElement('textarea'); tN.value=p.notas||'';
-    if(p.bloqueado){ tN.readOnly=true; tN.classList.add('ro'); }
+    var tN=document.createElement('textarea'); tN.value=p.notas||''; if(p.bloqueado){ tN.readOnly=true; tN.classList.add('ro'); }
     tN.addEventListener('input', function(){ p.notas=tN.value; saveDB(DB); });
     dN.appendChild(lN); dN.appendChild(tN); g.appendChild(dN);
 
@@ -5170,6 +4028,107 @@ function personalPresupuestoAbrir(id){
   });
 }
 
-   
+/* ===================================================================
+   ACTIVOS VARIOS
+====================================================================*/
+function PER_nextActId(){ return 'PACT'+Date.now(); }
+function PER_nextActFolio(){ DB.personal.folioActivo+=1; saveDB(DB); return DB.personal.folioActivo; }
+
+function PER_activosList(){
+  openTab('per-act','Personal · Activos varios', function(host){
+    host.innerHTML='';
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo activo';
+    bNew.addEventListener('click', function(){ PER_activoNuevo(); });
+    left.appendChild(bNew); top.appendChild(left); host.appendChild(top);
+
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Listado de activos'; c.appendChild(h);
+
+    var tbl=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Fecha','Descripción','Cantidad','PU','Total'].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    c.appendChild(tbl); host.appendChild(c);
+
+    function pinta(){
+      tbody.innerHTML='';
+      DB.personal.activos.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(a){
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click', function(){ PER_activoAbrir(a.id); });
+        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
+        tr.appendChild(td(String(a.folio).padStart(3,'0')));
+        tr.appendChild(td(a.fecha||'—'));
+        tr.appendChild(td(a.descripcion||'—'));
+        tr.appendChild(td(a.cantidad||0));
+        tr.appendChild(td(PER_money(a.precio||0)));
+        tr.appendChild(td(PER_money(Number(a.cantidad||0)*Number(a.precio||0))));
+        tbody.appendChild(tr);
+      });
+    }
+    pinta();
+  });
+}
+
+function PER_activoNuevo(){
+  var a={ id:PER_nextActId(), folio:PER_nextActFolio(), ts:Date.now(), bloqueado:false,
+          fecha:hoyStr(), descripcion:'', cantidad:1, precio:0 };
+  DB.personal.activos.push(a); saveDB(DB);
+  PER_activoAbrir(a.id);
+}
+
+function PER_activoAbrir(id){
+  var a=DB.personal.activos.find(function(x){return x.id===id;}); if(!a) return;
+
+  openTab('per-act-'+a.id, a.bloqueado?('Activo '+String(a.folio).padStart(3,'0')):'Registrar activo', function(host){
+    host.innerHTML='';
+
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='flex-end';
+    var bMain=document.createElement('button');
+    if(a.bloqueado){
+      bMain.className='btn'; bMain.textContent='✏️ Editar';
+      bMain.addEventListener('click', function(){ a.bloqueado=false; saveDB(DB); PER_activoAbrir(a.id); });
+    }else{
+      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
+      bMain.addEventListener('click', function(){
+        if(!a.descripcion){ alert('Descripción requerida'); return; }
+        if(Number(a.cantidad||0)<=0){ alert('Cantidad > 0'); return; }
+        if(Number(a.precio||0)<=0){ alert('Precio > 0'); return; }
+        a.bloqueado=true; saveDB(DB);
+        alert('Activo guardado con folio '+String(a.folio).padStart(3,'0'));
+        PER_activoAbrir(a.id);
+      });
+    }
+    top.appendChild(bMain); host.appendChild(top);
+
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent=a.bloqueado?('ACTIVO FOLIO '+String(a.folio).padStart(3,'0')):'Registrar activo'; card.appendChild(h);
+
+    var g=document.createElement('div'); g.className='grid';
+
+    function txt(label,val,setter,typ){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type=typ||'text'; i.value=val||''; if(a.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      i.addEventListener('input', function(){ setter(i.value); saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+    function num(label,val,setter){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent=label;
+      var i=document.createElement('input'); i.type='number'; i.value=val||0; if(a.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      i.addEventListener('input', function(){ setter(parseFloat(i.value||'0')); saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    }
+
+    txt('Descripción', a.descripcion, function(v){ a.descripcion=v; });
+    num('Cantidad', a.cantidad, function(v){ a.cantidad=v; });
+    num('Precio unitario', a.precio, function(v){ a.precio=v; });
+
+    card.appendChild(g); host.appendChild(card);
+  });
+}
+
+
 })();
 
