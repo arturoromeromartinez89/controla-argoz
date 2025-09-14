@@ -3655,6 +3655,372 @@ function personalConciliacion(){
   });
 }
 
+/* ================================================================
+   PERSONAL · INVENTARIOS v1.0
+   - Agrega cuentas solicitadas
+   - Submenú "Inventarios"
+   - Listado + formulario de movimiento con GUARDAR/✏️ Editar
+   - Saldos por cuenta (dinero $ y metal g)
+================================================================ */
+
+/* ---------- Utilidades ---------- */
+function moneyFmtPI(n){ return '$ ' + (Number(n||0)).toFixed(2); }
+function moneyParsePI(s){ return isNaN(s) ? parseFloat(String(s||'').replace(/[^\d.-]/g,''))||0 : Number(s); }
+function gramosFmtPI(n){ return (Number(n||0)).toFixed(2) + ' g'; }
+
+/* ---------- Asegura DB.personal y CUENTAS solicitadas ---------- */
+(function ensurePersonalInventoryAccounts(){
+  if(!DB.personal){
+    DB.personal = { consecutivoGasto:0, gastos:[], concs:[], cuentas:[], cuentasContables:[] };
+  }
+  if(!DB.personal.invMovs){ DB.personal.invMovs = []; }
+  if(typeof DB.personal.folioInv !== 'number'){ DB.personal.folioInv = 0; }
+
+  var wanted = [
+    { id:'pers_caja_plata',  nombre:'Caja de Plata Personal', tipo:'metal',  saldoGr:0, saldo:0 },
+    { id:'pers_banco_sant',  nombre:'Banco Santander Personal', tipo:'dinero', saldo:0 },
+    { id:'pers_banco_bbva',  nombre:'Bancomer Personal',        tipo:'dinero', saldo:0 },
+    { id:'pers_banco_nu',    nombre:'Nu Personal',              tipo:'dinero', saldo:0 },
+    { id:'pers_mp',          nombre:'Mercado Pago Personal',    tipo:'dinero', saldo:0 },
+    { id:'pers_ef_arturo',   nombre:'Efectivo Arturo',          tipo:'dinero', saldo:0 },
+    { id:'pers_ef_steph',    nombre:'Efectivo Stephanie',       tipo:'dinero', saldo:0 }
+  ];
+  if(!Array.isArray(DB.personal.cuentas)){ DB.personal.cuentas = []; }
+
+  wanted.forEach(function(nueva){
+    var exists = DB.personal.cuentas.some(function(c){ return c.id === nueva.id; });
+    if(!exists){ DB.personal.cuentas.push(nueva); }
+  });
+  saveDB(DB);
+})();
+
+/* ---------- Folio de movimiento de inventario ---------- */
+function nextInvFolioPI(){ DB.personal.folioInv += 1; saveDB(DB); return DB.personal.folioInv; }
+function nextInvIdPI(){ return 'PIM'+Date.now(); }
+
+/* ---------- Efecto sobre saldos (aplicar / revertir) ---------- */
+function applyInvEffectPI(mov, sign){
+  // sign: +1 aplica, -1 revierte
+  var cta = DB.personal.cuentas.find(function(c){ return c.id===mov.cuentaId; });
+  if(!cta) return;
+  if(cta.tipo==='dinero'){
+    var q = Number(mov.monto||0) * (mov.tipo==='egreso' ? -1 : 1) * (sign||1);
+    cta.saldo = Number(cta.saldo||0) + q;
+  }else{ // metal
+    var qg = Number(mov.gramos||0) * (mov.tipo==='egreso' ? -1 : 1) * (sign||1);
+    cta.saldoGr = Number(cta.saldoGr||0) + qg;
+  }
+  saveDB(DB);
+}
+
+/* ---------- Render: Submenú PERSONAL (extiende con Inventarios) ---------- */
+(function repatchRenderSubmenu_Personal_WithInventarios(){
+  var _orig = renderSubmenu;
+  renderSubmenu = function(root){
+    var r = String(root||'').toLowerCase();
+    if(r!=='personal'){ _orig(root); return; }
+
+    var host = qs('#subpanel'); if(!host) return;
+    host.innerHTML = '';
+
+    var card = document.createElement('div'); card.className='card';
+    var h2 = document.createElement('h2'); h2.textContent = 'Personal'; card.appendChild(h2);
+
+    var list = document.createElement('div');
+    list.className='actions';
+    list.style.flexDirection='column';
+    list.style.alignItems='stretch';
+
+    function item(txt, icon, fn){
+      var b = document.createElement('button'); b.className='btn'; b.style.justifyContent='flex-start';
+      b.innerHTML = icon+' '+txt;
+      b.addEventListener('click', fn);
+      return b;
+    }
+
+    list.appendChild(item('Dashboard','📊', personalDashboard));
+    list.appendChild(item('Gastos','💸', personalGastosList));
+    list.appendChild(item('Conciliación de Cuentas','🧾', personalConciliacion));
+    list.appendChild(item('Inventarios','📦', personalInventarios)); // ← NUEVO
+    card.appendChild(list);
+    host.appendChild(card);
+
+    // Mantengo el comportamiento anterior (abre Gastos por defecto)
+    personalGastosList();
+  };
+})();
+
+/* ===================== SUBMÓDULO: INVENTARIOS ===================== */
+function personalInventarios(){
+  openTab('pers-inv','Personal · Inventarios', function(host){
+    host.innerHTML='';
+
+    /* ---- Header con acciones (Nuevo / Imprimir / WhatsApp / Guardar) ---- */
+    var header = document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between'; header.style.alignItems='center';
+    var left = document.createElement('div'); left.className='actions';
+    var bNuevo=document.createElement('button'); bNuevo.className='btn'; bNuevo.textContent='＋ Nuevo movimiento';
+    bNuevo.addEventListener('click', function(){ personalInvNuevoMovimiento(); });
+    var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir';
+    bPrint.addEventListener('click', function(){ alert('PDF de inventarios (personal).'); });
+    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp';
+    bWA.addEventListener('click', function(){ alert('Enviar PDF por WhatsApp (personal).'); });
+    left.appendChild(bNuevo); left.appendChild(bPrint); left.appendChild(bWA);
+    header.appendChild(left);
+
+    // (Inventarios listados no se “guardan” como documento completo; cada movimiento se guarda en su propia hoja)
+    var right = document.createElement('div'); right.className='actions';
+    header.appendChild(right);
+    host.appendChild(header);
+
+    /* ---- Resumen de saldos por cuenta ---- */
+    var resumen = document.createElement('div'); resumen.className='card';
+    var hR = document.createElement('h2'); hR.textContent='Saldos personales'; resumen.appendChild(hR);
+
+    var grid = document.createElement('div'); grid.className='grid';
+    DB.personal.cuentas.forEach(function(ct){
+      var box = document.createElement('div');
+      var lab = document.createElement('label'); lab.textContent = ct.nombre + (ct.tipo==='metal' ? ' (g)' : '');
+      var inp = document.createElement('input'); inp.readOnly=true; inp.className='ro';
+      inp.value = ct.tipo==='metal' ? gramosFmtPI(ct.saldoGr||0) : moneyFmtPI(ct.saldo||0);
+      box.appendChild(lab); box.appendChild(inp);
+      grid.appendChild(box);
+    });
+    resumen.appendChild(grid);
+    host.appendChild(resumen);
+
+    /* ---- Filtros de movimientos ---- */
+    var filtros = document.createElement('div'); filtros.className='card';
+    var hF = document.createElement('h2'); hF.textContent='Movimientos'; filtros.appendChild(hF);
+
+    var gF=document.createElement('div'); gF.className='grid';
+    var dC=document.createElement('div'); var lC=document.createElement('label'); lC.textContent='Cuenta';
+    var sC=document.createElement('select'); var opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas'; sC.appendChild(opAll);
+    DB.personal.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; sC.appendChild(op); });
+    dC.appendChild(lC); dC.appendChild(sC); gF.appendChild(dC);
+
+    var dF1=document.createElement('div'); var lF1=document.createElement('label'); lF1.textContent='Desde'; var iF1=document.createElement('input'); iF1.type='date';
+    dF1.appendChild(lF1); dF1.appendChild(iF1); gF.appendChild(dF1);
+
+    var dF2=document.createElement('div'); var lF2=document.createElement('label'); lF2.textContent='Hasta'; var iF2=document.createElement('input'); iF2.type='date';
+    dF2.appendChild(lF2); dF2.appendChild(iF2); gF.appendChild(dF2);
+
+    filtros.appendChild(gF);
+
+    var rowAct=document.createElement('div'); rowAct.className='actions';
+    var spacer=document.createElement('div'); spacer.style.flex='1';
+    var bBuscar=document.createElement('button'); bBuscar.className='btn'; bBuscar.textContent='Buscar';
+    bBuscar.style.background='#0a3a74'; bBuscar.style.color='#fff'; bBuscar.style.border='1px solid #0a3a74';
+    rowAct.appendChild(spacer); rowAct.appendChild(bBuscar);
+    filtros.appendChild(rowAct);
+
+    /* ---- Tabla movimientos ---- */
+    var tbl=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Fecha','Cuenta','Tipo','Unidad','Cantidad','Concepto',' '].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    filtros.appendChild(tbl);
+    host.appendChild(filtros);
+
+    function pintar(){
+      tbody.innerHTML='';
+      var rows = DB.personal.invMovs.slice().sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+      rows.forEach(function(m){
+        var ok=true;
+        if(sC.value){ ok = ok && m.cuentaId===sC.value; }
+        if(iF1.value){ ok = ok && m.fecha>=iF1.value; }
+        if(iF2.value){ ok = ok && m.fecha<=iF2.value; }
+        if(!ok) return;
+
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click', function(){ personalInvAbrirMovimiento(m.id); });
+        function td(t){ var d=document.createElement('td'); d.textContent=t; return d; }
+
+        var cta=(DB.personal.cuentas.find(function(c){return c.id===m.cuentaId;})||{}).nombre || '—';
+        var unidad = (m.unidad==='metal') ? 'Gramos' : 'Dinero';
+        var cant = (m.unidad==='metal') ? (Number(m.gramos||0)).toFixed(2)+' g' : moneyFmtPI(m.monto||0);
+
+        tr.appendChild(td(String(m.folio).padStart(3,'0')));
+        tr.appendChild(td(m.fecha||'—'));
+        tr.appendChild(td(cta));
+        tr.appendChild(td(m.tipo||'—')); // ingreso / egreso / ajuste
+        tr.appendChild(td(unidad));
+        tr.appendChild(td(cant));
+        tr.appendChild(td(m.concepto||''));
+        var tdArrow=document.createElement('td'); tdArrow.textContent='›'; tdArrow.style.textAlign='right'; tr.appendChild(tdArrow);
+
+        tbody.appendChild(tr);
+      });
+    }
+    bBuscar.addEventListener('click', pintar);
+    pintar();
+  });
+}
+
+/* ---------- Crear & abrir movimiento ---------- */
+function personalInvNuevoMovimiento(){
+  var mov = {
+    id: nextInvIdPI(),
+    folio: nextInvFolioPI(),
+    ts: Date.now(),
+    bloqueado: false,
+    fecha: hoyStr(),
+    cuentaId: '',
+    tipo: 'ingreso',        // ingreso | egreso | ajuste
+    unidad: 'dinero',       // dinero | metal (se ajusta al elegir cuenta)
+    monto: 0,               // si dinero
+    gramos: 0,              // si metal
+    concepto: '',
+    evidencia: ''
+  };
+  DB.personal.invMovs.push(mov); saveDB(DB);
+  personalInvAbrirMovimiento(mov.id);
+}
+
+function personalInvAbrirMovimiento(id){
+  var m = DB.personal.invMovs.find(function(x){ return x.id===id; });
+  if(!m) return;
+
+  openTab('pers-inv-'+m.id, (m.bloqueado ? ('Movimiento '+String(m.folio).padStart(3,'0')) : 'Registrar movimiento de inventario'), function(host){
+    host.innerHTML='';
+
+    /* ---- Barra superior: Nuevo / Imprimir / WhatsApp + GUARDAR o ✏️ Editar ---- */
+    var header = document.createElement('div'); header.className='actions'; header.style.justifyContent='space-between'; header.style.alignItems='center';
+    var left=document.createElement('div'); left.className='actions';
+
+    var bNuevo=document.createElement('button'); bNuevo.className='btn'; bNuevo.textContent='＋ Nuevo movimiento';
+    bNuevo.addEventListener('click', personalInvNuevoMovimiento);
+    var bPrint=document.createElement('button'); bPrint.className='btn'; bPrint.textContent='🖨️ Imprimir';
+    bPrint.addEventListener('click', function(){ alert('PDF del movimiento (personal).'); });
+    var bWA=document.createElement('button'); bWA.className='btn'; bWA.textContent='WhatsApp';
+    bWA.addEventListener('click', function(){ alert('Enviar PDF por WhatsApp (personal).'); });
+    left.appendChild(bNuevo); left.appendChild(bPrint); left.appendChild(bWA);
+
+    var right=document.createElement('div'); right.className='actions';
+    var bMain=document.createElement('button');
+    if(m.bloqueado){
+      bMain.className='btn'; bMain.textContent='✏️ Editar';
+      bMain.addEventListener('click', function(){ m.bloqueado=false; saveDB(DB); personalInvAbrirMovimiento(m.id); });
+    }else{
+      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
+      bMain.addEventListener('click', function(){
+        // Validaciones
+        if(!m.cuentaId){ alert('Selecciona la cuenta.'); return; }
+        var cta = DB.personal.cuentas.find(function(c){ return c.id===m.cuentaId; });
+        if(!cta){ alert('Cuenta inválida.'); return; }
+        if(m.tipo!=='ajuste'){
+          if(cta.tipo==='dinero' && !(Number(m.monto||0))) { alert('Captura un monto.'); return; }
+          if(cta.tipo==='metal'  && !(Number(m.gramos||0))) { alert('Captura gramos.'); return; }
+        }
+        // Si ya estaba guardado antes y se está re-guardando (por si permitimos editar), revertir efecto anterior
+        if(m.__aplicado){
+          applyInvEffectPI(m, -1);
+        }
+        // Aplica efecto y bloquea
+        applyInvEffectPI(m, +1);
+        m.__aplicado = true;
+        m.bloqueado = true;
+        saveDB(DB);
+        alert('Movimiento guardado con éxito con folio '+String(m.folio).padStart(3,'0'));
+        personalInvAbrirMovimiento(m.id);
+      });
+    }
+    right.appendChild(bMain);
+
+    header.appendChild(left); header.appendChild(right);
+    host.appendChild(header);
+
+    /* ---- Tarjeta principal ---- */
+    var card = document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent = m.bloqueado ? ('Movimiento '+String(m.folio).padStart(3,'0')) : 'Registrar movimiento de inventario';
+    card.appendChild(h);
+
+    var g=document.createElement('div'); g.className='grid';
+
+    // Fecha
+    var dF=document.createElement('div'); var lF=document.createElement('label'); lF.textContent='Fecha';
+    var iF=document.createElement('input'); iF.type='date'; iF.value=m.fecha; iF.readOnly=!!m.bloqueado; if(m.bloqueado){ iF.classList.add('ro'); }
+    iF.addEventListener('change', function(){ m.fecha=iF.value; saveDB(DB); });
+    dF.appendChild(lF); dF.appendChild(iF); g.appendChild(dF);
+
+    // Cuenta
+    var dC=document.createElement('div'); var lC=document.createElement('label'); lC.textContent='Cuenta';
+    var sC=document.createElement('select'); var opV=document.createElement('option'); opV.value=''; opV.textContent='(Selecciona)'; sC.appendChild(opV);
+    DB.personal.cuentas.forEach(function(cu){ var op=document.createElement('option'); op.value=cu.id; op.textContent=cu.nombre; if(m.cuentaId===cu.id) op.selected=true; sC.appendChild(op); });
+    sC.disabled=!!m.bloqueado;
+    sC.addEventListener('change', function(){
+      m.cuentaId=sC.value;
+      var cta=DB.personal.cuentas.find(function(c){ return c.id===m.cuentaId; });
+      if(cta){ m.unidad = (cta.tipo==='metal') ? 'metal' : 'dinero'; }
+      saveDB(DB); renderUnidad(); 
+    });
+    dC.appendChild(lC); dC.appendChild(sC); g.appendChild(dC);
+
+    // Tipo
+    var dT=document.createElement('div'); var lT=document.createElement('label'); lT.textContent='Tipo de movimiento';
+    var sT=document.createElement('select'); [['ingreso','Ingreso'],['egreso','Egreso']/*,['ajuste','Ajuste']*/].forEach(function(p){ var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(m.tipo===p[0]) op.selected=true; sT.appendChild(op); });
+    sT.disabled=!!m.bloqueado;
+    sT.addEventListener('change', function(){ m.tipo=sT.value; saveDB(DB); });
+    dT.appendChild(lT); dT.appendChild(sT); g.appendChild(dT);
+
+    // Concepto
+    var dX=document.createElement('div'); var lX=document.createElement('label'); lX.textContent='Concepto / Descripción';
+    var iX=document.createElement('input'); iX.type='text'; iX.value=m.concepto||''; iX.readOnly=!!m.bloqueado; if(m.bloqueado){ iX.classList.add('ro'); }
+    iX.addEventListener('input', function(){ m.concepto=iX.value; saveDB(DB); });
+    dX.appendChild(lX); dX.appendChild(iX); g.appendChild(dX);
+
+    card.appendChild(g);
+
+    // Evidencia
+    var ev=document.createElement('div'); ev.className='actions';
+    var evLbl=document.createElement('span'); evLbl.textContent='📷 Evidencia (opcional)';
+    var evIn=document.createElement('input'); evIn.type='file'; evIn.accept='image/*'; evIn.disabled=!!m.bloqueado; if(m.bloqueado){ evIn.classList.add('ro'); }
+    var prev=document.createElement('div'); prev.className='preview';
+    evIn.addEventListener('change', function(){
+      if(evIn.files && evIn.files[0]){
+        var r=new FileReader(); r.onload=function(e){ m.evidencia=e.target.result; saveDB(DB); paintPrev(); }; r.readAsDataURL(evIn.files[0]);
+      }
+    });
+    function paintPrev(){ prev.innerHTML=''; if(m.evidencia){ var im=document.createElement('img'); im.src=m.evidencia; prev.appendChild(im); } }
+    paintPrev();
+    ev.appendChild(evLbl); ev.appendChild(evIn); ev.appendChild(prev);
+    card.appendChild(ev);
+
+    host.appendChild(card);
+
+    // Renderiza inputs de unidad (dinero vs metal)
+    function renderUnidad(){
+      var old = qs('#unidadWrap', host); if(old) old.remove();
+      var wrap = document.createElement('div'); wrap.className='card'; wrap.id='unidadWrap';
+      var gg = document.createElement('div'); gg.className='grid';
+
+      var cta = DB.personal.cuentas.find(function(c){ return c.id===m.cuentaId; });
+      var esMetal = cta ? (cta.tipo==='metal') : (m.unidad==='metal');
+
+      if(esMetal){
+        // GRAMOS (permite negativos)
+        var dG=document.createElement('div'); var lG=document.createElement('label'); lG.textContent='Gramos (permite negativos)'; 
+        var iG=document.createElement('input'); iG.type='number'; iG.step='0.01'; iG.value=Number(m.gramos||0); 
+        iG.readOnly=!!m.bloqueado; if(m.bloqueado){ iG.classList.add('ro'); }
+        iG.addEventListener('input', function(){ m.gramos=parseFloat(iG.value||'0'); saveDB(DB); });
+        dG.appendChild(lG); dG.appendChild(iG); gg.appendChild(dG);
+      }else{
+        // DINERO (permite negativos; se formatea al salir)
+        var dM=document.createElement('div'); var lM=document.createElement('label'); lM.textContent='Monto (permite negativos)';
+        var iM=document.createElement('input'); iM.type='text'; iM.value=moneyFmtPI(m.monto||0); iM.style.fontWeight='800'; iM.style.color='#0f9d58';
+        iM.readOnly=!!m.bloqueado; if(m.bloqueado){ iM.classList.add('ro'); }
+        iM.addEventListener('focus', function(){ if(m.bloqueado) return; iM.value=String(moneyParsePI(iM.value)); });
+        iM.addEventListener('blur', function(){ if(m.bloqueado) return; m.monto=moneyParsePI(iM.value); iM.value=moneyFmtPI(m.monto); saveDB(DB); });
+        dM.appendChild(lM); dM.appendChild(iM); gg.appendChild(dM);
+      }
+
+      wrap.appendChild(gg);
+      host.appendChild(wrap);
+    }
+    renderUnidad();
+  });
+}
+
    
 })();
 
