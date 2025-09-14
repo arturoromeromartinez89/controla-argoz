@@ -4129,6 +4129,286 @@ function PER_activoAbrir(id){
   });
 }
 
+/* ================================================================
+   PERSONAL · Traspasos de plata v1.0
+   - Lista + alta de traspasos (sale de / entra a)
+   - Aplica egreso de gramos al GUARDAR (bloquea hoja)
+   - Código de traspaso para recepción externa; estado ABIERTO/CERRADO
+=================================================================*/
+
+/* --- Estado y folios --- */
+(function PER_ensureTraspasos(){
+  if(!DB.personal) DB.personal = {};
+  if(!Array.isArray(DB.personal.traspasos)) DB.personal.traspasos = [];
+  if(typeof DB.personal.folioTrasp !== 'number') DB.personal.folioTrasp = 0;
+  saveDB(DB);
+})();
+function PER_nextTraspId(){ return 'PTRS'+Date.now(); }
+function PER_nextTraspFolio(){ DB.personal.folioTrasp+=1; saveDB(DB); return DB.personal.folioTrasp; }
+function PER_makeTraspCode(t){ return ['TRF', String(t.folio).padStart(3,'0'), t.fecha.replaceAll('-',''), Math.round(Number(t.gramos||0)*100)].join('-'); }
+
+/* --- Entrada de menú: Traspasos --- */
+/* Reemplazamos suavemente el render del submenú para añadir “Traspasos de plata”
+   sin cambiar el resto de estructura. */
+(function PER_patchMenuAddTraspasos(){
+  var _old = PER_renderSubmenu;
+  PER_renderSubmenu = function(){
+    _old();
+    // Inserta el botón extra si no existe
+    var host = qs('#subpanel'); if(!host) return;
+    var card = host.querySelector('.card'); if(!card) return;
+    var list = card.querySelector('.actions'); if(!list) return;
+
+    if(!list.querySelector('[data-per-menu="traspasos"]')){
+      var btn=document.createElement('button');
+      btn.className='btn'; btn.style.justifyContent='flex-start';
+      btn.setAttribute('data-per-menu','traspasos');
+      btn.innerHTML='🔁 Traspasos de plata';
+      btn.addEventListener('click', PER_traspasosList);
+      list.appendChild(btn);
+    }
+  };
+})();
+
+/* --- Lista de traspasos --- */
+function PER_traspasosList(){
+  openTab('per-tras','Personal · Traspasos de plata', function(host){
+    host.innerHTML='';
+
+    // Header
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn'; bNew.textContent='＋ Nuevo traspaso';
+    bNew.addEventListener('click', PER_traspasoNuevo);
+    left.appendChild(bNew); top.appendChild(left); host.appendChild(top);
+
+    // Tabla
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Listado de traspasos'; c.appendChild(h);
+
+    var tbl=document.createElement('table');
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Fecha','Sale de','Entra a','Gramos','Código','Estatus',' '].forEach(function(t){ var th=document.createElement('th'); th.textContent=t; trh.appendChild(th); });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    c.appendChild(tbl); host.appendChild(c);
+
+    function pinta(){
+      tbody.innerHTML='';
+      DB.personal.traspasos.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}).forEach(function(t){
+        var tr=document.createElement('tr'); tr.style.cursor='pointer';
+        tr.addEventListener('click', function(){ PER_traspasoAbrir(t.id); });
+        function td(x){ var e=document.createElement('td'); e.textContent=x; return e; }
+        var saleDe = (DB.personal.cuentas.find(function(c){return c.id===t.cuentaSalidaId;})||{}).nombre || '—';
+        var entraA = t.destinoTipo==='abierto' ? 'Abierto (pendiente)' : (t.destinoNombre||'—');
+        tr.appendChild(td(String(t.folio).padStart(3,'0')));
+        tr.appendChild(td(t.fecha||'—'));
+        tr.appendChild(td(saleDe));
+        tr.appendChild(td(entraA));
+        tr.appendChild(td(Number(t.gramos||0).toFixed(2)+' g'));
+        tr.appendChild(td(t.codigo||'—'));
+        tr.appendChild(td(t.estatus||'ABIERTO'));
+        var tdArrow=document.createElement('td'); tdArrow.textContent='›'; tdArrow.style.textAlign='right'; tr.appendChild(tdArrow);
+        tbody.appendChild(tr);
+      });
+    }
+    pinta();
+  });
+}
+
+/* --- Nuevo / Abrir traspaso --- */
+function PER_traspasoNuevo(){
+  var t={
+    id: PER_nextTraspId(),
+    folio: PER_nextTraspFolio(),
+    ts: Date.now(),
+    bloqueado:false,
+    fecha: hoyStr(),
+    cuentaSalidaId: (function(){
+      var metal = DB.personal.cuentas.find(function(c){return c.tipo==='metal';});
+      return metal ? metal.id : '';
+    })(),
+    destinoTipo:'abierto',      // abierto | cuenta
+    destinoNombre:'',           // Texto libre (ej. "Plata Taller · Caja")
+    destinoCuentaId:'',         // (opcional si en mismo sistema)
+    gramos:0,
+    notas:'',
+    estatus:'ABIERTO',
+    codigo:'' ,                 // TRF-...
+    invMovId:null               // vínculo con movimiento (egreso) aplicado
+  };
+  DB.personal.traspasos.push(t); saveDB(DB);
+  PER_traspasoAbrir(t.id);
+}
+
+function PER_traspasoAbrir(id){
+  var t=DB.personal.traspasos.find(function(x){return x.id===id;}); if(!t) return;
+
+  openTab('per-tras-'+t.id, t.bloqueado?('Traspaso '+String(t.folio).padStart(3,'0')):'Registrar traspaso de plata', function(host){
+    host.innerHTML='';
+
+    // Barra superior
+    var top=document.createElement('div'); top.className='actions'; top.style.justifyContent='space-between';
+    var left=document.createElement('div'); left.className='actions';
+
+    var bCerrar=document.createElement('button'); bCerrar.className='btn';
+    bCerrar.textContent='✔️ Cerrar traspaso';
+    bCerrar.disabled = (t.estatus==='CERRADO');
+    bCerrar.addEventListener('click', function(){
+      if(t.estatus==='CERRADO'){ return; }
+      t.estatus='CERRADO';
+      t.fechaCierre = hoyStr();
+      t.bloqueado = true;
+      saveDB(DB);
+      alert('Traspaso cerrado.');
+      PER_traspasoAbrir(t.id);
+    });
+    left.appendChild(bCerrar);
+
+    var right=document.createElement('div'); right.className='actions';
+    var bMain=document.createElement('button');
+    if(t.bloqueado){
+      bMain.className='btn'; bMain.textContent='✏️ Editar';
+      bMain.addEventListener('click', function(){ t.bloqueado=false; saveDB(DB); PER_traspasoAbrir(t.id); });
+    }else{
+      bMain.className='btn-primary'; bMain.textContent='GUARDAR';
+      bMain.addEventListener('click', function(){
+        // Validaciones
+        if(!t.cuentaSalidaId){ alert('Selecciona la cuenta de salida.'); return; }
+        var cta=DB.personal.cuentas.find(function(c){return c.id===t.cuentaSalidaId && c.tipo==='metal';});
+        if(!cta){ alert('La cuenta de salida debe ser de plata (g).'); return; }
+        if(Number(t.gramos||0) <= 0){ alert('Captura los gramos a traspasar (> 0).'); return; }
+
+        // Genera código si no existe
+        if(!t.codigo){ t.codigo = PER_makeTraspCode(t); }
+
+        // Aplica egreso de gramos (crea movimiento vinculado si aún no aplicado)
+        if(!t.invMovId){
+          var mov={
+            id: PER_nextInvId(), folio: PER_nextInvFolio(), ts: Date.now(),
+            bloqueado:true, fecha: t.fecha, cuentaId: t.cuentaSalidaId,
+            tipo:'egreso', unidad:'metal', gramos: Number(t.gramos||0), monto: 0,
+            concepto: 'Traspaso: '+(t.destinoTipo==='abierto'?'Abierto':(t.destinoNombre||'Destino')),
+            evidencia:''
+          };
+          DB.personal.invMovs.push(mov);
+          PER_applyMov(mov,+1); // resta gramos
+          mov.__aplicado = true;
+          t.invMovId = mov.id;
+        }
+
+        t.bloqueado=true;
+        saveDB(DB);
+        alert('Traspaso guardado con folio '+String(t.folio).padStart(3,'0')+'\nCódigo: '+t.codigo);
+        PER_traspasoAbrir(t.id);
+      });
+    }
+    right.appendChild(bMain);
+
+    top.appendChild(left); top.appendChild(right); host.appendChild(top);
+
+    // Hoja
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent = t.bloqueado?('TRASPASO FOLIO '+String(t.folio).padStart(3,'0')):'Registrar traspaso de plata';
+    card.appendChild(h);
+
+    var g=document.createElement('div'); g.className='grid';
+
+    // Fecha
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Fecha';
+      var i=document.createElement('input'); i.type='date'; i.value=t.fecha||hoyStr();
+      if(t.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      i.addEventListener('change', function(){ t.fecha=i.value; saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    })();
+
+    // Sale de (solo cuentas metal personales)
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Sale de (plata personal)';
+      var s=document.createElement('select'); var op0=document.createElement('option'); op0.value=''; op0.textContent='(Selecciona)'; s.appendChild(op0);
+      DB.personal.cuentas.filter(function(c){return c.tipo==='metal';}).forEach(function(c){
+        var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; if(t.cuentaSalidaId===c.id) op.selected=true; s.appendChild(op);
+      });
+      if(t.bloqueado){ s.disabled=true; s.classList.add('ro'); }
+      s.addEventListener('change', function(){ t.cuentaSalidaId=s.value; saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(s); g.appendChild(dv);
+    })();
+
+    // Entra a (abierto o especificar destino)
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Entra a';
+      var s=document.createElement('select');
+      [['abierto','Abierto (pendiente de recepción)'],['cuenta','Seleccionar/Escribir destino']].forEach(function(p){
+        var op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(t.destinoTipo===p[0]) op.selected=true; s.appendChild(op);
+      });
+      if(t.bloqueado){ s.disabled=true; s.classList.add('ro'); }
+      s.addEventListener('change', function(){ t.destinoTipo=s.value; saveDB(DB); renderDestino(); });
+      dv.appendChild(l); dv.appendChild(s); g.appendChild(dv);
+    })();
+
+    // Gramos
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Gramos a traspasar';
+      var i=document.createElement('input'); i.type='number'; i.step='0.01'; i.min='0.01'; i.value=Number(t.gramos||0);
+      if(t.bloqueado){ i.readOnly=true; i.classList.add('ro'); }
+      i.addEventListener('input', function(){ t.gramos=parseFloat(i.value||'0'); saveDB(DB); });
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    })();
+
+    // Código (solo lectura una vez generado)
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Código de traspaso';
+      var i=document.createElement('input'); i.type='text'; i.readOnly=true; i.className='ro';
+      i.value = t.codigo || '(se generará al GUARDAR)';
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    })();
+
+    // Estatus
+    (function(){
+      var dv=document.createElement('div'); var l=document.createElement('label'); l.textContent='Estatus';
+      var i=document.createElement('input'); i.readOnly=true; i.className='ro'; i.value=t.estatus || 'ABIERTO';
+      dv.appendChild(l); dv.appendChild(i); g.appendChild(dv);
+    })();
+
+    card.appendChild(g);
+
+    // Notas
+    var dN=document.createElement('div'); dN.className='grid';
+    var dvN=document.createElement('div'); var lN=document.createElement('label'); lN.textContent='Notas';
+    var tN=document.createElement('textarea'); tN.value=t.notas||''; if(t.bloqueado){ tN.readOnly=true; tN.classList.add('ro'); }
+    tN.addEventListener('input', function(){ t.notas=tN.value; saveDB(DB); });
+    dvN.appendChild(lN); dvN.appendChild(tN); dN.appendChild(dvN);
+    card.appendChild(dN);
+
+    host.appendChild(card);
+
+    function renderDestino(){
+      var old=qs('#per-destino-wrap', host); if(old) old.remove();
+      if(t.destinoTipo!=='cuenta') return;
+      var wrap=document.createElement('div'); wrap.className='card'; wrap.id='per-destino-wrap';
+      var gg=document.createElement('div'); gg.className='grid';
+
+      // Nombre libre del destino (ej. “Taller · Caja de plata”)
+      var dv1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Destino (texto)';
+      var i1=document.createElement('input'); i1.type='text'; i1.value=t.destinoNombre||'';
+      if(t.bloqueado){ i1.readOnly=true; i1.classList.add('ro'); }
+      i1.addEventListener('input', function(){ t.destinoNombre=i1.value; saveDB(DB); });
+      dv1.appendChild(l1); dv1.appendChild(i1); gg.appendChild(dv1);
+
+      // (Opcional) ID de cuenta destino si está en el mismo sistema (para referencia)
+      var dv2=document.createElement('div'); var l2=document.createElement('label'); l2.textContent='Cuenta destino (opcional, si existe en sistema)';
+      var i2=document.createElement('input'); i2.type='text'; i2.placeholder='p.ej. taller_caja_plata'; i2.value=t.destinoCuentaId||'';
+      if(t.bloqueado){ i2.readOnly=true; i2.classList.add('ro'); }
+      i2.addEventListener('input', function(){ t.destinoCuentaId=i2.value; saveDB(DB); });
+      dv2.appendChild(l2); dv2.appendChild(i2); gg.appendChild(dv2);
+
+      wrap.appendChild(gg); host.appendChild(wrap);
+    }
+    renderDestino();
+  });
+}
+
 
 })();
 
