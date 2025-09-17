@@ -4409,6 +4409,93 @@ function PER_traspasoAbrir(id){
   });
 }
 
+/* =========================  INFRA: SUCURSALES (GLOBAL)  ========================= */
+(function initSucursalesInfra(){
+  // 1) Catálogo fijo por ahora (puedes expandirlo luego desde Configuración)
+  var SUCURSALES = [
+    { id:'TAL', nombre:'Taller' },
+    { id:'ART', nombre:'Arturo' }
+  ];
+  window.SUCURSALES = SUCURSALES; // disponible global
+
+  // 2) Persistencia/migración
+  if(!window.DB){ window.DB = {}; }
+  if(!DB.sucursalActualId){ DB.sucursalActualId = 'TAL'; }
+  if(!DB.folios){
+    DB.folios = { maquila: { TAL:0, ART:0 } }; // folios independientes por sucursal
+  }else{
+    // migra faltantes
+    DB.folios.maquila = DB.folios.maquila || {};
+    if(typeof DB.folios.maquila.TAL !== 'number'){ DB.folios.maquila.TAL = 0; }
+    if(typeof DB.folios.maquila.ART !== 'number'){ DB.folios.maquila.ART = 0; }
+  }
+  if(!DB.pendientesContables){ DB.pendientesContables = []; } // asientos diferidos (merma, etc.)
+  if(!DB.otsMaquila){ DB.otsMaquila = []; }
+
+  // util
+  function save(){ try{ saveDB(DB); }catch(e){} }
+
+  // 3) Selector fijo en barra superior (mismo look & feel)
+  if(!document.querySelector('#sucursal-switcher')){
+    var top = document.querySelector('.topbar') || document.body;
+    var wrap = document.createElement('div');
+    wrap.id = 'sucursal-switcher';
+    wrap.style.position = 'fixed';
+    wrap.style.top = '8px';
+    wrap.style.right = '12px';
+    wrap.style.zIndex = '9999';
+    wrap.style.display = 'flex';
+    wrap.style.gap = '8px';
+    wrap.style.alignItems = 'center';
+
+    var lbl = document.createElement('span');
+    lbl.textContent = 'Sucursal:';
+    lbl.className = 'pill';
+    lbl.style.cursor = 'default';
+
+    var sel = document.createElement('select');
+    sel.className = 'pill';
+    sel.style.height = '28px';
+    SUCURSALES.forEach(function(s){
+      var op = document.createElement('option');
+      op.value = s.id; op.textContent = s.nombre + ' ('+s.id+')';
+      if(s.id === DB.sucursalActualId) op.selected = true;
+      sel.appendChild(op);
+    });
+    sel.addEventListener('change', function(){
+      DB.sucursalActualId = sel.value;
+      save();
+      toast('Sucursal activa: ' + sel.value);
+      // refrescar vistas actuales que dependan de sucursal:
+      var activeTab = document.querySelector('#tabs .tab.active');
+      if(activeTab){
+        var id = activeTab.getAttribute('data-tab') || '';
+        // si es una lista, recárgala; si es una OT abierta, solo actualiza chips
+        if(id.startsWith('otmaq-')){ /* no cerramos, solo dejamos en sesión */ }
+        // re-render del submenú actual si existe:
+        try{ renderSubmenu && renderSubmenu(document.querySelector('.tree-btn.active')?.getAttribute('data-root')); }catch(e){}
+      }
+    });
+
+    wrap.appendChild(lbl);
+    wrap.appendChild(sel);
+    top.appendChild(wrap);
+  }
+
+  // 4) Helpers globales
+  window.sucursalActual = function(){ return DB.sucursalActualId || 'TAL'; };
+  window.nombreSucursal = function(id){
+    var s = SUCURSALES.find(function(x){ return x.id===id; });
+    return s ? s.nombre : id;
+  };
+  window.nextFolioMaquila = function(sucId){
+    var sid = sucId || sucursalActual();
+    DB.folios.maquila[sid] = (DB.folios.maquila[sid]||0) + 1;
+    save();
+    return DB.folios.maquila[sid];
+  };
+})();
+
 
 })();
 
