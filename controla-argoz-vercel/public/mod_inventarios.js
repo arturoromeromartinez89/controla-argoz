@@ -1,15 +1,21 @@
 // =====================================================================
-// ============  INICIO MÓDULO INVENTARIO · v1.2 (tabs fijos)  =========
+// ============  INICIO MÓDULO INVENTARIO · v1.3 (robusto)  ============
 // =====================================================================
 
-/* ===== Datos base ===== */
+/* ===== Bootstrap de DB ===== */
 (function initDB(){
   window.DB = window.DB || {};
   DB.folios = DB.folios || {entrada:0,salida:0,traspaso:0};
   DB.movInv = DB.movInv || { entradas:[], salidas:[], traspasos:[], conciliaciones:[] };
   DB.stock  = DB.stock  || { GEN:{}, PROD:{}, ART:{}, COB:{} };
+  // utilidades base si no existen (por si el index no las expuso aún)
+  window.saveDB = window.saveDB || (db=>localStorage.setItem('erp_taller_db',JSON.stringify(db)));
+  window.hoyStr = window.hoyStr || (()=>new Date().toISOString().slice(0,10));
+  window.f2     = window.f2     || (x=>(parseFloat(x||0)).toFixed(2));
+  window.escapeHTML = window.escapeHTML || (s=>(s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m])));
 })();
 
+/* ===== Catálogos ===== */
 const INV_ALM = [
   {id:'GEN', nombre:'ALMACEN GENERAL PLATA'},
   {id:'PROD',nombre:'ALMACEN PRODUCCIÓN'},
@@ -31,7 +37,6 @@ function invGet(alm,mat){const v=parseFloat((DB.stock[alm]||{})[mat]||0);return 
 function invSet(alm,mat,g){DB.stock[alm]=DB.stock[alm]||{};DB.stock[alm][mat]=parseFloat(g)||0}
 function invAdd(alm,mat,g){invSet(alm,mat, invGet(alm,mat)+(parseFloat(g)||0))}
 function invSub(alm,mat,g){const cur=invGet(alm,mat),q=parseFloat(g)||0;if(cur<q) throw new Error('Inventario insuficiente de '+invNameMat(mat)+' en '+invNameAlm(alm)); invSet(alm,mat,cur-q)}
-
 function nextFolio(tp){
   if(tp==='EN'){DB.folios.entrada++; saveDB(DB); return 'EN-'+String(DB.folios.entrada).padStart(3,'0')}
   if(tp==='SA'){DB.folios.salida++;  saveDB(DB); return 'SA-'+String(DB.folios.salida).padStart(3,'0')}
@@ -40,7 +45,19 @@ function nextFolio(tp){
   return 'XX-000'
 }
 
-/* ===== Helpers Hoja ===== */
+/* ===== Overrides visuales (submenú más chico) ===== */
+(function injectInvCSS(){
+  const id='inv-compact-css';
+  if(document.getElementById(id)) return;
+  const css = `
+  .module .subbtn{ font-size:13px !important; padding:6px 8px !important; }
+  .module .tab{ font-size:12px !important; padding:4px 8px !important; }
+  .module .card h2{ font-size:18px !important; }
+  `;
+  const s=document.createElement('style'); s.id=id; s.textContent=css; document.head.appendChild(s);
+})();
+
+/* ===== Hoja de trabajo helpers ===== */
 window.HT = window.HT || {
   mountToolbar(root,opts){
     const bar=document.createElement('div'); bar.className='ht-toolbar';
@@ -49,7 +66,11 @@ window.HT = window.HT || {
     const bPrint=document.createElement('button'); bPrint.type='button'; bPrint.className='ht-btn'; bPrint.textContent='🖨️ Imprimir';
     bPrint.onclick=()=>{ if(root.dataset.saved!=='true'){alert('Debes guardar primero el documento para poder generar el PDF');return;} opts.onPrint&&opts.onPrint(); };
     const bSave=document.createElement('button'); bSave.type='button'; bSave.className='ht-btn ht-btn-blue'; bSave.textContent='💾 Guardar'; bSave.dataset.mode='save';
-    bSave.onclick=async()=>{ if(bSave.dataset.mode==='edit'){HT.setEditable(root,true);HT._toggle(bSave,true);root.dataset.saved='false';return;} if(!confirm('¿Guardar este documento?')) return; const r=await (opts.onSave?opts.onSave():true); const ok=(r===true)||(r&&r.ok); const folio=(r&&r.folio)||root.dataset.folio||''; if(!ok) return; HT.markSaved(root,folio); HT.setEditable(root,false); HT._toggle(bSave,false); };
+    bSave.onclick=async()=>{ if(bSave.dataset.mode==='edit'){HT.setEditable(root,true);HT._toggle(bSave,true);root.dataset.saved='false';return;}
+      if(!confirm('¿Guardar este documento?')) return;
+      const r=await (opts.onSave?opts.onSave():true); const ok=(r===true)||(r&&r.ok); const folio=(r&&r.folio)||root.dataset.folio||'';
+      if(!ok) return; HT.markSaved(root,folio); HT.setEditable(root,false); HT._toggle(bSave,false);
+    };
     bar.appendChild(left); bar.appendChild(bPrint); bar.appendChild(bSave);
     const old=root.querySelector(':scope>.ht-toolbar'); if(old) old.remove(); root.prepend(bar);
   },
@@ -102,37 +123,81 @@ function makeLinesTable(cfg){
 }
 
 /* ===== Render del módulo ===== */
+function ensureWorkArea(){
+  // se asegura que existan las zonas de tabs y views
+  const moduleHost=document.getElementById('moduleHost');
+  const cont = moduleHost && moduleHost.querySelector('.module .workcol');
+  if(!cont){
+    // recrear layout mínimo del módulo
+    moduleHost.innerHTML='';
+    const mod=document.createElement('div'); mod.className='module';
+    const sub=document.createElement('div'); sub.className='subcol';
+    const box=document.createElement('div'); box.className='card'; box.innerHTML='<h2>Inventarios</h2><div class="subbox" id="inv-subbox"></div>';
+    sub.appendChild(box);
+    const work=document.createElement('div'); work.className='workcol card';
+    work.innerHTML='<div class="tabs" id="inv-tabs"></div><div id="inv-views"></div>';
+    mod.appendChild(sub); mod.appendChild(work); moduleHost.appendChild(mod);
+    return {tabs:work.querySelector('#inv-tabs'), views:work.querySelector('#inv-views'), subbox:box.querySelector('#inv-subbox')};
+  }
+  return {
+    tabs: document.getElementById('inv-tabs'),
+    views: document.getElementById('inv-views'),
+    subbox: document.querySelector('.module .subcol .subbox') || document.querySelector('.module .subcol .card .subbox')
+  };
+}
+
 function renderInventarios(host){
   host.innerHTML='';
   const mod=document.createElement('div'); mod.className='module';
 
-  // SUBMENÚ IZQ
   const sub=document.createElement('div'); sub.className='subcol';
   const box=document.createElement('div'); box.className='card';
-  const title=document.createElement('h2'); title.textContent='Inventarios'; box.appendChild(title);
-  const list=document.createElement('div'); list.className='subbox'; box.appendChild(list);
-
-  function addBtn(txt,fn,emoji){ const b=document.createElement('button'); b.type='button'; b.className='subbtn'; b.textContent=(emoji?' '+emoji+' ':' ')+txt; b.onclick=fn; list.appendChild(b); }
-  addBtn('Entrada', openEntrada, '📥');
-  addBtn('Salida', openSalida, '📤');
-  addBtn('Traspasos', openTraspasosHome, '🔁');
-  addBtn('Hacer inventario (conciliar)', openConciliacion, '📋');
+  box.innerHTML='<h2>Inventarios</h2><div class="subbox" id="inv-subbox"></div>';
   sub.appendChild(box);
 
-  // ÁREA DE TRABAJO DER: pestañas + vistas con IDs FIJOS
   const work=document.createElement('div'); work.className='workcol card';
-  const tabs=document.createElement('div'); tabs.className='tabs'; tabs.id='inv-tabs';
-  const views=document.createElement('div'); views.id='inv-views';
-  work.appendChild(tabs); work.appendChild(views);
+  work.innerHTML='<div class="tabs" id="inv-tabs"></div><div id="inv-views"></div>';
 
   mod.appendChild(sub); mod.appendChild(work);
   host.appendChild(mod);
+
+  // Submenú por delegación (un solo listener y data-act)
+  const list = box.querySelector('#inv-subbox');
+  list.innerHTML = [
+    `<button type="button" class="subbtn" data-act="entrada">📥 Entrada</button>`,
+    `<button type="button" class="subbtn" data-act="salida">📤 Salida</button>`,
+    `<button type="button" class="subbtn" data-act="traspasos">🔁 Traspasos</button>`,
+    `<button type="button" class="subbtn" data-act="conciliar">📋 Hacer inventario (conciliar)</button>`
+  ].join('');
+
+  list.addEventListener('click', (ev)=>{
+    const b = ev.target.closest('.subbtn'); if(!b) return;
+    const act=b.dataset.act;
+    try{
+      if(act==='entrada') return openEntrada();
+      if(act==='salida')  return openSalida();
+      if(act==='traspasos') return openTraspasosHome();
+      if(act==='conciliar') return openConciliacion();
+    }catch(e){
+      console.error('Error al abrir hoja', e);
+      alert('Ocurrió un error al abrir la hoja. Ya lo reforcé, intenta de nuevo.');
+    }
+  });
 }
 
-/* helpers para gestionar pestañas en este módulo */
-function invHost(){ return { tabs: document.getElementById('inv-tabs'), views: document.getElementById('inv-views') }; }
+/* helpers de tabs */
+function invHost(){
+  let tabs=document.getElementById('inv-tabs');
+  let views=document.getElementById('inv-views');
+  if(!tabs || !views){
+    // reconstruir si faltan
+    const fixed=ensureWorkArea();
+    tabs=fixed.tabs; views=fixed.views;
+  }
+  return {tabs,views};
+}
 function invOpenTab(id,title,mount){
-  const {tabs,views}=invHost(); if(!tabs||!views){alert('Vista no inicializada');return;}
+  const {tabs,views}=invHost();
   // desactivar actuales
   tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   views.querySelectorAll('.view').forEach(v=>v.style.display='none');
@@ -144,7 +209,8 @@ function invOpenTab(id,title,mount){
     tab=document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=id; tab.textContent=title; tabs.appendChild(tab);
     view=document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
     tab.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); views.querySelectorAll('.view').forEach(v=>v.style.display='none'); tab.classList.add('active'); view.style.display='block'; };
-    if(typeof mount==='function') mount(view);
+    // montar con try/catch para no romper el tab si hay un error en el montaje
+    try{ if(typeof mount==='function') mount(view); }catch(e){ console.error(e); view.innerHTML='<div class="card"><p class="muted">Error al montar la hoja.</p></div>'; }
   }
   tab.classList.add('active'); view.style.display='block';
 }
@@ -156,7 +222,6 @@ function openEntrada(){
   ], total:0 };
   invOpenTab(doc.id, 'Entrada '+doc.folio, (v)=>mountEntrada(v,doc));
 }
-
 function mountEntrada(host,doc){
   host.innerHTML=''; const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=doc.folio;
 
@@ -193,7 +258,6 @@ function mountEntrada(host,doc){
 
   HT.setEditable(sheet,true); host.appendChild(sheet);
 }
-
 function printEntrada(doc){
   const w=window.open('','_blank','width=820,height=900'); if(!w){alert('Permite pop-ups.');return}
   const css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;} table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left} thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1} .folio{color:#b91c1c;font-weight:800}';
@@ -214,7 +278,6 @@ function openSalida(){
   ], total:0 };
   invOpenTab(doc.id, 'Salida '+doc.folio, (v)=>mountSalida(v,doc));
 }
-
 function mountSalida(host,doc){
   host.innerHTML=''; const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=doc.folio;
 
@@ -247,7 +310,6 @@ function mountSalida(host,doc){
 
   HT.setEditable(sheet,true); host.appendChild(sheet);
 }
-
 function printSalida(doc){
   const w=window.open('','_blank','width=820,height=900'); if(!w){alert('Permite pop-ups.');return}
   const css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;} table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left} thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1} .folio{color:#b91c1c;font-weight:800}';
@@ -261,9 +323,7 @@ function printSalida(doc){
 }
 
 /* ====== TRASPASOS ====== */
-function openTraspasosHome(){
-  invOpenTab('TRHOME', 'Traspasos', mountTraspasosHome);
-}
+function openTraspasosHome(){ invOpenTab('TRHOME', 'Traspasos', mountTraspasosHome); }
 function mountTraspasosHome(host){
   host.innerHTML='';
   const card=document.createElement('div'); card.className='card'; card.style.marginBottom='10px';
@@ -306,7 +366,6 @@ function openNuevoTraspaso(){
   ], total:0, cerrado:false };
   invOpenTab(t.id, 'Traspaso '+t.folio, v=>mountTraspaso(v,t));
 }
-
 function mountTraspaso(host,t){
   host.innerHTML=''; const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=t.folio;
 
@@ -354,7 +413,6 @@ function openTraspasoDetalle(id){
     card.appendChild(bar); view.appendChild(card);
   });
 }
-
 function aceptarTraspaso(id){
   const t=DB.movInv.traspasos.find(x=>x.id===id); if(!t){alert('No encontrado');return}
   if(t.cerrado){alert('Ya cerrado.');return}
@@ -363,7 +421,6 @@ function aceptarTraspaso(id){
   alert('Traspaso aceptado en destino.');
   openTraspasosHome();
 }
-
 function pdfTraspaso(t,borrador){
   const w=window.open('','_blank','width=820,height=900'); if(!w){alert('Permite pop-ups.');return}
   const css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;} table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left} thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1} .folio{color:#b91c1c;font-weight:800} .water{position:fixed;top:40%;left:18%;font-size:46px;color:#9ca3af80;transform:rotate(-18deg);}';
@@ -378,9 +435,7 @@ function pdfTraspaso(t,borrador){
 }
 
 /* ====== CONCILIACIÓN ====== */
-function openConciliacion(){
-  invOpenTab('CONCINV', 'Conciliación de Inventario', mountConciliacion);
-}
+function openConciliacion(){ invOpenTab('CONCINV', 'Conciliación de Inventario', mountConciliacion); }
 function mountConciliacion(host){
   host.innerHTML=''; const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false';
 
@@ -425,5 +480,5 @@ function mountConciliacion(host){
 }
 
 // =====================================================================
-// ==============  FIN MÓDULO INVENTARIO · v1.2 (tabs fijos)  ==========
+// ==============  FIN MÓDULO INVENTARIO · v1.3 (robusto)  =============
 // =====================================================================
