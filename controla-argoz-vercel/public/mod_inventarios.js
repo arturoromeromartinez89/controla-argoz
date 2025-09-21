@@ -1,5 +1,5 @@
 // =====================================================================
-// ============  INICIO MÓDULO INVENTARIO · v1.4 (estable)  ============
+// ============  INICIO MÓDULO INVENTARIO · v1.5 (consulta+exist) =======
 // =====================================================================
 
 /* ===== Bootstrap de DB ===== */
@@ -44,14 +44,20 @@ function nextFolio(tp){
   return 'XX-000'
 }
 
-/* ===== Overrides visuales (submenú más chico) ===== */
+/* ===== CSS compacto submenú + chips estatus ===== */
 (function injectInvCSS(){
   const id='inv-compact-css';
   if(document.getElementById(id)) return;
   const css = `
-  .module .subbtn{ font-size:13px !important; padding:6px 8px !important; }
+  .module .subbtn{ font-size:13px !important; padding:6px 8px !important; display:block; width:100%; text-align:left; margin-bottom:8px; }
   .module .tab{ font-size:12px !important; padding:4px 8px !important; }
   .module .card h2{ font-size:18px !important; }
+  .status-pill{display:inline-flex; align-items:center; gap:6px; font-weight:700; padding:4px 10px; border-radius:999px;}
+  .status-ok{background:#e8f7ec; color:#166534;}
+  .status-warn{background:#fff7ed; color:#b45309;}
+  .dot{width:10px;height:10px;border-radius:999px;}
+  .dot.ok{background:#16a34a;}
+  .dot.warn{background:#f59e0b;}
   `;
   const s=document.createElement('style'); s.id=id; s.textContent=css; document.head.appendChild(s);
 })();
@@ -161,24 +167,27 @@ function renderInventarios(host){
 
   const list = box.querySelector('#inv-subbox');
   list.innerHTML = [
+    `<button type="button" class="subbtn" data-act="consultar">🔎 Consultar</button>`,
+    `<button type="button" class="subbtn" data-act="existencias">📦 Existencias</button>`,
     `<button type="button" class="subbtn" data-act="entrada">📥 Entrada</button>`,
     `<button type="button" class="subbtn" data-act="salida">📤 Salida</button>`,
     `<button type="button" class="subbtn" data-act="traspasos">🔁 Traspasos</button>`,
     `<button type="button" class="subbtn" data-act="conciliar">📋 Hacer inventario (conciliar)</button>`
   ].join('');
 
-  // Delegación de eventos: robusto ante re-renders
   list.addEventListener('click', (ev)=>{
     const b = ev.target.closest('.subbtn'); if(!b) return;
     const act=b.dataset.act;
     try{
+      if(act==='consultar') return openConsulta();
+      if(act==='existencias') return openExistencias();
       if(act==='entrada') return openEntrada();
       if(act==='salida')  return openSalida();
       if(act==='traspasos') return openTraspasosHome();
       if(act==='conciliar') return openConciliacion();
     }catch(e){
       console.error('Error al abrir hoja', e);
-      alert('Ocurrió un error al abrir la hoja. Intenta de nuevo.');
+      alert('Ocurrió un error al abrir la hoja.');
     }
   });
 }
@@ -221,7 +230,6 @@ function mountEntrada(host,doc){
   host.innerHTML='';
   const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=doc.folio;
 
-  // Total (crear antes para que el onChange lo encuentre)
   const totalWrap=document.createElement('div'); totalWrap.className='right';
   const totalEl=document.createElement('div'); totalEl.className='money'; totalEl.textContent='0.00 g'; totalWrap.appendChild(totalEl);
   const setTotal=(g)=>{ totalEl.textContent=f2(g)+' g'; };
@@ -251,7 +259,6 @@ function mountEntrada(host,doc){
     '<div style="grid-column:1/-1"><label>Comentario</label><textarea data-field="coment" data-edit rows="2"></textarea></div>';
   sheet.appendChild(enc);
 
-  // Listeners robustos por data-field
   enc.querySelector('[data-field="fecha"]').onchange = e=>{doc.fecha=e.target.value; saveDB(DB)};
   enc.querySelector('[data-field="motivo"]').value = doc.motivo;
   enc.querySelector('[data-field="motivo"]').onchange = e=>{doc.motivo=e.target.value; saveDB(DB)};
@@ -292,7 +299,6 @@ function mountSalida(host,doc){
   host.innerHTML='';
   const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=doc.folio;
 
-  // Total primero (para no romper closures)
   const totalWrap=document.createElement('div'); totalWrap.className='right';
   const totalEl=document.createElement('div'); totalEl.className='money'; totalEl.textContent='0.00 g'; totalWrap.appendChild(totalEl);
   const setTotal=(g)=>{ totalEl.textContent=f2(g)+' g'; };
@@ -392,7 +398,6 @@ function mountTraspaso(host,t){
   host.innerHTML='';
   const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=t.folio;
 
-  // Total primero
   const totalWrap=document.createElement('div'); totalWrap.className='right';
   const totalEl=document.createElement('div'); totalEl.className='money'; totalEl.textContent='0.00 g'; totalWrap.appendChild(totalEl);
   const setTotal=(g)=>{ totalEl.textContent=f2(g)+' g'; };
@@ -470,11 +475,26 @@ function pdfTraspaso(t,borrador){
   w.document.write(html.join('')); w.document.close(); try{w.focus(); w.print();}catch(e){}
 }
 
-/* ===================== CONCILIACIÓN ===================== */
+/* ===================== CONCILIACIÓN (mejorada) ===================== */
 function openConciliacion(){ invOpenTab('CONCINV', 'Conciliación de Inventario', mountConciliacion); }
 function mountConciliacion(host){
   host.innerHTML='';
   const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false';
+
+  let totalDif = 0;
+  let ajuste    = 0;
+
+  function renderStatus(){
+    const pill = sheet.querySelector('.status-pill');
+    const sum = totalDif + ajuste;
+    if(Math.abs(sum) < 0.0000001){
+      pill.className='status-pill status-ok';
+      pill.innerHTML='<span class="dot ok"></span> Conciliado';
+    }else{
+      pill.className='status-pill status-warn';
+      pill.innerHTML='<span class="dot warn"></span> Por conciliar';
+    }
+  }
 
   HT.mountToolbar(sheet,{docName:'conciliación',
     onNew: openConciliacion,
@@ -483,7 +503,9 @@ function mountConciliacion(host){
       rows.forEach(r=>{ const sis=invGet(alm,r.mat); const dif=(parseFloat(r.conteo||0)-sis);
         if(Math.abs(dif)>0){ if(dif>0){ invAdd(alm,r.mat,dif) } else { try{ invSub(alm,r.mat,-dif) }catch(e){ alert(e.message) } } totalAdj+=dif; }
       });
-      const folio=nextFolio('CI'); DB.movInv.conciliaciones.push({ id:'CI'+Date.now(), folio, fecha:fecha.value, almacen:alm, filas:JSON.parse(JSON.stringify(rows)), totalAjuste:totalAdj }); saveDB(DB);
+      // Ajuste final aplica a .925 (supuesto simple)
+      if(Math.abs(ajuste)>0){ if(ajuste>0){ invAdd(alm,'925',ajuste) } else { try{ invSub(alm,'925',-ajuste) }catch(e){ alert(e.message) } } totalAdj+=ajuste; }
+      const folio=nextFolio('CI'); DB.movInv.conciliaciones.push({ id:'CI'+Date.now(), folio, fecha:fecha.value, almacen:alm, filas:JSON.parse(JSON.stringify(rows)), totalAjuste:totalAdj, ajusteFinal:ajuste }); saveDB(DB);
       return {ok:true, folio};
     },
     onPrint: ()=>{
@@ -491,31 +513,162 @@ function mountConciliacion(host){
       const css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;} table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left} thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1}';
       const html=['<html><head><meta charset="utf-8"><style>'+css+'</style><title>Conciliación</title></head><body>'];
       html.push('<h2>Conciliación de Inventario</h2>');
-      html.push('<div class="row"><div class="col"><b>Fecha al:</b> '+fecha.value+'</div><div class="col"><b>Almacén:</b> '+invNameAlm(alm)+'</div></div>');
+      html.push('<div class="row"><div class="col"><b>Fecha al:</b> '+fecha.value+'</div><div class="col"><b>Almacén:</b> '+invNameAlm(alm)+'</div><div class="col"><b>Estatus:</b> '+(Math.abs(totalDif+ajuste)<0.0001?'Conciliado':'Por conciliar')+'</div></div>');
       html.push('<table><thead><tr><th>Material</th><th>Sistema (g)</th><th>Conteo (g)</th><th>Diferencia (g)</th></tr></thead><tbody>');
       rows.forEach(r=>{ const sis=invGet(alm,r.mat); const dif=(parseFloat(r.conteo||0)-sis); html.push('<tr><td>'+invNameMat(r.mat)+'</td><td>'+f2(sis)+'</td><td>'+f2(r.conteo||0)+'</td><td>'+f2(dif)+'</td></tr>'); });
-      html.push('</tbody></table></body></html>');
+      html.push('</tbody></table>');
+      html.push('<p><b>Ajuste final:</b> '+f2(ajuste)+' g · <b>Diferencia total post-ajuste:</b> '+f2(totalDif+ajuste)+' g</p>');
+      html.push('</body></html>');
       w.document.write(html.join('')); w.document.close(); try{w.focus(); w.print();}catch(e){}
     }
   });
 
   const top=document.createElement('div'); top.className='grid';
-  top.innerHTML='<div><label>Almacén</label>'+selAlm('GEN',true)+'</div><div><label>Fecha al</label><input data-edit type="date" value="'+hoyStr()+'"></div><div style="display:flex;align-items:flex-end"><span class="ht-btn">Estatus</span></div>';
+  top.innerHTML='<div><label>Almacén</label>'+selAlm('GEN',true)+'</div><div><label>Fecha al</label><input data-edit type="date" value="'+hoyStr()+'"></div><div style="display:flex;align-items:end;justify-content:flex-end"><span class="status-pill status-warn"><span class="dot warn"></span> Por conciliar</span></div>';
   sheet.appendChild(top);
   function selAlm(val,edit){ let s='<select '+(edit?'data-edit':'disabled')+'>'; INV_ALM.forEach(a=>{ s+=`<option value="${a.id}" ${a.id===val?'selected':''}>${a.nombre}</option>`}); return s+'</select>' }
   const sel=top.querySelector('select'); const fecha=top.querySelector('input[type="date"]');
 
   const box=document.createElement('div'); box.className='card'; box.innerHTML='<h2>Conteos por material</h2>';
-  const tb=document.createElement('table'); tb.className='table'; tb.innerHTML='<thead><tr><th>Material</th><th>Sistema (g)</th><th>Conteo (g)</th><th>Diferencia</th></tr></thead><tbody></tbody>'; const body=tb.querySelector('tbody');
+  const tb=document.createElement('table'); tb.className='table'; tb.innerHTML='<thead><tr><th>Material</th><th>Sistema (g)</th><th>Conteo (g)</th><th>Diferencia</th></tr></thead><tbody></tbody><tfoot><tr><th colspan="3" style="text-align:right">Diferencia total:</th><th class="totaldif">0.00</th></tr><tr><th colspan="3" style="text-align:right">Ajuste final (± g):</th><th><input data-edit type="number" step="0.01" value="0" style="width:100%;text-align:right" class="ajuste"></th></tr><tr><th colspan="3" style="text-align:right">Total posterior a ajuste:</th><th class="post">0.00</th></tr></tfoot>'; 
+  const body=tb.querySelector('tbody'); const cellTotal=tb.querySelector('.totaldif'); const cellPost=tb.querySelector('.post'); const inAjuste=tb.querySelector('.ajuste');
   box.appendChild(tb); sheet.appendChild(box);
 
-  const rows = INV_MAT.filter(m=>m.id!=='TERM').map(m=>({mat:m.id, conteo:0}));
-  function paint(){ body.innerHTML=''; rows.forEach(r=>{ const sis=invGet(sel.value,r.mat); const tr=document.createElement('tr'); tr.innerHTML='<td>'+invNameMat(r.mat)+'</td><td>'+f2(sis)+'</td><td><input data-edit type="number" step="0.01" value="'+(r.conteo||0)+'" style="width:100%;text-align:right"></td><td>—</td>'; const inC=tr.querySelector('input'); inC.oninput=()=>{ r.conteo=parseFloat(inC.value||0); }; body.appendChild(tr); }); }
+  const rows = INV_MAT.filter(m=>m.id!=='TERM').map(m=>({mat:m.id, conteo:0, sis:0, dif:0}));
+  function recompute(){
+    const alm=sel.value;
+    totalDif = 0;
+    rows.forEach(r=>{ r.sis=invGet(alm,r.mat); r.dif=(parseFloat(r.conteo||0)-r.sis); totalDif+=r.dif; });
+    cellTotal.textContent=f2(totalDif);
+    cellPost.textContent=f2(totalDif + ajuste);
+    renderStatus();
+  }
+  function paint(){
+    const alm=sel.value;
+    body.innerHTML='';
+    rows.forEach(r=>{
+      r.sis=invGet(alm,r.mat);
+      const tr=document.createElement('tr');
+      tr.innerHTML='<td>'+invNameMat(r.mat)+'</td><td class="sis">'+f2(r.sis)+'</td><td><input data-edit type="number" step="0.01" value="'+(r.conteo||0)+'" style="width:100%;text-align:right"></td><td class="dif">0.00</td>';
+      const inC=tr.querySelector('input'); const tdSis=tr.querySelector('.sis'); const tdDif=tr.querySelector('.dif');
+      function upd(){
+        r.sis=invGet(alm,r.mat); tdSis.textContent=f2(r.sis);
+        r.conteo=parseFloat(inC.value||0);
+        r.dif=r.conteo - r.sis; tdDif.textContent=f2(r.dif);
+        recompute();
+      }
+      inC.oninput=upd; upd(); // inicial
+      body.appendChild(tr);
+    });
+  }
   paint();
+
+  inAjuste.oninput=()=>{ ajuste=parseFloat(inAjuste.value||0); recompute(); };
+  sel.onchange=()=>{ paint(); };
 
   HT.setEditable(sheet,true); host.appendChild(sheet);
 }
 
+/* ======================= CONSULTAR (nuevo) ======================= */
+function openConsulta(){ invOpenTab('INVCONS', 'Consultar documentos', mountConsulta); }
+function mountConsulta(host){
+  host.innerHTML='';
+  const card=document.createElement('div'); card.className='card';
+
+  const bar=document.createElement('div'); bar.className='ht-toolbar';
+  const selTipo=document.createElement('select');
+  ['ENTRADAS','SALIDAS','TRASPASOS','CONCILIACIÓN'].forEach(t=>{const op=document.createElement('option');op.text=t; selTipo.appendChild(op);});
+  const fIni=document.createElement('input'); fIni.type='date'; fIni.value=hoyStr();
+  const fFin=document.createElement('input'); fFin.type='date'; fFin.value=hoyStr();
+  const q=document.createElement('input'); q.type='text'; q.placeholder='Buscar... (folio, comentario)';
+  const go=document.createElement('button'); go.type='button'; go.className='ht-btn ht-btn-blue'; go.textContent='➡ Buscar';
+  bar.appendChild(selTipo); bar.appendChild(fIni); bar.appendChild(fFin); bar.appendChild(q); bar.appendChild(go);
+  card.appendChild(bar);
+
+  const tb=document.createElement('table'); tb.className='table'; tb.innerHTML='<thead><tr><th>Tipo</th><th>Folio</th><th>Fecha</th><th>Info</th><th>Total (g)</th></tr></thead><tbody></tbody>';
+  const body=tb.querySelector('tbody'); card.appendChild(tb);
+  host.appendChild(card);
+
+  function between(d,a,b){ return d>=a && d<=b; }
+  function run(){
+    body.innerHTML='';
+    const a=fIni.value, b=fFin.value,qq=(q.value||'').toLowerCase();
+    function addRow(tipo, folio, fecha, info, total, openFn){
+      const tr=document.createElement('tr');
+      tr.innerHTML='<td>'+tipo+'</td><td>'+folio+'</td><td>'+fecha+'</td><td>'+escapeHTML(info||'')+'</td><td style="text-align:right">'+f2(total||0)+'</td>';
+      tr.ondblclick=openFn; body.appendChild(tr);
+    }
+    if(selTipo.value==='ENTRADAS' || selTipo.value==='ENTRADAS'.toUpperCase()){
+      DB.movInv.entradas.filter(d=>between(d.fecha,a,b) && (d.folio.toLowerCase().includes(qq)|| (d.comentario||'').toLowerCase().includes(qq))).forEach(d=>{
+        addRow('Entrada', d.folio, d.fecha, d.comentario, (d.total||0), ()=>viewEntrada(d));
+      });
+    }
+    if(selTipo.value==='SALIDAS'){
+      DB.movInv.salidas.filter(d=>between(d.fecha,a,b) && (d.folio.toLowerCase().includes(qq)|| (d.comentario||'').toLowerCase().includes(qq))).forEach(d=>{
+        addRow('Salida', d.folio, d.fecha, d.comentario, (d.total||0), ()=>viewSalida(d));
+      });
+    }
+    if(selTipo.value==='TRASPASOS'){
+      DB.movInv.traspasos.filter(d=>between(d.fecha,a,b) && (d.folio.toLowerCase().includes(qq)|| (d.comentario||'').toLowerCase().includes(qq))).forEach(d=>{
+        addRow('Traspaso', d.folio, d.fecha, invNameAlm(d.origen)+' → '+invNameAlm(d.destino), (d.total||0), ()=>openTraspasoDetalle(d.id));
+      });
+    }
+    if(selTipo.value==='CONCILIACIÓN'){
+      DB.movInv.conciliaciones.filter(d=>between(d.fecha,a,b) && (d.folio.toLowerCase().includes(qq))).forEach(d=>{
+        addRow('Conciliación', d.folio, d.fecha, invNameAlm(d.almacen), (d.totalAjuste||0), ()=>viewConciliacion(d));
+      });
+    }
+  }
+  go.onclick=run; run();
+}
+function viewEntrada(d){
+  invOpenTab('VIEWEN'+d.folio, 'Entrada '+d.folio, v=>{
+    v.innerHTML='';
+    const c=document.createElement('div'); c.className='card';
+    c.innerHTML='<h2>Entrada '+d.folio+'</h2><p><b>Fecha:</b> '+d.fecha+' · <b>Destino:</b> '+invNameAlm('GEN')+' · <b>Motivo:</b> '+d.motivo+'</p>';
+    const tb=document.createElement('table'); tb.className='table'; tb.innerHTML='<thead><tr><th>#</th><th>Material</th><th>Descripción</th><th>Gr</th></tr></thead><tbody></tbody>'; const body=tb.querySelector('tbody');
+    (d.lineas||[]).forEach((li,i)=>{ const tr=document.createElement('tr'); tr.innerHTML='<td>'+(i+1)+'</td><td>'+invNameMat(li.materialId)+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+f2(li.gramos)+'</td>'; body.appendChild(tr); });
+    c.appendChild(tb); v.appendChild(c);
+  });
+}
+function viewSalida(d){
+  invOpenTab('VIEWSA'+d.folio, 'Salida '+d.folio, v=>{
+    v.innerHTML='';
+    const c=document.createElement('div'); c.className='card';
+    c.innerHTML='<h2>Salida '+d.folio+'</h2><p><b>Fecha:</b> '+d.fecha+' · <b>Origen:</b> '+invNameAlm('GEN')+'</p>';
+    const tb=document.createElement('table'); tb.className='table'; tb.innerHTML='<thead><tr><th>#</th><th>Material</th><th>Descripción</th><th>Gr</th></tr></thead><tbody></tbody>'; const body=tb.querySelector('tbody');
+    (d.lineas||[]).forEach((li,i)=>{ const tr=document.createElement('tr'); tr.innerHTML='<td>'+(i+1)+'</td><td>'+invNameMat(li.materialId)+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+f2(li.gramos)+'</td>'; body.appendChild(tr); });
+    c.appendChild(tb); v.appendChild(c);
+  });
+}
+function viewConciliacion(d){
+  invOpenTab('VIEWCI'+d.folio, 'Conciliación '+d.folio, v=>{
+    v.innerHTML='';
+    const c=document.createElement('div'); c.className='card';
+    c.innerHTML='<h2>Conciliación '+d.folio+'</h2><p><b>Fecha:</b> '+d.fecha+' · <b>Almacén:</b> '+invNameAlm(d.almacen)+'</p>';
+    const tb=document.createElement('table'); tb.className='table'; tb.innerHTML='<thead><tr><th>Material</th><th>Conteo</th></tr></thead><tbody></tbody>'; const body=tb.querySelector('tbody');
+    (d.filas||[]).forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML='<td>'+invNameMat(r.mat)+'</td><td>'+f2(r.conteo||0)+'</td>'; body.appendChild(tr); });
+    c.appendChild(tb); c.innerHTML+='<p><b>Ajuste final:</b> '+f2(d.ajusteFinal||0)+' g · <b>Total Ajuste:</b> '+f2(d.totalAjuste||0)+' g</p>'; v.appendChild(c);
+  });
+}
+
+/* ======================= EXISTENCIAS (nuevo) ======================= */
+function openExistencias(){ invOpenTab('INVSTK', 'Existencias', mountExistencias); }
+function mountExistencias(host){
+  host.innerHTML='';
+  const card=document.createElement('div'); card.className='card'; card.innerHTML='<h2>Existencias por almacén</h2>';
+  INV_ALM.forEach(a=>{
+    const tb=document.createElement('table'); tb.className='table'; tb.style.marginBottom='10px';
+    tb.innerHTML='<thead><tr><th colspan="3">'+invNameAlm(a.id)+'</th></tr><tr><th>Material</th><th>Gramos</th><th>Últ. movimiento</th></tr></thead><tbody></tbody>';
+    const body=tb.querySelector('tbody');
+    INV_MAT.filter(m=>m.id!=='TERM').forEach(m=>{
+      const tr=document.createElement('tr'); tr.innerHTML='<td>'+invNameMat(m.id)+'</td><td style="text-align:right">'+f2(invGet(a.id,m.id))+'</td><td class="muted">—</td>'; body.appendChild(tr);
+    });
+    card.appendChild(tb);
+  });
+  host.appendChild(card);
+}
+
 // =====================================================================
-// ==============  FIN MÓDULO INVENTARIO · v1.4 (estable)  =============
+// ==============  FIN MÓDULO INVENTARIO · v1.5 (estable)  =============
 // =====================================================================
