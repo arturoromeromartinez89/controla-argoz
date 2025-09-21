@@ -8,7 +8,7 @@
 :root{
   --menu-bg:#0b1c2e; --menu-fg:#e6eef7;
   --grad-a:#6A11CB; --grad-b:#2575FC;
-  --card:#fff; --line:#e5e7eb; --muted:#64748b; --btn:#3b82f6;
+  --card:#fff; --line:#e6eaf3; --muted:#64748b; --btn:#3b82f6;
   --edit:#fff3e6; --edit-bd:#f59e0b; --lock:#f3f4f6; --lock-fg:#475569;
 }
 *{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;background:#f8fafc}
@@ -22,23 +22,27 @@ aside{background:var(--menu-bg);color:var(--menu-fg);padding:14px 12px}
 main{padding:16px}
 .workspace{max-width:1200px;margin:0 auto}
 .topbar{display:flex;gap:10px;margin-bottom:12px}
-.kpi{background:#fff;border:1px solid #e6ebf3;border-radius:14px;padding:10px 12px;font-weight:800}
-.card{background:var(--card);border:1px solid #e6ebf3;border-radius:14px;padding:12px}
-h1,h2{margin:0 0 10px;color:#0a2c4c} .muted{color:var(--muted);font-size:12px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:8px 12px;font-weight:800}
 
-/* === Layout interno del módulo === */
-.module{display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start}
+/* ===== Layout interno del módulo ===== */
+.module{display:grid;grid-template-columns:240px 1fr;gap:16px;align-items:start}
 .subcol{position:sticky;top:12px}
-.subbox{display:flex;flex-direction:column;gap:10px}
-.subbtn{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e6ebf3;border-radius:12px;background:#fff;font-weight:800;cursor:pointer}
+.subbox{display:flex;flex-direction:column;gap:8px}
+.subbtn{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;
+  font-weight:700;font-size:14px; cursor:pointer
+}
 .subbtn:hover{border-color:#cdd6e4}
-.workcol{min-height:420px}
+.workcol{min-height:440px}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
-.tab{border:1px solid #e6ebf3;background:#fff;padding:6px 10px;border-radius:999px;cursor:pointer}
+.tab{border:1px solid var(--line);background:#fff;padding:6px 10px;border-radius:999px;font-size:13px;cursor:pointer}
 .tab.active{background:#e2e8f0;font-weight:800}
 .view{display:none}
 
 /* Hoja de trabajo */
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+h1,h2{margin:0 0 10px;color:#0a2c4c} .muted{color:var(--muted);font-size:12px}
 .ht-sheet [data-edit]{background:var(--edit);border:1px solid var(--edit-bd)}
 .ht-sheet [data-edit].locked{background:var(--lock)!important;color:var(--lock-fg);border:1px solid #cbd5e1}
 .ht-toolbar{display:flex;gap:8px;margin-bottom:8px}
@@ -81,7 +85,6 @@ h1,h2{margin:0 0 10px;color:#0a2c4c} .muted{color:var(--muted);font-size:12px}
         <div class="kpi">Producción: 0 g</div>
       </div>
 
-      <!-- Aquí se monta cada módulo -->
       <div id="moduleHost"></div>
     </div>
   </main>
@@ -108,51 +111,6 @@ DB.stock  = DB.stock  || {};
   document.getElementById('kpiSemana').textContent=fmt(lunes)+' – '+fmt(dom);
 })();
 
-/* ===== Tabs locales por módulo ===== */
-function makeTabHost(workcol){
-  const tabs=document.createElement('div'); tabs.className='tabs';
-  const views=document.createElement('div');
-  workcol.innerHTML=''; workcol.appendChild(tabs); workcol.appendChild(views);
-
-  function open(id,title,mount){
-    // desactivar
-    tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-    views.querySelectorAll('.view').forEach(v=>v.style.display='none');
-
-    let tab=tabs.querySelector('.tab[data-id="'+id+'"]');
-    let view=views.querySelector('#view-'+id);
-
-    if(!tab){
-      tab=document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=id; tab.textContent=title;
-      tabs.appendChild(tab);
-      view=document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
-      if(typeof mount==='function') mount(view);
-      tab.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); views.querySelectorAll('.view').forEach(v=>v.style.display='none'); tab.classList.add('active'); view.style.display='block'; };
-    }else{
-      tab.classList.add('active'); view.style.display='block';
-    }
-  }
-  return { open };
-}
-
-/* ===== Toolbar helpers (reglas de hoja) ===== */
-window.HT={
-  mountToolbar(root,opts){
-    const bar=document.createElement('div'); bar.className='ht-toolbar';
-    const left=document.createElement('div'); left.className='ht-left';
-    const bNew=document.createElement('button'); bNew.type='button'; bNew.className='ht-btn ht-btn-blue'; bNew.textContent='+ Nuevo '+(opts.docName||'documento'); bNew.onclick=opts.onNew; left.appendChild(bNew);
-    const bPrint=document.createElement('button'); bPrint.type='button'; bPrint.className='ht-btn'; bPrint.textContent='🖨️ Imprimir';
-    bPrint.onclick=()=>{ if(root.dataset.saved!=='true'){alert('Debes guardar primero el documento para poder generar el PDF');return;} opts.onPrint&&opts.onPrint(); };
-    const bSave=document.createElement('button'); bSave.type='button'; bSave.className='ht-btn ht-btn-blue'; bSave.textContent='💾 Guardar'; bSave.dataset.mode='save';
-    bSave.onclick=async()=>{ if(bSave.dataset.mode==='edit'){HT.setEditable(root,true);HT._toggle(bSave,true);root.dataset.saved='false';return;} if(!confirm('¿Guardar este documento?')) return; const r=await (opts.onSave?opts.onSave():true); const ok=(r===true)||(r&&r.ok); const folio=(r&&r.folio)||root.dataset.folio||''; if(!ok) return; HT.markSaved(root,folio); HT.setEditable(root,false); HT._toggle(bSave,false); };
-    bar.appendChild(left); bar.appendChild(bPrint); bar.appendChild(bSave);
-    const old=root.querySelector(':scope>.ht-toolbar'); if(old) old.remove(); root.prepend(bar);
-  },
-  setEditable(root,on){ root.querySelectorAll('[data-edit]').forEach(el=>{ if(on){el.classList.remove('locked'); el.removeAttribute('disabled');} else {el.classList.add('locked'); el.setAttribute('disabled','disabled');} }); },
-  markSaved(root,folio){ root.dataset.saved='true'; if(folio) root.dataset.folio=folio; alert(folio?('Documento guardado · Folio '+folio):'Documento guardado'); },
-  _toggle(btn,isSave){ if(isSave){btn.textContent='💾 Guardar';btn.dataset.mode='save';} else {btn.textContent='✏️ Editar';btn.dataset.mode='edit';} }
-};
-
 /* ===== Router de módulos ===== */
 const host=document.getElementById('moduleHost');
 document.getElementById('menu').addEventListener('click',(e)=>{
@@ -165,6 +123,12 @@ document.getElementById('menu').addEventListener('click',(e)=>{
 
 /* Auto: Inicio */
 document.querySelector('button[data-root="inicio"]').click();
+
+/* Exponer utilidades */
+window.saveDB = saveDB;
+window.f2 = f2;
+window.hoyStr = hoyStr;
+window.escapeHTML = escapeHTML;
 </script>
 
 <!-- MÓDULO INVENTARIOS -->
