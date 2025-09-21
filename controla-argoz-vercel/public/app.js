@@ -289,579 +289,726 @@
   }
 
   // =====================================================================
-  // =========================  MÓDULO: TRASPASOS  =======================
-  // =====================================================================
+// =====================  INICIO MÓDULO INVENTARIO  =====================
+// = versión 1.0.0 · interfaz unificada · 20/09/2025 ===================
+// =====================================================================
 
-  function listarAbiertos(mostrarTituloExtra){
-    var host = qs('#subpanel');
-    var card = document.createElement('div'); card.className = 'card';
-    if(mostrarTituloExtra){ var h = document.createElement('h2'); h.textContent = 'Traspasos pendientes'; card.appendChild(h); }
+/* 
+  Qué incluye:
+  - Submenú Inventarios: Entrada / Salida / Traspasos / Hacer inventario
+  - Folios por tipo de documento (sin sucursales): EN-, SA-, TR-
+  - Materiales fijos:
+      999  → Plata .999 (fina)
+      925  → Plata .925 (único inventario .925)
+      LMD  → Limalla dura .925
+      LMN  → Limalla negra .925
+      OTRO → Plata .925 de otro tipo
+      TERM → Producto terminado .925 (solo para ventas; aquí solo consulta)
+      ALC  → Plata por Aleación (EN-TR-SAL: en ENTRADA suma al inventario .925)
+  - Almacenes iniciales:
+      GEN  → ALMACEN GENERAL PLATA (único permitido para Entrada/Salida manual)
+      PROD → ALMACEN PRODUCCIÓN
+      ART  → ALMACEN PLATA ARTURO
+      COB  → ALMACEN PLATA POR COBRAR
+  - Reglas de “Hoja de trabajo”:
+      * Barra: +Nuevo (izq) · 🖨️ Imprimir (solo si guardado) · 💾 Guardar ↔ ✏️ Editar (der)
+      * Campos en edición = naranja; tras guardar = gris (bloqueados)
+      * Aviso al guardar con folio
+  - Traspasos con doble validación: Salida (pendiente) → Aceptar en destino → Cerrado
+  - Hacer inventario (conciliación): muestra existencias x material, captura conteo, calcula diferencia,
+    permite generar ajustes (+/-) y PDF de evidencia.
+*/
 
-    var lst = DB.traspasos.filter(function(t){ return !t.cerrado; });
-    if(lst.length === 0){
-      var p = document.createElement('p'); p.textContent = 'Sin folios abiertos.'; card.appendChild(p);
-    } else {
-      lst.forEach(function(t){
-        var fol = String(t.folio).padStart(3, '0');
-        var row = document.createElement('div'); row.className = 'actions';
-        var pill = document.createElement('span'); pill.className = 'pill orange'; pill.textContent = 'Folio ' + fol; row.appendChild(pill);
-        var btn = document.createElement('button'); btn.className = 'btn-orange'; btn.textContent = 'Procesar este traspaso';
-        btn.addEventListener('click', function(){
-          var msg = '¿Seguro que deseas procesar este traspaso?\n\nTen lista la siguiente información:\n• Mercancía terminada lista y pesada\n• Sobrante sólido pesado\n• Sobrante de limallas pesado';
-          if(!confirm(msg)) return;
-          abrirTraspasoExistente(t.id, true);
-        });
-        row.appendChild(btn);
-        card.appendChild(row);
-      });
-    }
-    host.appendChild(card);
-  }
+////////////////////////  Bootstrap de datos  ////////////////////////
+(function initInventariosDB(){
+  DB.folios = DB.folios || {};
+  DB.folios.entrada  = DB.folios.entrada  || 0;  // EN-
+  DB.folios.salida   = DB.folios.salida   || 0;  // SA-
+  DB.folios.traspaso = DB.folios.traspaso || 0;  // TR-
 
-  function listarCerrados(){
-    var host = qs('#subpanel');
-    var card = document.createElement('div'); card.className = 'card';
-    var h = document.createElement('h2'); h.textContent = 'Folios cerrados'; card.appendChild(h);
+  // stock[almacenId][materialId] = gramos
+  DB.stock = DB.stock || {};
+  ['GEN','PROD','ART','COB'].forEach(function(a){
+    DB.stock[a] = DB.stock[a] || {};
+  });
 
-    var lst = DB.traspasos.filter(function(t){ return !!t.cerrado; }).sort(function(a,b){ return b.folio - a.folio; });
-    if(lst.length===0){
-      var p = document.createElement('p'); p.textContent = 'Aún no hay folios cerrados.'; card.appendChild(p);
-    }else{
-      lst.forEach(function(t){
-        var row = document.createElement('div'); row.className='actions';
-        var pill = document.createElement('span'); pill.className='pill'; pill.textContent='Folio '+String(t.folio).padStart(3,'0'); row.appendChild(pill);
-        var btn = document.createElement('button'); btn.className='btn'; btn.textContent='Abrir PDF'; btn.addEventListener('click', function(){ imprimirPDF(t, false); }); row.appendChild(btn);
-        card.appendChild(row);
-      });
-    }
-    host.appendChild(card);
-  }
+  // movimientos
+  DB.movInv = DB.movInv || { entradas:[], salidas:[], traspasos:[], conciliaciones:[] };
 
-  function nuevoTraspasoBase(){
-    DB.folio += 1;
-    var id = 'T' + Date.now();
-    var folioNum = DB.folio;
+  // catálogo mínimo
+  window.AL_MACENES_FIX = [
+    {id:'GEN', nombre:'ALMACEN GENERAL PLATA'},
+    {id:'PROD',nombre:'ALMACEN PRODUCCIÓN'},
+    {id:'ART', nombre:'ALMACEN PLATA ARTURO'},
+    {id:'COB', nombre:'ALMACEN PLATA POR COBRAR'}
+  ];
+  window.MATERIALES_FIX = [
+    {id:'999',  nombre:'Plata .999 (fina)'},
+    {id:'925',  nombre:'Plata .925 (única)'},
+    {id:'LMD',  nombre:'Plata .925 limalla dura'},
+    {id:'LMN',  nombre:'Plata .925 limalla negra'},
+    {id:'OTRO', nombre:'Plata .925 de otro tipo'},
+    {id:'TERM', nombre:'Plata .925 producto terminado'},
+    {id:'ALC',  nombre:'Plata por Aleación'}
+  ];
+})();
 
-    var lineas = [];
-    var i;
-    for(i=0; i<3; i++){
-      lineas.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0 });
-    }
-    var salidaLineas = lineas.map(function(li){
-      return { materialId: li.materialId, detalle: li.detalle, gramos:0, aleacion:0, subtotal:0 };
+////////////////////////  Utilidades locales  ////////////////////////
+function inv_nombreMaterial(id){
+  var m = MATERIALES_FIX.find(function(x){ return x.id===id; });
+  return m? m.nombre : id;
+}
+function inv_nombreAlmacen(id){
+  var a = AL_MACENES_FIX.find(function(x){ return x.id===id; });
+  return a? a.nombre : id;
+}
+function inv_nextFolio(tipo){
+  if(tipo==='EN'){ DB.folios.entrada += 1; saveDB(DB); return 'EN-' + String(DB.folios.entrada).padStart(3,'0'); }
+  if(tipo==='SA'){ DB.folios.salida  += 1; saveDB(DB); return 'SA-' + String(DB.folios.salida ).padStart(3,'0'); }
+  if(tipo==='TR'){ DB.folios.traspaso+= 1; saveDB(DB); return 'TR-' + String(DB.folios.traspaso).padStart(3,'0'); }
+  return 'XX-000';
+}
+function inv_getStock(alm, mat){
+  DB.stock[alm] = DB.stock[alm] || {};
+  var v = parseFloat(DB.stock[alm][mat]||0);
+  return isFinite(v)? v : 0;
+}
+function inv_setStock(alm, mat, grams){
+  DB.stock[alm] = DB.stock[alm] || {};
+  DB.stock[alm][mat] = parseFloat(grams)||0;
+}
+function inv_addStock(alm, mat, grams){
+  var cur = inv_getStock(alm, mat);
+  inv_setStock(alm, mat, cur + (parseFloat(grams)||0));
+}
+function inv_subStock(alm, mat, grams){
+  var cur = inv_getStock(alm, mat);
+  var g = parseFloat(grams)||0;
+  if(cur < g) throw new Error('Inventario insuficiente de '+inv_nombreMaterial(mat)+' en '+inv_nombreAlmacen(alm));
+  inv_setStock(alm, mat, cur - g);
+}
+function inv_linesTable(opts){
+  // opts: {lineas, editable, onChange}
+  var wrap=document.createElement('div');
+  var table=document.createElement('table'); table.className='table';
+  table.style.tableLayout='fixed';
+  table.innerHTML='<thead><tr>'
+    +'<th style="width:6%">#</th>'
+    +'<th style="width:28%">Material</th>'
+    +'<th style="width:38%">Descripción</th>'
+    +'<th style="width:28%">Gramos</th>'
+    +'</tr></thead><tbody></tbody>';
+  var tb=table.querySelector('tbody');
+
+  function row(li, idx){
+    var tr=document.createElement('tr');
+
+    var c0=document.createElement('td'); c0.textContent=idx+1; tr.appendChild(c0);
+
+    var c1=document.createElement('td');
+    var sel=document.createElement('select'); sel.style.width='100%';
+    MATERIALES_FIX.forEach(function(m){
+      // En entradas/salidas permitidos todos, pero TERM avisa
+      var op=document.createElement('option'); op.value=m.id; op.textContent=m.nombre;
+      if(m.id==='TERM'){ op.textContent+=' (solo ventas)'; }
+      sel.appendChild(op);
     });
-
-    var obj = {
-      id: id,
-      folio: folioNum,
-      tipo: 'normal',
-      fecha: hoyStr(),
-      hora: horaStr(),
-      saleDe: 'caja',
-      entraA: 'prod',
-      comentarios: '',
-      totalGr: 0,
-      lineasEntrada: lineas,
-      salida: { creada: true, fecha: hoyStr(), hora: horaStr(), saleDe: 'prod', entraA: 'caja', comentarios: '', lineas: salidaLineas, totalGr: 0 },
-      cerrado: false
-    };
-    if(obj.saleDe === 'caja' && obj.entraA === 'prod'){ obj.tipo = 'prod'; }
-
-    DB.traspasos.push(obj);
-    saveDB(DB);
-    return obj.id;
-  }
-  function abrirTraspasoNuevo(){ var id = nuevoTraspasoBase(); abrirTraspasoExistente(id, false); }
-
-  function abrirTraspasoExistente(id, modoProcesar){
-    var tr = DB.traspasos.find(function(x){ return x.id === id; });
-    if(!tr){ toast('No encontrado'); return; }
-    if(!tr.salida || !tr.salida.lineas){
-      tr.salida = { creada:true, fecha:hoyStr(), hora:horaStr(), saleDe:'prod', entraA:'caja', comentarios:'', lineas:[], totalGr:0 };
-      saveDB(DB);
-    }
-    if(tr.salida.lineas.length===0){
-      var i; for(i=0;i<3;i++){ tr.salida.lineas.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0 }); }
-      saveDB(DB);
-    }
-
-    var titulo = 'Traspaso ' + String(tr.folio).padStart(3,'0');
-    openTab('trasp-'+id, titulo, function(host){
-      host.innerHTML = '';
-      var card = document.createElement('div'); card.className = 'card';
-
-      // ===== Encabezado GLOBAL del ciclo =====
-      var head = document.createElement('div'); head.className = 'grid';
-
-      var dvFolio = document.createElement('div'); var lbFo = document.createElement('label'); lbFo.textContent='Folio';
-      var inFol = document.createElement('input'); inFol.readOnly=true; inFol.value=String(tr.folio).padStart(3,'0'); inFol.style.color='#b91c1c'; dvFolio.appendChild(lbFo); dvFolio.appendChild(inFol);
-
-      var dvFecha = document.createElement('div'); var lbF = document.createElement('label'); lbF.textContent='Fecha';
-      var inF = document.createElement('input'); inF.type='date'; inF.value=tr.fecha; inF.readOnly=!!modoProcesar; if(modoProcesar){ inF.classList.add('ro'); }
-      inF.addEventListener('change', function(){ tr.fecha=inF.value; saveDB(DB); }); dvFecha.appendChild(lbF); dvFecha.appendChild(inF);
-
-      var dvS = document.createElement('div'); var lbS = document.createElement('label'); lbS.textContent='Sale de';
-      var selS = document.createElement('select'); ALMACENES.forEach(function(a){ var op=document.createElement('option'); op.value=a.id; op.textContent=a.nombre; if(a.id===tr.saleDe) op.selected=true; selS.appendChild(op); });
-      selS.disabled=!!modoProcesar; selS.addEventListener('change', function(){ tr.saleDe=selS.value; tr.tipo=(tr.saleDe==='caja' && tr.entraA==='prod')?'prod':'normal'; saveDB(DB); inDisp.value=f2(calcDisponibles(tr.saleDe)); });
-      dvS.appendChild(lbS); dvS.appendChild(selS);
-
-      var dvE = document.createElement('div'); var lbE = document.createElement('label'); lbE.textContent='Entra a';
-      var selE = document.createElement('select'); ALMACENES.forEach(function(a){ var op2=document.createElement('option'); op2.value=a.id; op2.textContent=a.nombre; if(a.id===tr.entraA) op2.selected=true; selE.appendChild(op2); });
-      selE.disabled=!!modoProcesar; selE.addEventListener('change', function(){ tr.entraA=selE.value; tr.tipo=(tr.saleDe==='caja' && tr.entraA==='prod')?'prod':'normal'; saveDB(DB); inDisp2.value=f2(calcDisponibles(tr.entraA)); });
-      dvE.appendChild(lbE); dvE.appendChild(selE);
-
-      var dvC = document.createElement('div'); var lbC=document.createElement('label'); lbC.textContent='Comentarios generales';
-      var txC=document.createElement('textarea'); txC.value=tr.comentarios; txC.readOnly=!!modoProcesar; if(modoProcesar){ txC.classList.add('ro'); }
-      txC.addEventListener('input', function(){ tr.comentarios=txC.value; saveDB(DB); }); dvC.appendChild(lbC); dvC.appendChild(txC);
-
-      var dvDisp=document.createElement('div'); var lbD=document.createElement('label'); lbD.textContent='Grs disponibles en almacén origen';
-      var inDisp=document.createElement('input'); inDisp.readOnly=true; inDisp.value=f2(calcDisponibles(tr.saleDe)); dvDisp.appendChild(lbD); dvDisp.appendChild(inDisp);
-
-      var dvDisp2=document.createElement('div'); var lbD2=document.createElement('label'); lbD2.textContent='Grs disponibles en almacén destino';
-      var inDisp2=document.createElement('input'); inDisp2.readOnly=true; inDisp2.value=f2(calcDisponibles(tr.entraA)); dvDisp2.appendChild(lbD2); dvDisp2.appendChild(inDisp2);
-
-      head.appendChild(dvFolio); head.appendChild(dvFecha); head.appendChild(dvS); head.appendChild(dvE);
-      head.appendChild(dvC); head.appendChild(dvDisp); head.appendChild(dvDisp2);
-      card.appendChild(head);
-
-      // ===== Evidencia GLOBAL (arriba, para todo el ciclo) =====
-      var divEv=document.createElement('div'); divEv.className='actions';
-      var cam=document.createElement('span'); cam.textContent='📷'; var lbl=document.createElement('span'); lbl.textContent=' Cargar evidencia fotográfica (aplica a TODA la hoja)';
-      var inFile=document.createElement('input'); inFile.type='file'; inFile.accept='image/*';
-      inFile.addEventListener('change', function(){ if(inFile.files && inFile.files[0]){ cargarEvidencia(inFile.files[0]); } });
-      divEv.appendChild(cam); divEv.appendChild(lbl); divEv.appendChild(inFile);
-      card.appendChild(divEv);
-
-      // ===== Estado GLOBAL (chips) =====
-      var estadoWrap = document.createElement('div'); estadoWrap.className = 'estado-global';
-      card.appendChild(estadoWrap);
-      actualizarEstadoGlobal(estadoWrap, tr);
-
-      // ===== Botonera GLOBAL (aplica a toda la hoja) =====
-      var barraGlobal = document.createElement('div'); barraGlobal.className = 'barra-global';
-      // Vista previa siempre disponible
-      var bVista = document.createElement('button'); bVista.className='btn'; bVista.textContent='Vista previa';
-      bVista.addEventListener('click', function(){ imprimirPDF(tr, true); });
-      barraGlobal.appendChild(bVista);
-
-      // Guardar ENTRADA si aún no procesas salida
-      if(!modoProcesar){
-        var bGuardarEntrada = document.createElement('button'); bGuardarEntrada.className='btn-primary'; bGuardarEntrada.textContent='Guardar ENTRADA';
-        bGuardarEntrada.addEventListener('click', function(){
-          if(!confirm('¿Seguro que deseas guardar la ENTRADA?')) return;
-          saveDB(DB);
-          toast('Traspaso de entrada creado exitosamente; puedes consultarlo en "Traspasos pendientes".');
-          var view = qs('#view-trasp-'+tr.id); if(view) view.remove();
-          var tabBtn = qs('[data-tab="trasp-'+tr.id+'"]'); if(tabBtn) tabBtn.remove();
-          renderSubmenu('inventarios');
-        });
-        barraGlobal.appendChild(bGuardarEntrada);
-      }
-
-      // PDF final y WhatsApp si ya está cerrado
-      if(tr.cerrado){
-        var bPdf = document.createElement('button'); bPdf.className='btn'; bPdf.textContent='PDF final';
-        bPdf.addEventListener('click', function(){ imprimirPDF(tr, false); });
-        barraGlobal.appendChild(bPdf);
-
-        var bWA = document.createElement('button'); bWA.className='btn'; bWA.title='Enviar PDF por WhatsApp'; bWA.innerHTML='📱 WhatsApp';
-        bWA.addEventListener('click', function(){ compartirWhatsApp(tr); });
-        barraGlobal.appendChild(bWA);
-      }
-
-      // Guardar SALIDA / Cerrar folio cuando estás en modo procesar
-      if(modoProcesar && !tr.cerrado){
-        var inJust=document.createElement('input'); inJust.type='text'; inJust.placeholder='Justificación (si regresas menos gramos — opcional)'; inJust.style.minWidth='280px';
-        barraGlobal.appendChild(inJust);
-        var bCerrar=document.createElement('button'); bCerrar.className='btn-primary'; bCerrar.textContent='Guardar SALIDA / Cerrar folio';
-        bCerrar.addEventListener('click', function(){ cerrarFolio(tr, inJust.value || ''); });
-        barraGlobal.appendChild(bCerrar);
-      }
-
-      card.appendChild(barraGlobal);
-
-      // ===== Bloque ENTRADA =====
-      var gridEntrada = document.createElement('div'); gridEntrada.className = 'grid';
-
-      var dvT = document.createElement('div'); var lbT=document.createElement('label'); lbT.textContent='Total GR. (entrada)';
-      var inT=document.createElement('input'); inT.readOnly=true; inT.value=f2(tr.totalGr); dvT.appendChild(lbT); dvT.appendChild(inT);
-
-      gridEntrada.appendChild(dvT);
-      card.appendChild(gridEntrada);
-
-      card.appendChild(tablaLineasWidget({
-        titulo: 'ENTRADA',
-        bloqueado: !!modoProcesar,
-        lineas: tr.lineasEntrada,
-        onChange: function(){
-          tr.totalGr = sumaSubtotales(tr.lineasEntrada);
-          inT.value = f2(tr.totalGr);
-          saveDB(DB);
-          actualizarEstadoGlobal(estadoWrap, tr);
-        }
-      }));
-
-      // ===== Bloque SALIDA =====
-      var bar=document.createElement('div'); bar.className='card';
-      var h3=document.createElement('h2'); h3.textContent = modoProcesar ? 'SALIDA (editable)' : 'SALIDA (bloqueada hasta procesar)'; bar.appendChild(h3);
-
-      var g2=document.createElement('div'); g2.className='grid';
-      var dvFS=document.createElement('div'); var lbFS=document.createElement('label'); lbFS.textContent='Fecha salida';
-      var inFS=document.createElement('input'); inFS.type='date'; inFS.value=tr.salida.fecha; inFS.readOnly=!modoProcesar; if(!modoProcesar){ inFS.classList.add('ro'); }
-      inFS.addEventListener('change', function(){ tr.salida.fecha=inFS.value; saveDB(DB); }); dvFS.appendChild(lbFS); dvFS.appendChild(inFS); g2.appendChild(dvFS);
-
-      var dvSS=document.createElement('div'); var lbSS=document.createElement('label'); lbSS.textContent='Sale de (salida)';
-      var selSS=document.createElement('select'); ALMACENES.forEach(function(a){ var opS=document.createElement('option'); opS.value=a.id; opS.textContent=a.nombre; if(a.id===tr.salida.saleDe) opS.selected=true; selSS.appendChild(opS); });
-      selSS.disabled=!modoProcesar; selSS.addEventListener('change', function(){ tr.salida.saleDe=selSS.value; saveDB(DB); }); dvSS.appendChild(lbSS); dvSS.appendChild(selSS); g2.appendChild(dvSS);
-
-      var dvSE=document.createElement('div'); var lbSE=document.createElement('label'); lbSE.textContent='Entra a (salida)';
-      var selSE=document.createElement('select'); ALMACENES.forEach(function(a){ var opE=document.createElement('option'); opE.value=a.id; opE.textContent=a.nombre; if(a.id===tr.salida.entraA) opE.selected=true; selSE.appendChild(opE); });
-      selSE.disabled=!modoProcesar; selSE.addEventListener('change', function(){ tr.salida.entraA=selSE.value; saveDB(DB); }); dvSE.appendChild(lbSE); dvSE.appendChild(selSE); g2.appendChild(dvSE);
-
-      var dvCS=document.createElement('div'); var lbCS=document.createElement('label'); lbCS.textContent='Comentarios (salida)';
-      var txCS=document.createElement('textarea'); txCS.value=tr.salida.comentarios; txCS.readOnly=!modoProcesar; if(!modoProcesar){ txCS.classList.add('ro'); }
-      txCS.addEventListener('input', function(){ tr.salida.comentarios=txCS.value; saveDB(DB); }); dvCS.appendChild(lbCS); dvCS.appendChild(txCS); g2.appendChild(dvCS);
-
-      var dvTS=document.createElement('div'); var lbTS=document.createElement('label'); lbTS.textContent='Total GR. (salida)';
-      var inTS=document.createElement('input'); inTS.readOnly=true; inTS.value=f2(tr.salida.totalGr); dvTS.appendChild(lbTS); dvTS.appendChild(inTS); g2.appendChild(dvTS);
-      bar.appendChild(g2);
-
-      bar.appendChild(tablaLineasWidget({
-        titulo: 'SALIDA',
-        bloqueado: !modoProcesar,
-        lineas: tr.salida.lineas,
-        onChange: function(){
-          tr.salida.totalGr = sumaSubtotales(tr.salida.lineas);
-          inTS.value = f2(tr.salida.totalGr);
-          saveDB(DB);
-          actualizarEstadoGlobal(estadoWrap, tr);
-        }
-      }));
-
-      card.appendChild(bar);
-      host.appendChild(card);
+    sel.value = li.materialId;
+    sel.disabled = !opts.editable;
+    sel.addEventListener('change', function(){
+      li.materialId=sel.value;
+      if(li.materialId==='TERM'){ alert('Producto terminado solo se usa en Ventas.'); sel.value='925'; li.materialId='925'; }
+      saveDB(DB); opts.onChange && opts.onChange();
     });
+    c1.appendChild(sel); tr.appendChild(c1);
+
+    var c2=document.createElement('td');
+    var tx=document.createElement('input'); tx.type='text'; tx.value=li.detalle||''; tx.style.width='100%';
+    if(opts.editable){ tx.setAttribute('data-edit',''); } else { tx.classList.add('locked'); tx.setAttribute('disabled','disabled'); }
+    tx.addEventListener('input', function(){ li.detalle = tx.value; saveDB(DB); });
+    c2.appendChild(tx); tr.appendChild(c2);
+
+    var c3=document.createElement('td');
+    var gr=document.createElement('input'); gr.type='number'; gr.step='0.01'; gr.min='0'; gr.value=li.gramos||0; gr.style.width='100%'; gr.style.textAlign='right';
+    if(opts.editable){ gr.setAttribute('data-edit',''); } else { gr.classList.add('locked'); gr.setAttribute('disabled','disabled'); }
+    gr.addEventListener('input', function(){ li.gramos = parseFloat(gr.value||'0'); saveDB(DB); opts.onChange && opts.onChange(); });
+    c3.appendChild(gr); tr.appendChild(c3);
+
+    return tr;
   }
 
-  // ===== Estado Global (Entrada/Salida/Dif/Merma/Estado con reglas) =====
-  function actualizarEstadoGlobal(wrap, tr){
-    var ent = parseFloat(tr.totalGr || 0);
-    var sal = parseFloat(tr.salida && tr.salida.totalGr ? tr.salida.totalGr : 0);
-    var tieneSalida = sal > 0;
-    var dif = tieneSalida ? (sal - ent) : 0;
-    var mermaAbs = tieneSalida ? Math.max(0, ent - sal) : 0;
-    var mermaPct = tieneSalida && ent > 0 ? (mermaAbs/ent)*100 : 0;
-
-    var estado = 'Pendiente de salida';
-    var color = '#334155'; // neutro
-    if(tieneSalida){
-      estado = 'OK';
-      color = '#065f46';
-      if(mermaPct > 2.5 && mermaPct < 4.5){
-        estado = 'Atento';
-        color = '#b45309';
-      }
-      if(mermaPct >= 4.5){
-        estado = 'Excede';
-        color = '#b91c1c';
-      }
-    }
-
-    wrap.innerHTML = '';
-    var chips = [];
-    chips.push({ t: 'Entrada: '+f2(ent)+' g', bold:false, c:'' });
-    chips.push({ t: 'Salida: '+(tieneSalida?f2(sal)+' g':'—'), bold:false, c:'' });
-    chips.push({ t: 'Dif: '+(tieneSalida?(dif>=0?'+':'')+f2(dif)+' g':'—'), bold:false, c:'' });
-    chips.push({ t: 'Merma: '+(tieneSalida?(f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)'):'—'), bold:false, c:'' });
-    chips.push({ t: 'Estado: '+estado, bold:true, c:color });
-
-    var i;
-    for(i=0;i<chips.length;i++){
-      var chip = document.createElement('span');
-      chip.className = 'estado-chip' + (chips[i].bold ? ' bold' : '');
-      chip.textContent = chips[i].t;
-      if(chips[i].bold && chips[i].c){ chip.style.color = chips[i].c; }
-      wrap.appendChild(chip);
-    }
+  function rebuild(){
+    tb.innerHTML='';
+    for(var i=0;i<opts.lineas.length;i++){ tb.appendChild(row(opts.lineas[i], i)); }
   }
 
-  // ===== Tabla de líneas (Traspasos) =====
-  function tablaLineasWidget(cfg){
-    // cfg: { titulo, bloqueado, lineas, onChange? }
-    var wrap = document.createElement('div');
+  wrap.appendChild(table);
 
-    var topBar = document.createElement('div'); topBar.className='actions';
-    var h = document.createElement('h2'); h.textContent = cfg.titulo; topBar.appendChild(h);
-    var spacer = document.createElement('div'); spacer.style.flex='1'; topBar.appendChild(spacer);
-    var bAdd, bDel;
-    if(!cfg.bloqueado){
-      bAdd = document.createElement('button'); bAdd.className='btn'; bAdd.textContent='+ Agregar línea';
-      bDel = document.createElement('button'); bDel.className='btn'; bDel.textContent='– Eliminar última';
-      topBar.appendChild(bAdd); topBar.appendChild(bDel);
+  // botones add/del
+  if(opts.editable){
+    var acts=document.createElement('div'); acts.className='actions';
+    var add=document.createElement('button'); add.className='btn'; add.textContent='+ Agregar línea';
+    var del=document.createElement('button'); del.className='btn'; del.textContent='– Eliminar última';
+    add.onclick=function(){ opts.lineas.push({materialId:'925', detalle:'', gramos:0}); rebuild(); opts.onChange && opts.onChange(); saveDB(DB); };
+    del.onclick=function(){ if(opts.lineas.length>1){ opts.lineas.pop(); rebuild(); opts.onChange && opts.onChange(); saveDB(DB); } };
+    acts.appendChild(add); acts.appendChild(del);
+    wrap.appendChild(acts);
+  }
+
+  rebuild();
+  return wrap;
+}
+
+// Barra estándar de hoja de trabajo
+function inv_toolbar(root, docName, handlers){
+  // handlers: {onNew,onSave,onPrint}
+  var bar=document.createElement('div'); bar.className='ht-toolbar';
+  var left=document.createElement('div'); left.className='ht-left';
+  var bNew=document.createElement('button'); bNew.className='ht-btn ht-btn-blue'; bNew.textContent='+ Nuevo '+docName; bNew.onclick=handlers.onNew;
+  left.appendChild(bNew);
+
+  var bPrint=document.createElement('button'); bPrint.className='ht-btn'; bPrint.textContent='🖨️ Imprimir';
+  bPrint.onclick=function(){
+    if(root.dataset.saved!=='true'){ alert('Debes guardar primero el documento para poder generar el PDF'); return; }
+    handlers.onPrint && handlers.onPrint();
+  };
+
+  var bSave=document.createElement('button'); bSave.className='ht-btn ht-btn-blue'; bSave.textContent='💾 Guardar'; bSave.dataset.mode='save';
+  bSave.onclick=function(){
+    if(bSave.dataset.mode==='edit'){ // volver a edición
+      HT.setEditable(root,true); HT._toggleSave(bSave,true); root.dataset.saved='false'; return;
     }
-    wrap.appendChild(topBar);
+    if(!confirm('¿Guardar este documento?')) return;
+    var res = handlers.onSave && handlers.onSave();
+    if(res===false) return;
+    var folio = (res && res.folio) ? res.folio : (root.dataset.folio||'');
+    HT.markSaved(root, folio);
+    HT.setEditable(root,false);
+    HT._toggleSave(bSave,false);
+  };
 
-    var table=document.createElement('table');
-    var thead=document.createElement('thead');
-    var trh=document.createElement('tr');
+  bar.appendChild(left); bar.appendChild(bPrint); bar.appendChild(bSave);
 
-    var headers = [
-      {t:'#', w:'6%'},
-      {t:'Material', w:'22%'},
-      {t:'Detalle', w:'28%'},
-      {t:'Gr', w:'12%'},
-      {t:'Aleación', w:'14%'},
-      {t:'Subtotal', w:'18%'}
-    ];
-    var i;
-    for(i=0;i<headers.length;i++){
-      var th=document.createElement('th'); th.textContent=headers[i].t; th.style.width=headers[i].w; trh.appendChild(th);
-    }
-    thead.appendChild(trh); table.appendChild(thead);
+  // si hay barra previa, reemplazar
+  var prev=root.querySelector(':scope > .ht-toolbar'); if(prev) prev.remove();
+  root.prepend(bar);
+}
 
-    var tbody=document.createElement('tbody');
+////////////////////////  Submenú Inventarios  ////////////////////////
+function renderSubmenuInventarios(){
+  var host = qs('#subpanel');
+  host.innerHTML='';
 
-    function rebuild(){
-      tbody.innerHTML = '';
-      var r;
-      for(r=0; r<cfg.lineas.length; r++){ renderRow(r); }
-    }
+  var card=document.createElement('div'); card.className='card';
+  var h=document.createElement('h2'); h.textContent='Inventarios'; card.appendChild(h);
 
-    function renderRow(idx){
-      var li = cfg.lineas[idx];
-      var tr = document.createElement('tr');
+  var box=document.createElement('div'); box.className='submods';
+  function sub(title, icon, fn){
+    var b=document.createElement('button'); b.className='subbtn'; b.innerHTML=icon+' '+title; b.onclick=fn; box.appendChild(b);
+  }
+  sub('Entrada','📥', abrirEntrada);
+  sub('Salida','📤', abrirSalida);
+  sub('Traspasos','🔁', abrirTraspasosHome);
+  sub('Hacer inventario (conciliar)','📋', abrirConciliacionHome);
 
-      var td0=document.createElement('td'); td0.textContent=(idx+1); tr.appendChild(td0);
+  card.appendChild(box);
+  host.appendChild(card);
+}
 
-      var td2=document.createElement('td');
-      var sel=document.createElement('select'); sel.style.width='100%';
-      MATERIALES.forEach(function(m){
-        var op=document.createElement('option'); op.value=m.id; op.textContent=m.nombre; if(m.id===li.materialId) op.selected=true; sel.appendChild(op);
-      });
-      sel.disabled=!!cfg.bloqueado;
-      sel.addEventListener('change', function(){
-        li.materialId=sel.value;
-        if(li.materialId!=='999'){ li.aleacion=0; inAle.value='0.00'; }
-        inAle.readOnly=(li.materialId!=='999') || !!cfg.bloqueado;
-        if(inAle.readOnly){ inAle.classList.add('ro'); } else { inAle.classList.remove('ro'); }
-        recalc();
-      });
-      td2.appendChild(sel); tr.appendChild(td2);
+////////////////////////  ENTRADA  ////////////////////////
+function abrirEntrada(){
+  var folio = inv_nextFolio('EN');
+  var doc = {
+    id:'EN'+Date.now(), folio:folio, fecha:hoyStr(),
+    motivo:'COMPRA', destino:'GEN', comentario:'',
+    lineas:[
+      {materialId:'925', detalle:'', gramos:0},
+      {materialId:'999', detalle:'', gramos:0},
+      {materialId:'LMD', detalle:'', gramos:0},
+      {materialId:'LMN', detalle:'', gramos:0},
+      {materialId:'ALC', detalle:'', gramos:0}
+    ],
+    total:0, guardado:false
+  };
 
-      var td3=document.createElement('td');
-      var inDet=document.createElement('input'); inDet.type='text'; inDet.value=li.detalle; inDet.style.width='100%';
-      inDet.style.fontSize='16px'; inDet.style.height='40px';
-      inDet.readOnly=!!cfg.bloqueado; if(inDet.readOnly){ inDet.classList.add('ro'); }
-      inDet.addEventListener('input', function(){ li.detalle=inDet.value; saveDB(DB); });
-      td3.appendChild(inDet); tr.appendChild(td3);
+  openTab(doc.id, 'Entrada '+folio, function(host){
+    host.innerHTML='';
+    var sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=folio;
 
-      var tdGr=document.createElement('td');
-      var inGr=document.createElement('input'); inGr.type='number'; inGr.step='0.01'; inGr.min='0'; inGr.value=li.gramos; inGr.style.width='100%';
-      inGr.placeholder='0.00'; inGr.inputMode='decimal';
-      inGr.style.fontSize='16px'; inGr.style.height='40px'; inGr.style.textAlign='right';
-      inGr.readOnly=!!cfg.bloqueado; if(inGr.readOnly){ inGr.classList.add('ro'); }
-      inGr.addEventListener('input', function(){
-        li.gramos=parseFloat(inGr.value||'0');
-        if(li.materialId==='999' && !inAle.readOnly){
-          var sugerida=li.gramos*0.07; inAle.value=f2(sugerida); li.aleacion=parseFloat(inAle.value||'0');
-        }
-        recalc();
-      });
-      tdGr.appendChild(inGr); tr.appendChild(tdGr);
-
-      var tdAle=document.createElement('td');
-      var inAle=document.createElement('input'); inAle.type='number'; inAle.step='0.01'; inAle.min='0'; inAle.value=li.aleacion; inAle.style.width='100%';
-      inAle.placeholder='0.00'; inAle.inputMode='decimal';
-      inAle.style.fontSize='16px'; inAle.style.height='40px'; inAle.style.textAlign='right';
-      inAle.readOnly=(li.materialId!=='999') || !!cfg.bloqueado; if(inAle.readOnly){ inAle.classList.add('ro'); }
-      inAle.addEventListener('input', function(){ li.aleacion=parseFloat(inAle.value||'0'); recalc(); });
-      tdAle.appendChild(inAle); tr.appendChild(tdAle);
-
-      var tdSub=document.createElement('td');
-      var inSub=document.createElement('input'); inSub.readOnly=true; inSub.value=f2(li.subtotal); inSub.style.width='100%';
-      inSub.style.fontSize='16px'; inSub.style.height='40px'; inSub.style.textAlign='right';
-      tdSub.appendChild(inSub); tr.appendChild(tdSub);
-
-      function recalc(){
-        li.subtotal = (parseFloat(li.gramos||0) + parseFloat(li.aleacion||0));
-        inSub.value = f2(li.subtotal);
-        if(typeof cfg.onChange === 'function'){ cfg.onChange(); }
+    inv_toolbar(sheet, 'entrada', {
+      onNew: abrirEntrada,
+      onSave: function(){
+        // valida: entradas solo a GEN
+        if(doc.destino!=='GEN'){ alert('Por ahora las Entradas solo pueden ir a ALMACEN GENERAL PLATA.'); return false; }
+        // afecta inventario
+        doc.total = 0;
+        doc.lineas.forEach(function(li){
+          var g = parseFloat(li.gramos||0); if(g<=0) return;
+          if(li.materialId==='TERM'){ alert('Producto terminado solo se usa en Ventas.'); return false; }
+          // Aleación: suma al inventario .925
+          if(li.materialId==='ALC'){
+            inv_addStock('GEN','925', g);
+          }else{
+            inv_addStock('GEN', li.materialId, g);
+            // Si la entrada es de .999 y viene con detalle de aleación en descripción, igual ya sumamos .999 (separado)
+          }
+          doc.total += g;
+        });
+        DB.movInv.entradas.push({
+          id:doc.id, folio:folio, fecha:doc.fecha, motivo:doc.motivo, destino:doc.destino, comentario:doc.comentario,
+          lineas:JSON.parse(JSON.stringify(doc.lineas)), total:doc.total
+        });
         saveDB(DB);
-      }
-
-      tbody.appendChild(tr);
-    }
-
-    // render inicial
-    rebuild();
-
-    // botones internos
-    if(bAdd){
-      bAdd.addEventListener('click', function(){
-        cfg.lineas.push({ materialId:'925', detalle:'', gramos:0, aleacion:0, subtotal:0 });
-        rebuild();
-        if(typeof cfg.onChange === 'function'){ cfg.onChange(); }
-      });
-    }
-    if(bDel){
-      bDel.addEventListener('click', function(){
-        if(cfg.lineas.length>1){ cfg.lineas.pop(); }
-        rebuild();
-        if(typeof cfg.onChange === 'function'){ cfg.onChange(); }
-      });
-    }
-
-    table.appendChild(tbody);
-    wrap.appendChild(table);
-    return wrap;
-  }
-
-  // ===== Helpers de negocio =====
-  function sumaSubtotales(arr){
-    var s=0; var i;
-    for(i=0;i<arr.length;i++){ s += parseFloat(arr[i].subtotal||0); }
-    return s;
-  }
-  function calcDisponibles(almacenId){
-    var sum=0;
-    DB.traspasos.forEach(function(t){
-      if(t.cerrado){
-        if(t.entraA===almacenId){ sum += parseFloat(t.totalGr||0); }
-        if(t.salida && t.salida.creada){
-          if(t.salida.saleDe===almacenId){ sum -= parseFloat(t.salida.totalGr||0); }
-          if(t.salida.entraA===almacenId){ sum += parseFloat(t.salida.totalGr||0); }
-        }
-      }
-    });
-    return sum;
-  }
-
-  function cerrarFolio(tr, justificacion){
-    if(tr.tipo==='prod'){
-      var hayTerminado = tr.salida.lineas.some(function(li){
-        return li.materialId==='terminado' && (parseFloat(li.gramos||0)>0 || parseFloat(li.aleacion||0)>0);
-      });
-      if(!hayTerminado){
-        var ex = prompt('No registraste "Mercancía terminada". Explica por qué (obligatorio para continuar):','');
-        if(!ex){ toast('No se puede cerrar sin explicación.'); return; }
-        justificacion = ex;
-      }
-    }
-
-    var ent=parseFloat(tr.totalGr||0);
-    var sal=parseFloat(tr.salida.totalGr||0);
-    var mermaAbs=Math.max(0, ent - sal);
-    var mermaPct = ent>0 ? (mermaAbs/ent) : 0;
-
-    var tol=0.05;
-    tr.lineasEntrada.forEach(function(li){
-      var mat=MATERIALES.find(function(m){ return m.id===li.materialId; });
-      if(mat && mat.tolMerma>tol){ tol=mat.tolMerma; }
+        return {ok:true, folio:folio};
+      },
+      onPrint: function(){ inv_pdfEntrada(doc); }
     });
 
-    if(sal<=0){
-      alert('No puedes cerrar el folio sin capturar SALIDA.');
-      return;
-    }
+    // Encabezado
+    var enc=document.createElement('div'); enc.className='grid';
+    enc.innerHTML =
+      '<div><label>Folio</label><input value="'+folio+'" disabled></div>'
+     +'<div><label>Fecha</label><input data-edit type="date" value="'+doc.fecha+'"></div>'
+     +'<div><label>Motivo</label><select data-edit>'
+        +'<option>COMPRA</option><option>DONACION</option><option>PRESTAMO</option><option>REPOSICIÓN</option>'
+      +'</select></div>'
+     +'<div><label>Almacén destino</label><select disabled>'
+        +'<option value="GEN" selected>ALMACEN GENERAL PLATA</option>'
+        +'</select><div class="muted">Regla: por ahora solo GEN</div></div>'
+     +'<div style="grid-column:1/-1"><label>Comentario</label><textarea data-edit rows="2"></textarea></div>';
+    sheet.appendChild(enc);
 
-    if(mermaPct>tol){
-      alert('Según la información cargada se registra una merma superior al '+String((tol*100).toFixed(0))+'%.\nNo es posible cerrar este folio. Revisa tu línea de producción.');
-      return;
-    }
+    // Bind encabezado
+    var inputs = enc.querySelectorAll('input,select,textarea');
+    inputs[1].onchange=function(){ doc.fecha=this.value; saveDB(DB); };
+    inputs[2].onchange=function(){ doc.motivo=this.value; saveDB(DB); };
+    inputs[5].oninput =function(){ doc.comentario=this.value; saveDB(DB); };
 
-    tr.cerrado=true;
-    tr.cerradoComentario=justificacion||'';
-    saveDB(DB);
-    toast('Folio cerrado');
-    imprimirPDF(tr, false);
+    // Tabla de líneas
+    var lines = inv_linesTable({
+      lineas:doc.lineas, editable:true,
+      onChange:function(){
+        var t=0; doc.lineas.forEach(function(li){ t += parseFloat(li.gramos||0); }); doc.total=t;
+        tot.textContent = f2(t)+' g';
+      }
+    });
+    sheet.appendChild(lines);
+
+    var totWrap=document.createElement('div'); totWrap.className='right'; 
+    var tot=document.createElement('div'); tot.className='money'; tot.textContent='0.00 g';
+    totWrap.appendChild(tot); sheet.appendChild(totWrap);
+
+    HT.setEditable(sheet,true);
+    host.appendChild(sheet);
+  });
+}
+
+function inv_pdfEntrada(doc){
+  var w = window.open('','_blank','width=820,height=900'); if(!w){ alert('Permite pop-ups.'); return; }
+  var css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}'
+    +'table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left}'
+    +'thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1} .folio{color:#b91c1c;font-weight:800}';
+  var html=[];
+  html.push('<html><head><meta charset="utf-8"><style>'+css+'</style><title>'+doc.folio+'</title></head><body>');
+  html.push('<h2>Entrada <span class="folio">'+doc.folio+'</span></h2>');
+  html.push('<div class="row"><div class="col"><b>Fecha:</b> '+doc.fecha+'</div><div class="col"><b>Motivo:</b> '+doc.motivo+'</div><div class="col"><b>Destino:</b> '+inv_nombreAlmacen('GEN')+'</div></div>');
+  html.push('<div class="row"><div class="col"><b>Comentario:</b> '+escapeHTML(doc.comentario||'')+'</div><div class="col"><b>Total:</b> '+f2(doc.total)+' g</div></div>');
+  html.push('<table><thead><tr><th style="width:6%">#</th><th style="width:34%">Material</th><th style="width:40%">Descripción</th><th style="width:20%">Gramos</th></tr></thead><tbody>');
+  for(var i=0;i<doc.lineas.length;i++){
+    var li=doc.lineas[i]; if(parseFloat(li.gramos||0)<=0) continue;
+    html.push('<tr><td>'+(i+1)+'</td><td>'+inv_nombreMaterial(li.materialId)+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+f2(li.gramos)+'</td></tr>');
   }
+  html.push('</tbody></table>');
+  html.push('</body></html>');
+  w.document.write(html.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
+}
 
-  function imprimirPDF(tr, isDraft){
-    var w = window.open('', '_blank', 'width=840,height=900');
-    if(!w){ alert('Permite pop-ups para imprimir.'); return; }
+////////////////////////  SALIDA  ////////////////////////
+function abrirSalida(){
+  var folio = inv_nextFolio('SA');
+  var doc = {
+    id:'SA'+Date.now(), folio:folio, fecha:hoyStr(),
+    origen:'GEN', comentario:'',
+    lineas:[{materialId:'925',detalle:'',gramos:0},{materialId:'LMD',detalle:'',gramos:0},{materialId:'LMN',detalle:'',gramos:0},{materialId:'OTRO',detalle:'',gramos:0},{materialId:'999',detalle:'',gramos:0}],
+    total:0
+  };
 
-    var ent = parseFloat(tr.totalGr||0);
-    var sal = parseFloat(tr.salida && tr.salida.totalGr ? tr.salida.totalGr : 0);
-    var tieneSalida = sal > 0;
-    var dif = tieneSalida ? (sal - ent) : 0;
-    var mermaAbs = tieneSalida ? Math.max(0, ent - sal) : 0;
-    var mermaPct = tieneSalida && ent>0 ? (mermaAbs/ent)*100 : 0;
+  openTab(doc.id, 'Salida '+folio, function(host){
+    host.innerHTML='';
+    var sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=folio;
 
-    var estado = 'Pendiente de salida';
-    if(tieneSalida){
-      estado = 'OK';
-      if(mermaPct > 2.5 && mermaPct < 4.5){ estado = 'Atento'; }
-      if(mermaPct >= 4.5){ estado = 'Excede'; }
-    }
+    inv_toolbar(sheet, 'salida', {
+      onNew: abrirSalida,
+      onSave: function(){
+        if(doc.origen!=='GEN'){ alert('Por ahora las Salidas solo pueden salir de ALMACEN GENERAL PLATA.'); return false; }
+        // Validar y descontar
+        doc.total = 0;
+        try{
+          doc.lineas.forEach(function(li){
+            var g=parseFloat(li.gramos||0); if(g<=0) return;
+            if(li.materialId==='TERM'){ alert('Producto terminado solo se usa en Ventas.'); throw new Error('TERM'); }
+            inv_subStock('GEN', li.materialId, g); // lanza si no hay
+            doc.total += g;
+          });
+        }catch(err){ alert(err.message); return false; }
+        DB.movInv.salidas.push({
+          id:doc.id, folio:folio, fecha:doc.fecha, origen:doc.origen, comentario:doc.comentario,
+          lineas:JSON.parse(JSON.stringify(doc.lineas)), total:doc.total
+        });
+        saveDB(DB);
+        return {ok:true, folio:folio};
+      },
+      onPrint: function(){ inv_pdfSalida(doc); }
+    });
 
-    var headCss='@page{size:5.5in 8.5in;margin:10mm;}'
-      + 'body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}'
-      + 'h1.red{color:#b91c1c;} h2{margin:2px 0 6px 0;color:#0a2c4c;}'
-      + 'table{width:100%;border-collapse:collapse;table-layout:fixed;}'
-      + 'th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left;word-break:break-word;}'
-      + 'thead tr{background:#e7effa;}'
-      + '.row{display:flex;gap:8px;margin:6px 0;}.col{flex:1;}'
-      + '.signs{display:flex;justify-content:space-between;margin-top:18px;} .signs div{width:45%;border-top:1px solid #94a3b8;padding-top:6px;text-align:center;}'
-      + '.water{position:fixed;top:40%;left:15%;font-size:48px;color:#94a3b880;transform:rotate(-20deg);}'
-      + '.chips{margin:8px 0;} .chip{background:#f1f5f9;border-radius:16px;padding:6px 10px;margin-right:6px;font-size:12px;font-weight:600;}';
+    var enc=document.createElement('div'); enc.className='grid';
+    enc.innerHTML =
+      '<div><label>Folio</label><input value="'+folio+'" disabled></div>'
+     +'<div><label>Fecha</label><input data-edit type="date" value="'+doc.fecha+'"></div>'
+     +'<div><label>Almacén origen</label><select disabled><option value="GEN" selected>ALMACEN GENERAL PLATA</option></select><div class="muted">Regla: por ahora solo GEN</div></div>'
+     +'<div style="grid-column:1/-1"><label>Comentario</label><textarea data-edit rows="2"></textarea></div>';
+    sheet.appendChild(enc);
 
-    var html=[];
-    html.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Folio '+String(tr.folio).padStart(3,'0')+'</title><style>'+headCss+'</style></head><body>');
-    if(isDraft){ html.push('<div class="water">BORRADOR</div>'); }
+    var inputs=enc.querySelectorAll('input,select,textarea');
+    inputs[1].onchange=function(){ doc.fecha=this.value; saveDB(DB); };
+    inputs[4].oninput =function(){ doc.comentario=this.value; saveDB(DB); };
 
-    html.push('<h1 class="red">Traspaso '+String(tr.folio).padStart(3,'0')+'</h1>');
-    html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.fecha+' '+tr.hora+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.entraA)+'</div></div>');
-    html.push('<div class="row"><div class="col"><b>Comentarios:</b> '+escapeHTML(tr.comentarios)+'</div><div class="col"><b>Total GR (entrada):</b> '+f2(ent)+'</div></div>');
+    var lines = inv_linesTable({
+      lineas:doc.lineas, editable:true,
+      onChange:function(){ var t=0; doc.lineas.forEach(function(li){ t += parseFloat(li.gramos||0); }); doc.total=t; tot.textContent = f2(t)+' g'; }
+    });
+    sheet.appendChild(lines);
 
-    // Evidencia global arriba, para reforzar ciclo único
-    if(DB.evidencia){ html.push('<h3>Evidencia fotográfica</h3><img src="'+DB.evidencia+'" style="max-width:100%;max-height:300px;border:1px solid #ccc">'); }
+    var totWrap=document.createElement('div'); totWrap.className='right'; 
+    var tot=document.createElement('div'); tot.className='money'; tot.textContent='0.00 g';
+    totWrap.appendChild(tot); sheet.appendChild(totWrap);
 
-    // Chips de estado global
-    html.push('<div class="chips">');
-    html.push('<span class="chip">Entrada: '+f2(ent)+' g</span>');
-    html.push('<span class="chip">Salida: '+(tieneSalida?f2(sal)+' g':'—')+'</span>');
-    html.push('<span class="chip">Dif: '+(tieneSalida?(dif>=0?'+':'')+f2(dif)+' g':'—')+'</span>');
-    html.push('<span class="chip">Merma: '+(tieneSalida?(f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)'):'—')+'</span>');
-    html.push('<span class="chip">Estado: '+estado+'</span>');
-    html.push('</div>');
-
-    // ENTRADA
-    html.push('<h2>Entrada</h2>');
-    html.push('<table><thead><tr><th style="width:6%">#</th><th style="width:22%">Material</th><th style="width:28%">Detalle</th><th style="width:12%">Gr</th><th style="width:14%">Aleación</th><th style="width:18%">Subtotal</th></tr></thead><tbody>');
-    var i;
-    for(i=0;i<tr.lineasEntrada.length;i++){
-      var li=tr.lineasEntrada[i];
-      html.push('<tr><td>'+(i+1)+'</td><td>'+nombreMaterial(li.materialId)+'</td><td>'+escapeHTML(li.detalle)+'</td><td>'+f2(li.gramos)+'</td><td>'+f2(li.aleacion)+'</td><td>'+f2(li.subtotal)+'</td></tr>');
-    }
-    html.push('</tbody></table>');
-    html.push('<div class="signs"><div>Entregó (entrada)</div><div>Recibió (entrada)</div></div>');
-
-    // SALIDA
-    html.push('<h2>Salida</h2>');
-    html.push('<div class="row"><div class="col"><b>Fecha:</b> '+tr.salida.fecha+' '+(tr.salida.hora||'')+'</div><div class="col"><b>Sale de:</b> '+nombreAlmacen(tr.salida.saleDe)+'</div><div class="col"><b>Entra a:</b> '+nombreAlmacen(tr.salida.entraA)+'</div></div>');
-    html.push('<div class="row"><div class="col"><b>Comentarios salida:</b> '+escapeHTML(tr.salida.comentarios||'')+'</div><div class="col"><b>Total GR (salida):</b> '+f2(sal)+'</div></div>');
-
-    // Solo mostrar dif/merma si hay salida capturada
-    if(tieneSalida){
-      var signo = dif>=0 ? '+' : '';
-      html.push('<div class="row"><div class="col"><b>MERMA:</b> '+f2(mermaAbs)+' g ('+mermaPct.toFixed(1)+'%)</div><div class="col"><b>DIF:</b> '+signo+f2(dif)+'</div></div>');
-    }
-
-    html.push('<table><thead><tr><th style="width:6%">#</th><th style="width:22%">Material</th><th style="width:28%">Detalle</th><th style="width:12%">Gr</th><th style="width:14%">Aleación</th><th style="width:18%">Subtotal</th></tr></thead><tbody>');
-    for(i=0;i<tr.salida.lineas.length;i++){
-      var lo=tr.salida.lineas[i];
-      html.push('<tr><td>'+(i+1)+'</td><td>'+nombreMaterial(lo.materialId)+'</td><td>'+escapeHTML(lo.detalle)+'</td><td>'+f2(lo.gramos)+'</td><td>'+f2(lo.aleacion)+'</td><td>'+f2(lo.subtotal)+'</td></tr>');
-    }
-    html.push('</tbody></table>');
-    html.push('<div class="signs"><div>Entregó (salida)</div><div>Recibió (salida)</div></div>');
-
-    html.push('</body></html>');
-    w.document.write(html.join(''));
-    w.document.close();
-    try{ w.focus(); w.print(); }catch(e){}
+    HT.setEditable(sheet,true);
+    host.appendChild(sheet);
+  });
+}
+function inv_pdfSalida(doc){
+  var w = window.open('','_blank','width=820,height=900'); if(!w){ alert('Permite pop-ups.'); return; }
+  var css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}'
+    +'table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left}'
+    +'thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1} .folio{color:#b91c1c;font-weight:800}';
+  var html=[];
+  html.push('<html><head><meta charset="utf-8"><style>'+css+'</style><title>'+doc.folio+'</title></head><body>');
+  html.push('<h2>Salida <span class="folio">'+doc.folio+'</span></h2>');
+  html.push('<div class="row"><div class="col"><b>Fecha:</b> '+doc.fecha+'</div><div class="col"><b>Origen:</b> '+inv_nombreAlmacen('GEN')+'</div><div class="col"><b>Total:</b> '+f2(doc.total)+' g</div></div>');
+  html.push('<div class="row"><div class="col"><b>Comentario:</b> '+escapeHTML(doc.comentario||'')+'</div></div>');
+  html.push('<table><thead><tr><th style="width:6%">#</th><th style="width:34%">Material</th><th style="width:40%">Descripción</th><th style="width:20%">Gramos</th></tr></thead><tbody>');
+  for(var i=0;i<doc.lineas.length;i++){
+    var li=doc.lineas[i]; if(parseFloat(li.gramos||0)<=0) continue;
+    html.push('<tr><td>'+(i+1)+'</td><td>'+inv_nombreMaterial(li.materialId)+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+f2(li.gramos)+'</td></tr>');
   }
-  function compartirWhatsApp(tr){ imprimirPDF(tr,false); toast('Guarda el PDF y compártelo por WhatsApp.'); }
-  function cargarEvidencia(file){ var r=new FileReader(); r.onload=function(e){ DB.evidencia=e.target.result; saveDB(DB); toast('Foto cargada.'); }; r.readAsDataURL(file); }
+  html.push('</tbody></table>');
+  html.push('</body></html>');
+  w.document.write(html.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
+}
+
+////////////////////////  TRASPASOS  ////////////////////////
+// Home con tres listas: pendientes (salida creada sin aceptar),
+// cerrados, y botón “Nuevo traspaso (salida)”
+function abrirTraspasosHome(){
+  var id='TRHOME';
+  openTab(id, 'Traspasos', function(host){
+    host.innerHTML='';
+    var card=document.createElement('div'); card.className='card';
+
+    var bar=document.createElement('div'); bar.className='actions';
+    var bNew=document.createElement('button'); bNew.className='btn-primary'; bNew.textContent='+ Nuevo traspaso (salida)'; 
+    bNew.onclick=nuevoTraspasoSalida;
+    bar.appendChild(bNew); card.appendChild(bar);
+
+    // pendientes
+    var pend=DB.movInv.traspasos.filter(function(t){ return !t.cerrado; });
+    var secP=document.createElement('div'); secP.className='card';
+    var hP=document.createElement('h2'); hP.textContent='Traspasos pendientes'; secP.appendChild(hP);
+    if(pend.length===0){ var p=document.createElement('p'); p.textContent='Sin pendientes.'; secP.appendChild(p);}
+    else{
+      pend.sort(function(a,b){ return b.num - a.num; }).forEach(function(t){
+        var row=document.createElement('div'); row.className='actions';
+        var pill=document.createElement('span'); pill.className='pill orange'; pill.textContent=t.folio; row.appendChild(pill);
+        var txt=document.createElement('span'); txt.textContent='  '+inv_nombreAlmacen(t.origen)+' → '+inv_nombreAlmacen(t.destino)+'  · '+t.fecha; row.appendChild(txt);
+        var bA=document.createElement('button'); bA.className='btn'; bA.textContent='Aceptar en destino'; bA.onclick=function(){ aceptarTraspaso(t.id); };
+        var bV=document.createElement('button'); bV.className='btn'; bV.textContent='Abrir'; bV.onclick=function(){ abrirTraspasoDetalle(t.id); };
+        row.appendChild(bV); row.appendChild(bA); secP.appendChild(row);
+      });
+    }
+    card.appendChild(secP);
+
+    // cerrados
+    var cer=DB.movInv.traspasos.filter(function(t){ return !!t.cerrado; });
+    var secC=document.createElement('div'); secC.className='card';
+    var hC=document.createElement('h2'); hC.textContent='Traspasos cerrados'; secC.appendChild(hC);
+    if(cer.length===0){ var pc=document.createElement('p'); pc.textContent='Aún no hay cerrados.'; secC.appendChild(pc);}
+    else{
+      cer.sort(function(a,b){ return b.num - a.num; }).forEach(function(t){
+        var row=document.createElement('div'); row.className='actions';
+        var pill=document.createElement('span'); pill.className='pill'; pill.textContent=t.folio; row.appendChild(pill);
+        var txt=document.createElement('span'); txt.textContent='  '+inv_nombreAlmacen(t.origen)+' → '+inv_nombreAlmacen(t.destino)+'  · '+t.fecha; row.appendChild(txt);
+        var bP=document.createElement('button'); bP.className='btn'; bP.textContent='PDF'; bP.onclick=function(){ inv_pdfTraspaso(t,false); };
+        row.appendChild(bP); secC.appendChild(row);
+      });
+    }
+    card.appendChild(secC);
+
+    host.appendChild(card);
+  });
+}
+
+function nuevoTraspasoSalida(){
+  var folio = inv_nextFolio('TR');
+  var obj = {
+    id:'TR'+Date.now(), num:DB.folios.traspaso, folio:folio, fecha:hoyStr(),
+    origen:'GEN', destino:'PROD', comentario:'',
+    lineas:[{materialId:'925',detalle:'',gramos:0},{materialId:'LMD',detalle:'',gramos:0},{materialId:'LMN',detalle:'',gramos:0},{materialId:'OTRO',detalle:'',gramos:0}],
+    total:0, cerrado:false
+  };
+  // Al crear la SALIDA del traspaso, descontamos stock de ORIGEN (regla operativa)
+  openTab(obj.id, 'Traspaso '+folio, function(host){
+    host.innerHTML='';
+    var sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=folio;
+
+    inv_toolbar(sheet,'traspaso (salida)',{
+      onNew: nuevoTraspasoSalida,
+      onSave: function(){
+        // Validar y descontar
+        var total=0;
+        try{
+          obj.lineas.forEach(function(li){
+            var g=parseFloat(li.gramos||0); if(g<=0) return;
+            inv_subStock(obj.origen, li.materialId, g);
+            total += g;
+          });
+        }catch(err){ alert(err.message); return false; }
+        obj.total=total;
+        DB.movInv.traspasos.push(JSON.parse(JSON.stringify(obj))); saveDB(DB);
+        return {ok:true, folio:folio};
+      },
+      onPrint: function(){ inv_pdfTraspaso(obj,true); }
+    });
+
+    var enc=document.createElement('div'); enc.className='grid';
+    enc.innerHTML =
+      '<div><label>Folio</label><input value="'+folio+'" disabled></div>'
+     +'<div><label>Fecha</label><input data-edit type="date" value="'+obj.fecha+'"></div>'
+     +'<div><label>Sale de</label>'+selectAlm('from',obj.origen,true)+'</div>'
+     +'<div><label>Entra a</label>'+selectAlm('to',obj.destino,true)+'</div>'
+     +'<div style="grid-column:1/-1"><label>Comentario</label><textarea data-edit rows="2"></textarea></div>';
+    sheet.appendChild(enc);
+
+    function selectAlm(name,val,editable){
+      var s='<select '+(editable?'data-edit':'disabled')+'>';
+      AL_MACENES_FIX.forEach(function(a){ s+='<option value="'+a.id+'" '+(a.id===val?'selected':'')+'>'+a.nombre+'</option>'; });
+      return s+'</select>';
+    }
+
+    var ins=enc.querySelectorAll('input,select,textarea');
+    ins[1].onchange=function(){ obj.fecha=this.value; saveDB(DB); };
+    ins[2].onchange=function(){ obj.origen=this.value; saveDB(DB); };
+    ins[3].onchange=function(){ obj.destino=this.value; saveDB(DB); };
+    ins[4].oninput =function(){ obj.comentario=this.value; saveDB(DB); };
+
+    var lines = inv_linesTable({
+      lineas:obj.lineas, editable:true,
+      onChange:function(){ var t=0; obj.lineas.forEach(function(li){ t += parseFloat(li.gramos||0); }); obj.total=t; tot.textContent=f2(t)+' g'; }
+    });
+    sheet.appendChild(lines);
+    var totWrap=document.createElement('div'); totWrap.className='right'; 
+    var tot=document.createElement('div'); tot.className='money'; tot.textContent='0.00 g';
+    totWrap.appendChild(tot); sheet.appendChild(totWrap);
+
+    HT.setEditable(sheet,true);
+    host.appendChild(sheet);
+  });
+}
+
+function aceptarTraspaso(id){
+  var t = DB.movInv.traspasos.find(function(x){ return x.id===id; });
+  if(!t){ alert('No encontrado'); return; }
+  if(t.cerrado){ alert('Ya está cerrado.'); return; }
+  // Al aceptar: sumamos a DESTINO y cerramos
+  t.lineas.forEach(function(li){
+    var g=parseFloat(li.gramos||0); if(g<=0) return;
+    inv_addStock(t.destino, li.materialId, g);
+  });
+  t.cerrado=true; t.aceptadoFecha=hoyStr();
+  saveDB(DB);
+  toast('Traspaso aceptado en destino y cerrado.');
+  abrirTraspasosHome();
+}
+
+function abrirTraspasoDetalle(id){
+  var t = DB.movInv.traspasos.find(function(x){ return x.id===id; });
+  if(!t){ alert('No encontrado'); return; }
+  openTab('TRDET'+id, 'Traspaso '+t.folio, function(host){
+    host.innerHTML='';
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent='Detalle'; card.appendChild(h);
+
+    var p=document.createElement('p'); p.textContent = inv_nombreAlmacen(t.origen)+' → '+inv_nombreAlmacen(t.destino)+'  · '+t.fecha;
+    card.appendChild(p);
+
+    var tb=document.createElement('table'); tb.className='table'; tb.innerHTML='<thead><tr><th>#</th><th>Material</th><th>Detalle</th><th>Gr</th></tr></thead><tbody></tbody>';
+    var body=tb.querySelector('tbody');
+    for(var i=0;i<t.lineas.length;i++){
+      var li=t.lineas[i];
+      var tr=document.createElement('tr');
+      tr.innerHTML='<td>'+(i+1)+'</td><td>'+inv_nombreMaterial(li.materialId)+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+f2(li.gramos)+'</td>';
+      body.appendChild(tr);
+    }
+    card.appendChild(tb);
+
+    var bar=document.createElement('div'); bar.className='actions';
+    var bPdf=document.createElement('button'); bPdf.className='btn'; bPdf.textContent='PDF'; bPdf.onclick=function(){ inv_pdfTraspaso(t,false); };
+    bar.appendChild(bPdf);
+    if(!t.cerrado){
+      var bAcc=document.createElement('button'); bAcc.className='btn-primary'; bAcc.textContent='Aceptar en destino'; bAcc.onclick=function(){ aceptarTraspaso(t.id); };
+      bar.appendChild(bAcc);
+    }
+    card.appendChild(bar);
+
+    host.appendChild(card);
+  });
+}
+
+function inv_pdfTraspaso(t, borrador){
+  var w = window.open('','_blank','width=820,height=900'); if(!w){ alert('Permite pop-ups.'); return; }
+  var css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}'
+    +'table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left}'
+    +'thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1} .folio{color:#b91c1c;font-weight:800} .water{position:fixed;top:40%;left:18%;font-size:46px;color:#9ca3af80;transform:rotate(-18deg);}';
+  var html=[];
+  html.push('<html><head><meta charset="utf-8"><style>'+css+'</style><title>'+t.folio+'</title></head><body>');
+  if(borrador){ html.push('<div class="water">BORRADOR</div>'); }
+  html.push('<h2>Traspaso <span class="folio">'+t.folio+'</span></h2>');
+  html.push('<div class="row"><div class="col"><b>Fecha:</b> '+t.fecha+'</div><div class="col"><b>Sale de:</b> '+inv_nombreAlmacen(t.origen)+'</div><div class="col"><b>Entra a:</b> '+inv_nombreAlmacen(t.destino)+'</div></div>');
+  html.push('<div class="row"><div class="col"><b>Total:</b> '+f2(t.total||0)+' g</div><div class="col"><b>Estado:</b> '+(t.cerrado?'CERRADO':'PENDIENTE')+'</div></div>');
+  html.push('<table><thead><tr><th>#</th><th>Material</th><th>Detalle</th><th>Gr</th></tr></thead><tbody>');
+  for(var i=0;i<t.lineas.length;i++){
+    var li=t.lineas[i];
+    html.push('<tr><td>'+(i+1)+'</td><td>'+inv_nombreMaterial(li.materialId)+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+f2(li.gramos)+'</td></tr>');
+  }
+  html.push('</tbody></table></body></html>');
+  w.document.write(html.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
+}
+
+////////////////////////  HACER INVENTARIO (Conciliación)  ////////////////////////
+function abrirConciliacionHome(){
+  var id='CONCINV';
+  openTab(id, 'Conciliación de Inventario', function(host){
+    host.innerHTML='';
+    var sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false';
+
+    inv_toolbar(sheet, 'conciliación', {
+      onNew: abrirConciliacionHome,
+      onSave: function(){
+        // Genera ajustes para llegar a los conteos
+        var alm = sel.value;
+        var totalAdj=0;
+        concRows.forEach(function(r){
+          var sis = inv_getStock(alm, r.mat);
+          var dif = (parseFloat(r.conteo||0) - sis);
+          if(Math.abs(dif) > 0){
+            if(dif>0){ inv_addStock(alm, r.mat, dif); }
+            else{ try{ inv_subStock(alm, r.mat, -dif);}catch(e){ alert(e.message); /* no corta, registra lo que se pueda */ } }
+            totalAdj += dif;
+          }
+        });
+        var folio = 'CI-' + String((DB.movInv.conciliaciones.length+1)).padStart(3,'0');
+        DB.movInv.conciliaciones.push({
+          id:'CI'+Date.now(), folio:folio, fecha:fecha.value, almacen:alm,
+          filas:JSON.parse(JSON.stringify(concRows)), totalAjuste:totalAdj
+        });
+        saveDB(DB);
+        return {ok:true, folio:folio};
+      },
+      onPrint: function(){
+        // PDF simple del conteo vs sistema
+        var alm=sel.value;
+        var w = window.open('','_blank','width=820,height=900'); if(!w){ alert('Permite pop-ups.'); return; }
+        var css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}'
+          +'table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left}'
+          +'thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1}';
+        var html=[];
+        html.push('<html><head><meta charset="utf-8"><style>'+css+'</style><title>Conciliación</title></head><body>');
+        html.push('<h2>Conciliación de Inventario</h2>');
+        html.push('<div class="row"><div class="col"><b>Fecha al:</b> '+fecha.value+'</div><div class="col"><b>Almacén:</b> '+inv_nombreAlmacen(alm)+'</div></div>');
+        html.push('<table><thead><tr><th>Material</th><th>Sistema (g)</th><th>Conteo (g)</th><th>Diferencia (g)</th></tr></thead><tbody>');
+        concRows.forEach(function(r){
+          var sis = inv_getStock(alm, r.mat);
+          var dif = (parseFloat(r.conteo||0) - sis);
+          html.push('<tr><td>'+inv_nombreMaterial(r.mat)+'</td><td>'+f2(sis)+'</td><td>'+f2(r.conteo||0)+'</td><td>'+f2(dif)+'</td></tr>');
+        });
+        html.push('</tbody></table></body></html>');
+        w.document.write(html.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
+      }
+    });
+
+    // Encabezado
+    var top=document.createElement('div'); top.className='grid';
+    top.innerHTML =
+      '<div><label>Almacén</label>'+selectAlm('alm','GEN',true)+'</div>'
+     +'<div><label>Fecha al</label><input data-edit type="date" value="'+hoyStr()+'"></div>'
+     +'<div style="display:flex;align-items:flex-end"><span class="pill orange" id="concStatus">Por conciliar</span></div>';
+    sheet.appendChild(top);
+
+    function selectAlm(name,val,editable){
+      var s='<select '+(editable?'data-edit':'disabled')+'>';
+      AL_MACENES_FIX.forEach(function(a){ s+='<option value="'+a.id+'" '+(a.id===val?'selected':'')+'>'+a.nombre+'</option>'; });
+      return s+'</select>';
+    }
+
+    var sel = top.querySelector('select');
+    var fecha = top.querySelector('input[type="date"]');
+    var status = top.querySelector('#concStatus');
+
+    // Tabla materiales
+    var box=document.createElement('div'); box.className='card';
+    var h=document.createElement('h2'); h.textContent='Conteos por material'; box.appendChild(h);
+    var tb=document.createElement('table'); tb.className='table'; tb.style.tableLayout='fixed';
+    tb.innerHTML='<thead><tr><th style="width:42%">Material</th><th style="width:19%">Sistema (g)</th><th style="width:19%">Conteo (g)</th><th style="width:20%">Diferencia</th></tr></thead><tbody></tbody>';
+    var body=tb.querySelector('tbody'); box.appendChild(tb); sheet.appendChild(box);
+
+    var concRows = MATERIALES_FIX.filter(function(m){ return m.id!=='TERM'; }).map(function(m){
+      return {mat:m.id, conteo:0};
+    });
+
+    function paint(){
+      body.innerHTML='';
+      concRows.forEach(function(r){
+        var tr=document.createElement('tr');
+        var sis = inv_getStock(sel.value, r.mat);
+        var dif = (parseFloat(r.conteo||0) - sis);
+        tr.innerHTML = '<td>'+inv_nombreMaterial(r.mat)+'</td>'
+          +'<td>'+f2(sis)+'</td>'
+          +'<td><input data-edit type="number" step="0.01" value="'+(r.conteo||0)+'" style="width:100%;text-align:right"></td>'
+          +'<td><b style="color:'+(dif<0?'#b45309':'#1a7f37')+'">'+f2(dif)+'</b></td>';
+        var inC = tr.querySelector('input');
+        inC.oninput=function(){ r.conteo = parseFloat(this.value||'0'); };
+        body.appendChild(tr);
+      });
+      // Si todas dif=0 → conciliado
+      var allZero = concRows.every(function(r){ return Math.abs((parseFloat(r.conteo||0) - inv_getStock(sel.value, r.mat)))<0.0001; });
+      status.textContent = allZero? 'Conciliado' : 'Por conciliar';
+      status.className = 'pill ' + (allZero? '':'orange');
+    }
+    paint();
+
+    HT.setEditable(sheet,true);
+    host.appendChild(sheet);
+  });
+}
+
+////////////////////////  Hook en tu router de submenú  ////////////////////////
+// Llama esto cuando el usuario entra al módulo Inventarios:
+function renderInventarios(){ renderSubmenuInventarios(); }
+
+// =====================================================================
+// =======================  FIN MÓDULO INVENTARIO  ======================
+// = versión 1.0.0 · interfaz unificada · 20/09/2025 ===================
+// =====================================================================
 
   // =====================================================================
   // ===========================  MÓDULO: PEDIDOS  =======================
