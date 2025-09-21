@@ -1,5 +1,5 @@
 // =====================================================================
-// ===============  INICIO MÓDULO INVENTARIO · v1.1  ===================
+// ============  INICIO MÓDULO INVENTARIO · v1.2 (tabs fijos)  =========
 // =====================================================================
 
 /* ===== Datos base ===== */
@@ -40,7 +40,24 @@ function nextFolio(tp){
   return 'XX-000'
 }
 
-/* ===== UI comunes ===== */
+/* ===== Helpers Hoja ===== */
+window.HT = window.HT || {
+  mountToolbar(root,opts){
+    const bar=document.createElement('div'); bar.className='ht-toolbar';
+    const left=document.createElement('div'); left.className='ht-left';
+    const bNew=document.createElement('button'); bNew.type='button'; bNew.className='ht-btn ht-btn-blue'; bNew.textContent='+ Nuevo '+(opts.docName||'documento'); bNew.onclick=opts.onNew; left.appendChild(bNew);
+    const bPrint=document.createElement('button'); bPrint.type='button'; bPrint.className='ht-btn'; bPrint.textContent='🖨️ Imprimir';
+    bPrint.onclick=()=>{ if(root.dataset.saved!=='true'){alert('Debes guardar primero el documento para poder generar el PDF');return;} opts.onPrint&&opts.onPrint(); };
+    const bSave=document.createElement('button'); bSave.type='button'; bSave.className='ht-btn ht-btn-blue'; bSave.textContent='💾 Guardar'; bSave.dataset.mode='save';
+    bSave.onclick=async()=>{ if(bSave.dataset.mode==='edit'){HT.setEditable(root,true);HT._toggle(bSave,true);root.dataset.saved='false';return;} if(!confirm('¿Guardar este documento?')) return; const r=await (opts.onSave?opts.onSave():true); const ok=(r===true)||(r&&r.ok); const folio=(r&&r.folio)||root.dataset.folio||''; if(!ok) return; HT.markSaved(root,folio); HT.setEditable(root,false); HT._toggle(bSave,false); };
+    bar.appendChild(left); bar.appendChild(bPrint); bar.appendChild(bSave);
+    const old=root.querySelector(':scope>.ht-toolbar'); if(old) old.remove(); root.prepend(bar);
+  },
+  setEditable(root,on){ root.querySelectorAll('[data-edit]').forEach(el=>{ if(on){el.classList.remove('locked'); el.removeAttribute('disabled');} else {el.classList.add('locked'); el.setAttribute('disabled','disabled');} }); },
+  markSaved(root,folio){ root.dataset.saved='true'; if(folio) root.dataset.folio=folio; alert(folio?('Documento guardado · Folio '+folio):'Documento guardado'); },
+  _toggle(btn,isSave){ if(isSave){btn.textContent='💾 Guardar';btn.dataset.mode='save';} else {btn.textContent='✏️ Editar';btn.dataset.mode='edit';} }
+};
+
 function makeLinesTable(cfg){
   const wrap=document.createElement('div');
   const tb=document.createElement('table'); tb.className='table';
@@ -54,13 +71,11 @@ function makeLinesTable(cfg){
       tr.innerHTML='<td>'+(idx+1)+'</td>';
       const tdM=document.createElement('td');
       const sel=document.createElement('select'); INV_MAT.forEach(m=>{const op=document.createElement('option');op.value=m.id;op.textContent=m.nombre+(m.id==='TERM'?' (solo ventas)':''); sel.appendChild(op);});
-      sel.value=li.materialId; sel.disabled=!cfg.editable;
-      sel.onchange=()=>{ li.materialId=sel.value; if(li.materialId==='TERM'){ alert('Producto terminado solo se usa en Ventas.'); li.materialId='925'; sel.value='925'; } cfg.onChange&&cfg.onChange(); saveDB(DB); };
+      sel.value=li.materialId; sel.disabled=!cfg.editable; sel.onchange=()=>{ li.materialId=sel.value; if(li.materialId==='TERM'){ alert('Producto terminado solo se usa en Ventas.'); li.materialId='925'; sel.value='925'; } cfg.onChange&&cfg.onChange(); saveDB(DB); };
       tdM.appendChild(sel); tr.appendChild(tdM);
 
       const tdD=document.createElement('td');
-      const tx=document.createElement('input'); tx.type='text'; tx.value=li.detalle||''; tx.style.width='100%';
-      if(cfg.editable){tx.setAttribute('data-edit','')} else {tx.classList.add('locked'); tx.setAttribute('disabled','disabled')}
+      const tx=document.createElement('input'); tx.type='text'; tx.value=li.detalle||''; tx.style.width='100%'; if(cfg.editable){tx.setAttribute('data-edit','')} else {tx.classList.add('locked'); tx.setAttribute('disabled','disabled')}
       tx.oninput=()=>{ li.detalle=tx.value; saveDB(DB); };
       tdD.appendChild(tx); tr.appendChild(tdD);
 
@@ -86,12 +101,12 @@ function makeLinesTable(cfg){
   return wrap;
 }
 
-/* ===== Render del módulo (submenú IZQ + trabajo DER) ===== */
+/* ===== Render del módulo ===== */
 function renderInventarios(host){
   host.innerHTML='';
   const mod=document.createElement('div'); mod.className='module';
 
-  // SUBMENÚ (columna izquierda, vertical)
+  // SUBMENÚ IZQ
   const sub=document.createElement('div'); sub.className='subcol';
   const box=document.createElement('div'); box.className='card';
   const title=document.createElement('h2'); title.textContent='Inventarios'; box.appendChild(title);
@@ -104,42 +119,42 @@ function renderInventarios(host){
   addBtn('Hacer inventario (conciliar)', openConciliacion, '📋');
   sub.appendChild(box);
 
-  // ÁREA DE TRABAJO DERECHA (pestañas + vistas)
+  // ÁREA DE TRABAJO DER: pestañas + vistas con IDs FIJOS
   const work=document.createElement('div'); work.className='workcol card';
-  const tabHost = makeTabHost(work); // crea .tabs + contenedor de vistas
+  const tabs=document.createElement('div'); tabs.className='tabs'; tabs.id='inv-tabs';
+  const views=document.createElement('div'); views.id='inv-views';
+  work.appendChild(tabs); work.appendChild(views);
 
   mod.appendChild(sub); mod.appendChild(work);
   host.appendChild(mod);
-
-  // Atajos: abre Home de Traspasos si lo deseas
-  // tabHost.open('welcome', 'Ayuda', v => { v.style.display='block'; v.innerHTML='<p class="muted">Usa el submenú para crear documentos.</p>'; });
 }
 
-/* ====== ENTRADA ====== */
-function openEntrada(){
-  const folio = nextFolio('EN');
-  const doc = { id:'EN'+Date.now(), folio, fecha:hoyStr(), motivo:'COMPRA', destino:'GEN', comentario:'', lineas:[
-    {materialId:'925',detalle:'',gramos:0},{materialId:'999',detalle:'',gramos:0},{materialId:'LMD',detalle:'',gramos:0},{materialId:'LMN',detalle:'',gramos:0},{materialId:'ALC',detalle:'',gramos:0}
-  ], total:0 };
-
-  const work=document.querySelector('.workcol'); const tabs=work.querySelector('.tabs');
-  const views=work.querySelector(':scope > div:nth-child(2)'); // contenedor de vistas
-  // abrir tab local
-  const id=doc.id; const title='Entrada '+folio;
-
-  // activar tab
+/* helpers para gestionar pestañas en este módulo */
+function invHost(){ return { tabs: document.getElementById('inv-tabs'), views: document.getElementById('inv-views') }; }
+function invOpenTab(id,title,mount){
+  const {tabs,views}=invHost(); if(!tabs||!views){alert('Vista no inicializada');return;}
+  // desactivar actuales
   tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   views.querySelectorAll('.view').forEach(v=>v.style.display='none');
 
-  let tab=tabs.querySelector('.tab[data-id="'+id+'"]'); let view=views.querySelector('#view-'+id);
+  let tab=tabs.querySelector('.tab[data-id="'+id+'"]');
+  let view=views.querySelector('#view-'+id);
+
   if(!tab){
     tab=document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=id; tab.textContent=title; tabs.appendChild(tab);
     view=document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
     tab.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); views.querySelectorAll('.view').forEach(v=>v.style.display='none'); tab.classList.add('active'); view.style.display='block'; };
-    // montar hoja
-    mountEntrada(view, doc);
+    if(typeof mount==='function') mount(view);
   }
   tab.classList.add('active'); view.style.display='block';
+}
+
+/* ====== ENTRADA ====== */
+function openEntrada(){
+  const doc = { id:'EN'+Date.now(), folio:nextFolio('EN'), fecha:hoyStr(), motivo:'COMPRA', destino:'GEN', comentario:'', lineas:[
+    {materialId:'925',detalle:'',gramos:0},{materialId:'999',detalle:'',gramos:0},{materialId:'LMD',detalle:'',gramos:0},{materialId:'LMN',detalle:'',gramos:0},{materialId:'ALC',detalle:'',gramos:0}
+  ], total:0 };
+  invOpenTab(doc.id, 'Entrada '+doc.folio, (v)=>mountEntrada(v,doc));
 }
 
 function mountEntrada(host,doc){
@@ -194,26 +209,10 @@ function printEntrada(doc){
 
 /* ====== SALIDA ====== */
 function openSalida(){
-  const folio = nextFolio('SA');
-  const doc = { id:'SA'+Date.now(), folio, fecha:hoyStr(), origen:'GEN', comentario:'', lineas:[
+  const doc = { id:'SA'+Date.now(), folio:nextFolio('SA'), fecha:hoyStr(), origen:'GEN', comentario:'', lineas:[
     {materialId:'925',detalle:'',gramos:0},{materialId:'LMD',detalle:'',gramos:0},{materialId:'LMN',detalle:'',gramos:0},{materialId:'OTRO',detalle:'',gramos:0},{materialId:'999',detalle:'',gramos:0}
   ], total:0 };
-
-  const work=document.querySelector('.workcol'); const tabs=work.querySelector('.tabs');
-  const views=work.querySelector(':scope > div:nth-child(2)');
-  const id=doc.id; const title='Salida '+folio;
-
-  tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  views.querySelectorAll('.view').forEach(v=>v.style.display='none');
-
-  let tab=tabs.querySelector('.tab[data-id="'+id+'"]'); let view=views.querySelector('#view-'+id);
-  if(!tab){
-    tab=document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=id; tab.textContent=title; tabs.appendChild(tab);
-    view=document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
-    tab.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); views.querySelectorAll('.view').forEach(v=>v.style.display='none'); tab.classList.add('active'); view.style.display='block'; };
-    mountSalida(view, doc);
-  }
-  tab.classList.add('active'); view.style.display='block';
+  invOpenTab(doc.id, 'Salida '+doc.folio, (v)=>mountSalida(v,doc));
 }
 
 function mountSalida(host,doc){
@@ -252,8 +251,7 @@ function mountSalida(host,doc){
 function printSalida(doc){
   const w=window.open('','_blank','width=820,height=900'); if(!w){alert('Permite pop-ups.');return}
   const css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;} table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left} thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1} .folio{color:#b91c1c;font-weight:800}';
-  const html=[];
-  html.push('<html><head><meta charset="utf-8"><style>'+css+'</style><title>'+doc.folio+'</title></head><body>');
+  const html=['<html><head><meta charset="utf-8"><style>'+css+'</style><title>'+doc.folio+'</title></head><body>'];
   html.push('<h2>Salida <span class="folio">'+doc.folio+'</span></h2>');
   html.push('<div class="row"><div class="col"><b>Fecha:</b> '+doc.fecha+'</div><div class="col"><b>Origen:</b> '+invNameAlm('GEN')+'</div><div class="col"><b>Total:</b> '+f2(doc.total)+' g</div></div>');
   html.push('<table><thead><tr><th>#</th><th>Material</th><th>Descripción</th><th>Gramos</th></tr></thead><tbody>');
@@ -262,24 +260,10 @@ function printSalida(doc){
   w.document.write(html.join('')); w.document.close(); try{w.focus(); w.print();}catch(e){}
 }
 
-/* ====== TRASPASOS (home y flujo) ====== */
+/* ====== TRASPASOS ====== */
 function openTraspasosHome(){
-  const work=document.querySelector('.workcol'); const tabs=work.querySelector('.tabs'); const views=work.querySelector(':scope > div:nth-child(2)');
-  const id='TRHOME'; const title='Traspasos';
-
-  tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  views.querySelectorAll('.view').forEach(v=>v.style.display='none');
-
-  let tab=tabs.querySelector('.tab[data-id="'+id+'"]'); let view=views.querySelector('#view-'+id);
-  if(!tab){
-    tab=document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=id; tab.textContent=title; tabs.appendChild(tab);
-    view=document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
-    tab.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); views.querySelectorAll('.view').forEach(v=>v.style.display='none'); tab.classList.add('active'); view.style.display='block'; };
-    mountTraspasosHome(view);
-  }
-  tab.classList.add('active'); view.style.display='block';
+  invOpenTab('TRHOME', 'Traspasos', mountTraspasosHome);
 }
-
 function mountTraspasosHome(host){
   host.innerHTML='';
   const card=document.createElement('div'); card.className='card'; card.style.marginBottom='10px';
@@ -317,25 +301,10 @@ function mountTraspasosHome(host){
 }
 
 function openNuevoTraspaso(){
-  const folio=nextFolio('TR');
-  const t={ id:'TR'+Date.now(), num:DB.folios.traspaso, folio, fecha:hoyStr(), origen:'GEN', destino:'PROD', comentario:'', lineas:[
+  const t={ id:'TR'+Date.now(), num:(DB.folios.traspaso+1), folio:nextFolio('TR'), fecha:hoyStr(), origen:'GEN', destino:'PROD', comentario:'', lineas:[
     {materialId:'925',detalle:'',gramos:0},{materialId:'LMD',detalle:'',gramos:0},{materialId:'LMN',detalle:'',gramos:0},{materialId:'OTRO',detalle:'',gramos:0}
   ], total:0, cerrado:false };
-
-  const work=document.querySelector('.workcol'); const tabs=work.querySelector('.tabs'); const views=work.querySelector(':scope > div:nth-child(2)');
-  const id=t.id; const title='Traspaso '+folio;
-
-  tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  views.querySelectorAll('.view').forEach(v=>v.style.display='none');
-
-  let tab=tabs.querySelector('.tab[data-id="'+id+'"]'); let view=views.querySelector('#view-'+id);
-  if(!tab){
-    tab=document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=id; tab.textContent=title; tabs.appendChild(tab);
-    view=document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
-    tab.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); views.querySelectorAll('.view').forEach(v=>v.style.display='none'); tab.classList.add('active'); view.style.display='block'; };
-    mountTraspaso(view,t);
-  }
-  tab.classList.add('active'); view.style.display='block';
+  invOpenTab(t.id, 'Traspaso '+t.folio, v=>mountTraspaso(v,t));
 }
 
 function mountTraspaso(host,t){
@@ -370,18 +339,7 @@ function mountTraspaso(host,t){
 
 function openTraspasoDetalle(id){
   const t=DB.movInv.traspasos.find(x=>x.id===id); if(!t){alert('No encontrado');return}
-  const work=document.querySelector('.workcol'); const tabs=work.querySelector('.tabs'); const views=work.querySelector(':scope > div:nth-child(2)');
-  const tabId='TRDET'+id; const title='Traspaso '+t.folio;
-
-  tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  views.querySelectorAll('.view').forEach(v=>v.style.display='none');
-
-  let tab=tabs.querySelector('.tab[data-id="'+tabId+'"]'); let view=views.querySelector('#view-'+tabId);
-  if(!tab){
-    tab=document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=tabId; tab.textContent=title; tabs.appendChild(tab);
-    view=document.createElement('div'); view.className='view'; view.id='view-'+tabId; views.appendChild(view);
-    tab.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); views.querySelectorAll('.view').forEach(v=>v.style.display='none'); tab.classList.add('active'); view.style.display='block'; };
-
+  invOpenTab('TRDET'+id, 'Traspaso '+t.folio, view=>{
     view.innerHTML='';
     const card=document.createElement('div'); card.className='card';
     const h=document.createElement('h2'); h.textContent='Detalle'; card.appendChild(h);
@@ -394,8 +352,7 @@ function openTraspasoDetalle(id){
     bar.appendChild(bPdf);
     if(!t.cerrado){ const bOk=document.createElement('button'); bOk.className='ht-btn ht-btn-blue'; bOk.type='button'; bOk.textContent='Aceptar en destino'; bOk.onclick=()=>{ aceptarTraspaso(t.id) }; bar.appendChild(bOk); }
     card.appendChild(bar); view.appendChild(card);
-  }
-  tab.classList.add('active'); view.style.display='block';
+  });
 }
 
 function aceptarTraspaso(id){
@@ -422,22 +379,8 @@ function pdfTraspaso(t,borrador){
 
 /* ====== CONCILIACIÓN ====== */
 function openConciliacion(){
-  const work=document.querySelector('.workcol'); const tabs=work.querySelector('.tabs'); const views=work.querySelector(':scope > div:nth-child(2)');
-  const id='CONCINV'; const title='Conciliación de Inventario';
-
-  tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  views.querySelectorAll('.view').forEach(v=>v.style.display='none');
-
-  let tab=tabs.querySelector('.tab[data-id="'+id+'"]'); let view=views.querySelector('#view-'+id);
-  if(!tab){
-    tab=document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=id; tab.textContent=title; tabs.appendChild(tab);
-    view=document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
-    tab.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); views.querySelectorAll('.view').forEach(v=>v.style.display='none'); tab.classList.add('active'); view.style.display='block'; };
-    mountConciliacion(view);
-  }
-  tab.classList.add('active'); view.style.display='block';
+  invOpenTab('CONCINV', 'Conciliación de Inventario', mountConciliacion);
 }
-
 function mountConciliacion(host){
   host.innerHTML=''; const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false';
 
@@ -482,5 +425,5 @@ function mountConciliacion(host){
 }
 
 // =====================================================================
-// ================  FIN MÓDULO INVENTARIO · v1.1  =====================
+// ==============  FIN MÓDULO INVENTARIO · v1.2 (tabs fijos)  ==========
 // =====================================================================
