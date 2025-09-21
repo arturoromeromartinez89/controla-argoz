@@ -1,8 +1,6 @@
-<!-- /public/mod_administracion.js -->
-<script>
 // ================================================================
-// ============  INICIO MÓDULO ADMINISTRACIÓN v1.0  ===============
-// ============  (compact/UI – listo para pegar)   ===============
+// ============  INICIO MÓDULO ADMINISTRACIÓN v1.1  ===============
+// ============     (UI compacta, listo para usar)   ==============
 // ================================================================
 
 (function initAdminBootstrap(){
@@ -139,12 +137,15 @@ window.renderAdministracion = function(host){
     openTab('admin-gastos','Admin · Gastos', (hostView)=>{
       const card = document.createElement('div'); card.className='card';
 
-      // Toolbar superior
+      // Toolbar superior (reglas: Nuevo, Imprimir, WhatsApp | Guardar/Editar)
       const bar = document.createElement('div'); bar.className='ht-toolbar';
       const left = document.createElement('div'); left.className='ht-left';
       const bNew = document.createElement('button'); bNew.className='ht-btn ht-btn-blue'; bNew.textContent = '+ Registrar gasto';
       bNew.onclick = ()=>nuevoGasto();
       left.appendChild(bNew);
+      const bImp=document.createElement('button'); bImp.className='ht-btn'; bImp.textContent='🖨️ Imprimir'; bImp.onclick=()=>alert('PDF próximamente');
+      const bWA =document.createElement('button'); bWA.className='ht-btn'; bWA.textContent='WhatsApp'; bWA.onclick=()=>alert('Exporta el PDF y compártelo por WhatsApp.');
+      left.appendChild(bImp); left.appendChild(bWA);
       bar.appendChild(left);
       card.appendChild(bar);
 
@@ -239,10 +240,8 @@ window.renderAdministracion = function(host){
           const left=document.createElement('div'); left.className='ht-left';
           const bNuevo=document.createElement('button'); bNuevo.className='ht-btn'; bNuevo.textContent='Nuevo gasto';
           bNuevo.onclick = ()=>nuevoGasto();
-          const bImp=document.createElement('button'); bImp.className='ht-btn'; bImp.textContent='🖨️ Imprimir';
-          bImp.onclick=()=>alert('PDF: coming soon');
-          const bWA=document.createElement('button'); bWA.className='ht-btn'; bWA.textContent='WhatsApp';
-          bWA.onclick=()=>alert('Exporta el PDF y comparte por WhatsApp.');
+          const bImp=document.createElement('button'); bImp.className='ht-btn'; bImp.textContent='🖨️ Imprimir'; bImp.onclick=()=>alert('PDF próximamente');
+          const bWA=document.createElement('button'); bWA.className='ht-btn'; bWA.textContent='WhatsApp'; bWA.onclick=()=>alert('Exporta el PDF y compártelo por WhatsApp.');
           left.appendChild(bNuevo); left.appendChild(bImp); left.appendChild(bWA);
           bar.appendChild(left);
 
@@ -431,6 +430,5 @@ window.renderAdministracion = function(host){
 
 // ================================================================
 // ===================  FIN MÓDULO ADMINISTRACIÓN  =================
-// ==========================  v1.0 (UI)  ==========================
+// ==========================  v1.1 (UI)  ==========================
 // ================================================================
-</script>
