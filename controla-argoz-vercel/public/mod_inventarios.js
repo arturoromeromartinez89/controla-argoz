@@ -1,33 +1,7 @@
 // =====================================================================
 // =====================  INICIO MÓDULO INVENTARIO  =====================
-// = versión 1.0.0 · interfaz unificada · 20/09/2025 ===================
+// = versión 1.0.1 · interfaz unificada · 21/09/2025 ===================
 // =====================================================================
-
-/*
-  Submenú Inventarios:
-   1) Entrada (solo a GEN) – Aleación (ALC) suma a .925
-   2) Salida  (solo desde GEN)
-   3) Traspasos (salida → aceptar en destino → cerrado)
-   4) Hacer inventario (conciliación con ajustes + PDF)
-
-  Folios por tipo (sin sucursales):
-   EN-001, SA-001, TR-001, CI-001
-
-  Materiales:
-   999  Plata .999 (fina)
-   925  Plata .925 (única)
-   LMD  Limalla dura .925
-   LMN  Limalla negra .925
-   OTRO Plata .925 de otro tipo
-   TERM Producto terminado (solo ventas; aquí solo se advierte)
-   ALC  Plata por Aleación (en ENTRADA → suma a 925)
-
-  Almacenes:
-   GEN  ALMACEN GENERAL PLATA
-   PROD ALMACEN PRODUCCIÓN
-   ART  ALMACEN PLATA ARTURO
-   COB  ALMACEN PLATA POR COBRAR
-*/
 
 (function bootstrapInv(){
   DB.folios = DB.folios || {};
@@ -57,7 +31,7 @@
   ];
 })();
 
-// ========= helpers locales =========
+// helpers
 function inv_nameMat(id){ const x=INV_MAT.find(m=>m.id===id); return x?x.nombre:id; }
 function inv_nameAlm(id){ const x=INV_ALM.find(a=>a.id===id); return x?x.nombre:id; }
 function inv_nextFolio(pref){
@@ -71,14 +45,13 @@ function inv_get(alm,mat){ DB.stock[alm]=DB.stock[alm]||{}; const v=parseFloat(D
 function inv_set(alm,mat,grams){ DB.stock[alm]=DB.stock[alm]||{}; DB.stock[alm][mat]=parseFloat(grams)||0; }
 function inv_add(alm,mat,grams){ inv_set(alm,mat, inv_get(alm,mat) + (parseFloat(grams)||0) ); }
 function inv_sub(alm,mat,grams){
-  const cur=inv_get(alm,mat), g=parseFloat(grams)||0; 
+  const cur=inv_get(alm,mat), g=parseFloat(grams)||0;
   if(cur<g) throw new Error('Inventario insuficiente de '+inv_nameMat(mat)+' en '+inv_nameAlm(alm));
   inv_set(alm,mat, cur-g);
 }
 
-// ========= UI comunes =========
+// ===== UI comunes =====
 function inv_linesTable(opts){
-  // opts: {lineas, editable, onChange}
   const wrap=document.createElement('div');
   const table=document.createElement('table'); table.className='table'; table.style.tableLayout='fixed';
   table.innerHTML='<thead><tr>'
@@ -118,8 +91,8 @@ function inv_linesTable(opts){
 
   if(opts.editable){
     const acts=document.createElement('div'); acts.className='actions';
-    const add=document.createElement('button'); add.className='btn'; add.textContent='+ Agregar línea';
-    const del=document.createElement('button'); del.className='btn'; del.textContent='– Eliminar última';
+    const add=document.createElement('button'); add.type='button'; add.className='btn'; add.textContent='+ Agregar línea';
+    const del=document.createElement('button'); del.type='button'; del.className='btn'; del.textContent='– Eliminar última';
     add.onclick=()=>{ opts.lineas.push({materialId:'925',detalle:'',gramos:0}); rebuild(); opts.onChange&&opts.onChange(); saveDB(DB); };
     del.onclick=()=>{ if(opts.lineas.length>1){ opts.lineas.pop(); rebuild(); opts.onChange&&opts.onChange(); saveDB(DB);} };
     acts.append(add,del); wrap.appendChild(acts);
@@ -127,23 +100,25 @@ function inv_linesTable(opts){
   return wrap;
 }
 
-// ========= Submenú =========
+// ===== Submenú =====
 function renderInventarios(){
-  const host=document.getElementById('subpanel'); host.innerHTML='';
-  const card=document.createElement('div'); card.className='card';
+  const host=document.getElementById('subpanel'); // limpia pestañas ya puestas por index
+  const card=document.createElement('div'); card.className='card inv-submenu';
   const h=document.createElement('h2'); h.textContent='Inventarios'; card.appendChild(h);
 
-  const box=document.createElement('div'); box.className='submods';
-  function btn(t,icon,fn){ const b=document.createElement('button'); b.className='subbtn'; b.innerHTML=icon+' '+t; b.onclick=fn; box.appendChild(b); }
+  const list=document.createElement('div'); list.className='inv-list';
+  function btn(t,icon,fn){ const b=document.createElement('button'); b.type='button'; b.className='subbtn'; b.innerHTML=icon+' '+t; b.onclick=fn; list.appendChild(b); }
   btn('Entrada','📥', inv_abrirEntrada);
   btn('Salida','📤', inv_abrirSalida);
   btn('Traspasos','🔁', inv_abrirTraspasosHome);
   btn('Hacer inventario (conciliar)','📋', inv_abrirConciliacion);
-  card.appendChild(box);
+  card.appendChild(list);
+
+  // Render
   host.appendChild(card);
 }
 
-// ========= ENTRADA =========
+// ===== ENTRADA =====
 function inv_abrirEntrada(){
   const folio = inv_nextFolio('EN');
   const doc = {
@@ -224,7 +199,7 @@ function inv_pdfEntrada(doc){
   w.document.write(html.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
 }
 
-// ========= SALIDA =========
+// ===== SALIDA =====
 function inv_abrirSalida(){
   const folio = inv_nextFolio('SA');
   const doc = {
@@ -302,7 +277,7 @@ function inv_pdfSalida(doc){
   w.document.write(html.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
 }
 
-// ========= TRASPASOS =========
+// ===== TRASPASOS =====
 function inv_abrirTraspasosHome(){
   const id='TRHOME';
   openTab(id, 'Traspasos', (host)=>{
@@ -310,7 +285,7 @@ function inv_abrirTraspasosHome(){
     const card=document.createElement('div'); card.className='card';
 
     const bar=document.createElement('div'); bar.className='actions';
-    const bNew=document.createElement('button'); bNew.className='btn-primary'; bNew.textContent='+ Nuevo traspaso (salida)'; 
+    const bNew=document.createElement('button'); bNew.type='button'; bNew.className='btn-primary'; bNew.textContent='+ Nuevo traspaso (salida)';
     bNew.onclick=inv_nuevoTraspasoSalida; bar.appendChild(bNew); card.appendChild(bar);
 
     const pend=DB.movInv.traspasos.filter(t=>!t.cerrado).sort((a,b)=>b.num-a.num);
@@ -322,8 +297,8 @@ function inv_abrirTraspasosHome(){
         const row=document.createElement('div'); row.className='actions';
         const pill=document.createElement('span'); pill.className='pill orange'; pill.textContent=t.folio; row.appendChild(pill);
         const txt=document.createElement('span'); txt.textContent='  '+inv_nameAlm(t.origen)+' → '+inv_nameAlm(t.destino)+'  · '+t.fecha; row.appendChild(txt);
-        const bV=document.createElement('button'); bV.className='btn'; bV.textContent='Abrir'; bV.onclick=()=>inv_abrirTraspasoDetalle(t.id);
-        const bA=document.createElement('button'); bA.className='btn'; bA.textContent='Aceptar en destino'; bA.onclick=()=>inv_aceptarTraspaso(t.id);
+        const bV=document.createElement('button'); bV.type='button'; bV.className='btn'; bV.textContent='Abrir'; bV.onclick=()=>inv_abrirTraspasoDetalle(t.id);
+        const bA=document.createElement('button'); bA.type='button'; bA.className='btn'; bA.textContent='Aceptar en destino'; bA.onclick=()=>inv_aceptarTraspaso(t.id);
         row.append(bV,bA); secP.appendChild(row);
       });
     }
@@ -338,7 +313,7 @@ function inv_abrirTraspasosHome(){
         const row=document.createElement('div'); row.className='actions';
         const pill=document.createElement('span'); pill.className='pill'; pill.textContent=t.folio; row.appendChild(pill);
         const txt=document.createElement('span'); txt.textContent='  '+inv_nameAlm(t.origen)+' → '+inv_nameAlm(t.destino)+'  · '+t.fecha; row.appendChild(txt);
-        const bP=document.createElement('button'); bP.className='btn'; bP.textContent='PDF'; bP.onclick=()=>inv_pdfTraspaso(t,false);
+        const bP=document.createElement('button'); bP.type='button'; bP.className='btn'; bP.textContent='PDF'; bP.onclick=()=>inv_pdfTraspaso(t,false);
         row.appendChild(bP); secC.appendChild(row);
       });
     }
@@ -436,10 +411,10 @@ function inv_abrirTraspasoDetalle(id){
     card.appendChild(tb);
 
     const bar=document.createElement('div'); bar.className='actions';
-    const bP=document.createElement('button'); bP.className='btn'; bP.textContent='PDF'; bP.onclick=()=>inv_pdfTraspaso(t,false);
+    const bP=document.createElement('button'); bP.type='button'; bP.className='btn'; bP.textContent='PDF'; bP.onclick=()=>inv_pdfTraspaso(t,false);
     bar.appendChild(bP);
     if(!t.cerrado){
-      const bA=document.createElement('button'); bA.className='btn-primary'; bA.textContent='Aceptar en destino'; bA.onclick=()=>inv_aceptarTraspaso(t.id);
+      const bA=document.createElement('button'); bA.type='button'; bA.className='btn-primary'; bA.textContent='Aceptar en destino'; bA.onclick=()=>inv_aceptarTraspaso(t.id);
       bar.appendChild(bA);
     }
     card.appendChild(bar);
@@ -466,7 +441,7 @@ function inv_pdfTraspaso(t, borrador){
   w.document.write(html.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
 }
 
-// ========= CONCILIACIÓN =========
+// ===== CONCILIACIÓN =====
 function inv_abrirConciliacion(){
   const id='CONCINV';
   openTab(id, 'Conciliación de Inventario', (host)=>{
@@ -552,5 +527,5 @@ function inv_abrirConciliacion(){
 
 // =====================================================================
 // =======================  FIN MÓDULO INVENTARIO  ======================
-// = versión 1.0.0 · interfaz unificada · 20/09/2025 ===================
+// = versión 1.0.1 · interfaz unificada · 21/09/2025 ===================
 // =====================================================================
