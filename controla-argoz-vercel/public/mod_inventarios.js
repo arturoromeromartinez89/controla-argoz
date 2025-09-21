@@ -1,5 +1,5 @@
 // =====================================================================
-// ============  INICIO MÓDULO INVENTARIO · v1.3 (robusto)  ============
+// ============  INICIO MÓDULO INVENTARIO · v1.4 (estable)  ============
 // =====================================================================
 
 /* ===== Bootstrap de DB ===== */
@@ -8,7 +8,6 @@
   DB.folios = DB.folios || {entrada:0,salida:0,traspaso:0};
   DB.movInv = DB.movInv || { entradas:[], salidas:[], traspasos:[], conciliaciones:[] };
   DB.stock  = DB.stock  || { GEN:{}, PROD:{}, ART:{}, COB:{} };
-  // utilidades base si no existen (por si el index no las expuso aún)
   window.saveDB = window.saveDB || (db=>localStorage.setItem('erp_taller_db',JSON.stringify(db)));
   window.hoyStr = window.hoyStr || (()=>new Date().toISOString().slice(0,10));
   window.f2     = window.f2     || (x=>(parseFloat(x||0)).toFixed(2));
@@ -122,13 +121,11 @@ function makeLinesTable(cfg){
   return wrap;
 }
 
-/* ===== Render del módulo ===== */
+/* ===== Layout seguro del módulo ===== */
 function ensureWorkArea(){
-  // se asegura que existan las zonas de tabs y views
   const moduleHost=document.getElementById('moduleHost');
   const cont = moduleHost && moduleHost.querySelector('.module .workcol');
   if(!cont){
-    // recrear layout mínimo del módulo
     moduleHost.innerHTML='';
     const mod=document.createElement('div'); mod.className='module';
     const sub=document.createElement('div'); sub.className='subcol';
@@ -146,6 +143,7 @@ function ensureWorkArea(){
   };
 }
 
+/* ===== Render raíz del módulo (submenú) ===== */
 function renderInventarios(host){
   host.innerHTML='';
   const mod=document.createElement('div'); mod.className='module';
@@ -161,7 +159,6 @@ function renderInventarios(host){
   mod.appendChild(sub); mod.appendChild(work);
   host.appendChild(mod);
 
-  // Submenú por delegación (un solo listener y data-act)
   const list = box.querySelector('#inv-subbox');
   list.innerHTML = [
     `<button type="button" class="subbtn" data-act="entrada">📥 Entrada</button>`,
@@ -170,6 +167,7 @@ function renderInventarios(host){
     `<button type="button" class="subbtn" data-act="conciliar">📋 Hacer inventario (conciliar)</button>`
   ].join('');
 
+  // Delegación de eventos: robusto ante re-renders
   list.addEventListener('click', (ev)=>{
     const b = ev.target.closest('.subbtn'); if(!b) return;
     const act=b.dataset.act;
@@ -180,17 +178,16 @@ function renderInventarios(host){
       if(act==='conciliar') return openConciliacion();
     }catch(e){
       console.error('Error al abrir hoja', e);
-      alert('Ocurrió un error al abrir la hoja. Ya lo reforcé, intenta de nuevo.');
+      alert('Ocurrió un error al abrir la hoja. Intenta de nuevo.');
     }
   });
 }
 
-/* helpers de tabs */
+/* ===== helpers de tabs ===== */
 function invHost(){
   let tabs=document.getElementById('inv-tabs');
   let views=document.getElementById('inv-views');
   if(!tabs || !views){
-    // reconstruir si faltan
     const fixed=ensureWorkArea();
     tabs=fixed.tabs; views=fixed.views;
   }
@@ -198,7 +195,6 @@ function invHost(){
 }
 function invOpenTab(id,title,mount){
   const {tabs,views}=invHost();
-  // desactivar actuales
   tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   views.querySelectorAll('.view').forEach(v=>v.style.display='none');
 
@@ -209,13 +205,12 @@ function invOpenTab(id,title,mount){
     tab=document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=id; tab.textContent=title; tabs.appendChild(tab);
     view=document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
     tab.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); views.querySelectorAll('.view').forEach(v=>v.style.display='none'); tab.classList.add('active'); view.style.display='block'; };
-    // montar con try/catch para no romper el tab si hay un error en el montaje
     try{ if(typeof mount==='function') mount(view); }catch(e){ console.error(e); view.innerHTML='<div class="card"><p class="muted">Error al montar la hoja.</p></div>'; }
   }
   tab.classList.add('active'); view.style.display='block';
 }
 
-/* ====== ENTRADA ====== */
+/* ========================== ENTRADA ========================== */
 function openEntrada(){
   const doc = { id:'EN'+Date.now(), folio:nextFolio('EN'), fecha:hoyStr(), motivo:'COMPRA', destino:'GEN', comentario:'', lineas:[
     {materialId:'925',detalle:'',gramos:0},{materialId:'999',detalle:'',gramos:0},{materialId:'LMD',detalle:'',gramos:0},{materialId:'LMN',detalle:'',gramos:0},{materialId:'ALC',detalle:'',gramos:0}
@@ -223,7 +218,13 @@ function openEntrada(){
   invOpenTab(doc.id, 'Entrada '+doc.folio, (v)=>mountEntrada(v,doc));
 }
 function mountEntrada(host,doc){
-  host.innerHTML=''; const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=doc.folio;
+  host.innerHTML='';
+  const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=doc.folio;
+
+  // Total (crear antes para que el onChange lo encuentre)
+  const totalWrap=document.createElement('div'); totalWrap.className='right';
+  const totalEl=document.createElement('div'); totalEl.className='money'; totalEl.textContent='0.00 g'; totalWrap.appendChild(totalEl);
+  const setTotal=(g)=>{ totalEl.textContent=f2(g)+' g'; };
 
   HT.mountToolbar(sheet,{docName:'entrada',
     onNew: openEntrada,
@@ -244,19 +245,28 @@ function mountEntrada(host,doc){
   const enc=document.createElement('div'); enc.className='grid';
   enc.innerHTML=
     '<div><label>Folio</label><input value="'+doc.folio+'" disabled></div>'+
-    '<div><label>Fecha</label><input data-edit type="date" value="'+doc.fecha+'"></div>'+
-    '<div><label>Motivo</label><select data-edit><option>COMPRA</option><option>DONACION</option><option>PRESTAMO</option><option>REPOSICIÓN</option></select></div>'+
+    '<div><label>Fecha</label><input data-field="fecha" data-edit type="date" value="'+doc.fecha+'"></div>'+
+    '<div><label>Motivo</label><select data-field="motivo" data-edit><option>COMPRA</option><option>DONACION</option><option>PRESTAMO</option><option>REPOSICIÓN</option></select></div>'+
     '<div><label>Destino</label><select disabled><option value="GEN" selected>ALMACEN GENERAL PLATA</option></select><div class="muted">Regla: solo GEN</div></div>'+
-    '<div style="grid-column:1/-1"><label>Comentario</label><textarea data-edit rows="2"></textarea></div>';
+    '<div style="grid-column:1/-1"><label>Comentario</label><textarea data-field="coment" data-edit rows="2"></textarea></div>';
   sheet.appendChild(enc);
-  const ins=enc.querySelectorAll('input,select,textarea');
-  ins[1].onchange=()=>{doc.fecha=ins[1].value; saveDB(DB)}; ins[2].onchange=()=>{doc.motivo=ins[2].value; saveDB(DB)}; ins[5].oninput=()=>{doc.comentario=ins[5].value; saveDB(DB)};
 
-  sheet.appendChild(makeLinesTable({lineas:doc.lineas, editable:true, onChange:()=>{ let s=0; doc.lineas.forEach(li=>s+=parseFloat(li.gramos||0)); total.textContent=f2(s)+' g'; }}));
-  const totalWrap=document.createElement('div'); totalWrap.className='right';
-  const total=document.createElement('div'); total.className='money'; total.textContent='0.00 g'; totalWrap.appendChild(total); sheet.appendChild(totalWrap);
+  // Listeners robustos por data-field
+  enc.querySelector('[data-field="fecha"]').onchange = e=>{doc.fecha=e.target.value; saveDB(DB)};
+  enc.querySelector('[data-field="motivo"]').value = doc.motivo;
+  enc.querySelector('[data-field="motivo"]').onchange = e=>{doc.motivo=e.target.value; saveDB(DB)};
+  enc.querySelector('[data-field="coment"]').value = doc.comentario;
+  enc.querySelector('[data-field="coment"]').oninput = e=>{doc.comentario=e.target.value; saveDB(DB)};
 
-  HT.setEditable(sheet,true); host.appendChild(sheet);
+  sheet.appendChild(makeLinesTable({
+    lineas:doc.lineas,
+    editable:true,
+    onChange:()=>{ let s=0; doc.lineas.forEach(li=>s+=parseFloat(li.gramos||0)); setTotal(s); }
+  }));
+
+  sheet.appendChild(totalWrap);
+  HT.setEditable(sheet,true);
+  host.appendChild(sheet);
 }
 function printEntrada(doc){
   const w=window.open('','_blank','width=820,height=900'); if(!w){alert('Permite pop-ups.');return}
@@ -271,7 +281,7 @@ function printEntrada(doc){
   w.document.write(html.join('')); w.document.close(); try{w.focus(); w.print();}catch(e){}
 }
 
-/* ====== SALIDA ====== */
+/* =========================== SALIDA ========================== */
 function openSalida(){
   const doc = { id:'SA'+Date.now(), folio:nextFolio('SA'), fecha:hoyStr(), origen:'GEN', comentario:'', lineas:[
     {materialId:'925',detalle:'',gramos:0},{materialId:'LMD',detalle:'',gramos:0},{materialId:'LMN',detalle:'',gramos:0},{materialId:'OTRO',detalle:'',gramos:0},{materialId:'999',detalle:'',gramos:0}
@@ -279,7 +289,13 @@ function openSalida(){
   invOpenTab(doc.id, 'Salida '+doc.folio, (v)=>mountSalida(v,doc));
 }
 function mountSalida(host,doc){
-  host.innerHTML=''; const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=doc.folio;
+  host.innerHTML='';
+  const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=doc.folio;
+
+  // Total primero (para no romper closures)
+  const totalWrap=document.createElement('div'); totalWrap.className='right';
+  const totalEl=document.createElement('div'); totalEl.className='money'; totalEl.textContent='0.00 g'; totalWrap.appendChild(totalEl);
+  const setTotal=(g)=>{ totalEl.textContent=f2(g)+' g'; };
 
   HT.mountToolbar(sheet,{docName:'salida',
     onNew: openSalida,
@@ -298,17 +314,23 @@ function mountSalida(host,doc){
   const enc=document.createElement('div'); enc.className='grid';
   enc.innerHTML=
     '<div><label>Folio</label><input value="'+doc.folio+'" disabled></div>'+
-    '<div><label>Fecha</label><input data-edit type="date" value="'+doc.fecha+'"></div>'+
+    '<div><label>Fecha</label><input data-field="fecha" data-edit type="date" value="'+doc.fecha+'"></div>'+
     '<div><label>Origen</label><select disabled><option value="GEN" selected>ALMACEN GENERAL PLATA</option></select><div class="muted">Regla: solo GEN</div></div>'+
-    '<div style="grid-column:1/-1"><label>Comentario</label><textarea data-edit rows="2"></textarea></div>';
+    '<div style="grid-column:1/-1"><label>Comentario</label><textarea data-field="coment" data-edit rows="2"></textarea></div>';
   sheet.appendChild(enc);
-  const ins=enc.querySelectorAll('input,select,textarea'); ins[1].onchange=()=>{doc.fecha=ins[1].value; saveDB(DB)}; ins[4].oninput=()=>{doc.comentario=ins[4].value; saveDB(DB)};
 
-  sheet.appendChild(makeLinesTable({lineas:doc.lineas, editable:true, onChange:()=>{ let s=0; doc.lineas.forEach(li=>s+=parseFloat(li.gramos||0)); total.textContent=f2(s)+' g'; }}));
-  const totalWrap=document.createElement('div'); totalWrap.className='right';
-  const total=document.createElement('div'); total.className='money'; total.textContent='0.00 g'; totalWrap.appendChild(total); sheet.appendChild(totalWrap);
+  enc.querySelector('[data-field="fecha"]').onchange = e=>{doc.fecha=e.target.value; saveDB(DB)};
+  enc.querySelector('[data-field="coment"]').value = doc.comentario;
+  enc.querySelector('[data-field="coment"]').oninput = e=>{doc.comentario=e.target.value; saveDB(DB)};
 
-  HT.setEditable(sheet,true); host.appendChild(sheet);
+  sheet.appendChild(makeLinesTable({
+    lineas:doc.lineas, editable:true,
+    onChange:()=>{ let s=0; doc.lineas.forEach(li=>s+=parseFloat(li.gramos||0)); setTotal(s); }
+  }));
+
+  sheet.appendChild(totalWrap);
+  HT.setEditable(sheet,true);
+  host.appendChild(sheet);
 }
 function printSalida(doc){
   const w=window.open('','_blank','width=820,height=900'); if(!w){alert('Permite pop-ups.');return}
@@ -322,7 +344,7 @@ function printSalida(doc){
   w.document.write(html.join('')); w.document.close(); try{w.focus(); w.print();}catch(e){}
 }
 
-/* ====== TRASPASOS ====== */
+/* ========================= TRASPASOS ========================= */
 function openTraspasosHome(){ invOpenTab('TRHOME', 'Traspasos', mountTraspasosHome); }
 function mountTraspasosHome(host){
   host.innerHTML='';
@@ -367,7 +389,13 @@ function openNuevoTraspaso(){
   invOpenTab(t.id, 'Traspaso '+t.folio, v=>mountTraspaso(v,t));
 }
 function mountTraspaso(host,t){
-  host.innerHTML=''; const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=t.folio;
+  host.innerHTML='';
+  const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false'; sheet.dataset.folio=t.folio;
+
+  // Total primero
+  const totalWrap=document.createElement('div'); totalWrap.className='right';
+  const totalEl=document.createElement('div'); totalEl.className='money'; totalEl.textContent='0.00 g'; totalWrap.appendChild(totalEl);
+  const setTotal=(g)=>{ totalEl.textContent=f2(g)+' g'; };
 
   HT.mountToolbar(sheet,{docName:'traspaso (salida)',
     onNew: openNuevoTraspaso,
@@ -380,20 +408,28 @@ function mountTraspaso(host,t){
 
   const enc=document.createElement('div'); enc.className='grid';
   enc.innerHTML='<div><label>Folio</label><input value="'+t.folio+'" disabled></div>'+
-    '<div><label>Fecha</label><input data-edit type="date" value="'+t.fecha+'"></div>'+
+    '<div><label>Fecha</label><input data-field="fecha" data-edit type="date" value="'+t.fecha+'"></div>'+
     '<div><label>Sale de</label>'+selAlm(t.origen,true)+'</div>'+
     '<div><label>Entra a</label>'+selAlm(t.destino,true)+'</div>'+
-    '<div style="grid-column:1/-1"><label>Comentario</label><textarea data-edit rows="2"></textarea></div>';
+    '<div style="grid-column:1/-1"><label>Comentario</label><textarea data-field="coment" data-edit rows="2"></textarea></div>';
   sheet.appendChild(enc);
+  function selAlm(val,edit){ let s='<select '+(edit?'data-edit':'disabled')+' data-field="alm">'; INV_ALM.forEach(a=>{ s+=`<option value="${a.id}" ${a.id===val?'selected':''}>${a.nombre}</option>`}); return s+'</select>' }
 
-  function selAlm(val,edit){ let s='<select '+(edit?'data-edit':'disabled')+'>'; INV_ALM.forEach(a=>{ s+=`<option value="${a.id}" ${a.id===val?'selected':''}>${a.nombre}</option>`}); return s+'</select>' }
-  const ins=enc.querySelectorAll('input,select,textarea'); ins[1].onchange=()=>{t.fecha=ins[1].value; saveDB(DB)}; ins[2].onchange=()=>{t.origen=ins[2].value; saveDB(DB)}; ins[3].onchange=()=>{t.destino=ins[3].value; saveDB(DB)}; ins[4].oninput=()=>{t.comentario=ins[4].value; saveDB(DB)};
+  enc.querySelector('[data-field="fecha"]').onchange = e=>{t.fecha=e.target.value; saveDB(DB)};
+  const alms=enc.querySelectorAll('[data-field="alm"]');
+  alms[0].onchange = e=>{t.origen=e.target.value; saveDB(DB)};
+  alms[1].onchange = e=>{t.destino=e.target.value; saveDB(DB)};
+  enc.querySelector('[data-field="coment"]').value = t.comentario;
+  enc.querySelector('[data-field="coment"]').oninput = e=>{t.comentario=e.target.value; saveDB(DB)};
 
-  sheet.appendChild(makeLinesTable({lineas:t.lineas, editable:true, onChange:()=>{ let s=0; t.lineas.forEach(li=>s+=parseFloat(li.gramos||0)); total.textContent=f2(s)+' g'; }}));
-  const totalWrap=document.createElement('div'); totalWrap.className='right';
-  const total=document.createElement('div'); total.className='money'; total.textContent='0.00 g'; totalWrap.appendChild(total); sheet.appendChild(totalWrap);
+  sheet.appendChild(makeLinesTable({
+    lineas:t.lineas, editable:true,
+    onChange:()=>{ let s=0; t.lineas.forEach(li=>s+=parseFloat(li.gramos||0)); setTotal(s); }
+  }));
 
-  HT.setEditable(sheet,true); host.appendChild(sheet);
+  sheet.appendChild(totalWrap);
+  HT.setEditable(sheet,true);
+  host.appendChild(sheet);
 }
 
 function openTraspasoDetalle(id){
@@ -434,10 +470,11 @@ function pdfTraspaso(t,borrador){
   w.document.write(html.join('')); w.document.close(); try{w.focus(); w.print();}catch(e){}
 }
 
-/* ====== CONCILIACIÓN ====== */
+/* ===================== CONCILIACIÓN ===================== */
 function openConciliacion(){ invOpenTab('CONCINV', 'Conciliación de Inventario', mountConciliacion); }
 function mountConciliacion(host){
-  host.innerHTML=''; const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false';
+  host.innerHTML='';
+  const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false';
 
   HT.mountToolbar(sheet,{docName:'conciliación',
     onNew: openConciliacion,
@@ -480,5 +517,5 @@ function mountConciliacion(host){
 }
 
 // =====================================================================
-// ==============  FIN MÓDULO INVENTARIO · v1.3 (robusto)  =============
+// ==============  FIN MÓDULO INVENTARIO · v1.4 (estable)  =============
 // =====================================================================
