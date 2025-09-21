@@ -11,7 +11,8 @@
   --card:#fff; --line:#e6eaf3; --muted:#64748b; --btn:#3b82f6;
   --edit:#fff3e6; --edit-bd:#f59e0b; --lock:#f3f4f6; --lock-fg:#475569;
 }
-*{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;background:#f8fafc}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;background:#f8fafc}
 .app{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
 aside{background:var(--menu-bg);color:var(--menu-fg);padding:14px 12px}
 .logo{font-weight:800;margin-bottom:10px}
@@ -42,7 +43,8 @@ main{padding:16px}
 
 /* Hoja de trabajo */
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
-h1,h2{margin:0 0 10px;color:#0a2c4c} .muted{color:var(--muted);font-size:12px}
+h1,h2{margin:0 0 10px;color:#0a2c4c}
+.muted{color:var(--muted);font-size:12px}
 .ht-sheet [data-edit]{background:var(--edit);border:1px solid var(--edit-bd)}
 .ht-sheet [data-edit].locked{background:var(--lock)!important;color:var(--lock-fg);border:1px solid #cbd5e1}
 .ht-toolbar{display:flex;gap:8px;margin-bottom:8px}
@@ -103,6 +105,7 @@ window.DB = loadDB();
 DB.folios = DB.folios || {};
 DB.movInv = DB.movInv || { entradas:[], salidas:[], traspasos:[], conciliaciones:[] };
 DB.stock  = DB.stock  || {};
+DB.admin  = DB.admin  || {}; // lo usa el módulo de administración
 
 (function semana(){
   const hoy=new Date(), lunes=new Date(hoy), d=(hoy.getDay()+6)%7; lunes.setDate(hoy.getDate()-d);
@@ -118,7 +121,12 @@ document.getElementById('menu').addEventListener('click',(e)=>{
   document.querySelectorAll('.menu button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
   host.innerHTML='';
   if(b.dataset.root==='inventarios'){ renderInventarios(host); return; }
-  const card=document.createElement('div'); card.className='card'; card.innerHTML='<h2>'+b.textContent.split(' ').slice(1).join(' ')+'</h2><p class="muted">Módulo en construcción. Inventarios está activo.</p>'; host.appendChild(card);
+  if(b.dataset.root==='administracion'){ renderAdministracion(host); return; }
+  // placeholder para los demás módulos
+  const card=document.createElement('div');
+  card.className='card';
+  card.innerHTML='<h2>'+b.textContent.split(' ').slice(1).join(' ')+'</h2><p class="muted">Módulo en construcción.</p>';
+  host.appendChild(card);
 });
 
 /* Auto: Inicio */
@@ -131,7 +139,8 @@ window.hoyStr = hoyStr;
 window.escapeHTML = escapeHTML;
 </script>
 
-<!-- MÓDULO INVENTARIOS -->
+<!-- MÓDULOS -->
 <script src="./mod_inventarios.js"></script>
+<script src="./mod_administracion.js"></script>
 </body>
 </html>
