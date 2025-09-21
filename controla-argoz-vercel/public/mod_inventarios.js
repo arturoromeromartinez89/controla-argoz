@@ -1,5 +1,5 @@
 // =====================================================================
-// ============  INICIO MÓDULO INVENTARIO · v1.5 (consulta+exist) =======
+// ============  INICIO MÓDULO INVENTARIO · v1.6 (compact/UI)  ==========
 // =====================================================================
 
 /* ===== Bootstrap de DB ===== */
@@ -23,7 +23,7 @@ const INV_ALM = [
 ];
 const INV_MAT = [
   {id:'999',  nombre:'Plata .999 (fina)'},
-  {id:'925',  nombre:'Plata .925 (única)'},
+  {id:'925',  nombre:'Plata .925 (General sólida)'},
   {id:'LMD',  nombre:'Plata .925 limalla dura'},
   {id:'LMN',  nombre:'Plata .925 limalla negra'},
   {id:'OTRO', nombre:'Plata .925 de otro tipo'},
@@ -44,20 +44,29 @@ function nextFolio(tp){
   return 'XX-000'
 }
 
-/* ===== CSS compacto submenú + chips estatus ===== */
+/* ===== CSS compacto módulo ===== */
 (function injectInvCSS(){
   const id='inv-compact-css';
   if(document.getElementById(id)) return;
   const css = `
+  /* Compactación general */
+  .module{font-size:13px}
+  .module input, .module select, .module textarea{font-size:13px}
+  .module .ht-btn{font-size:12px; padding:6px 10px}
   .module .subbtn{ font-size:13px !important; padding:6px 8px !important; display:block; width:100%; text-align:left; margin-bottom:8px; }
   .module .tab{ font-size:12px !important; padding:4px 8px !important; }
-  .module .card h2{ font-size:18px !important; }
+  .module .card h2{ font-size:17px !important; }
+
+  /* Estatus (semaforo) */
   .status-pill{display:inline-flex; align-items:center; gap:6px; font-weight:700; padding:4px 10px; border-radius:999px;}
   .status-ok{background:#e8f7ec; color:#166534;}
   .status-warn{background:#fff7ed; color:#b45309;}
   .dot{width:10px;height:10px;border-radius:999px;}
   .dot.ok{background:#16a34a;}
   .dot.warn{background:#f59e0b;}
+
+  /* Chip total existencias */
+  .chip-total{display:inline-flex;align-items:center;gap:8px;background:#ecfdf5;color:#065f46;border-radius:999px;padding:6px 12px;font-weight:700}
   `;
   const s=document.createElement('style'); s.id=id; s.textContent=css; document.head.appendChild(s);
 })();
@@ -184,7 +193,7 @@ function renderInventarios(host){
       if(act==='entrada') return openEntrada();
       if(act==='salida')  return openSalida();
       if(act==='traspasos') return openTraspasosHome();
-      if(act==='conciliar') return openConciliacion();
+      if(act==='conciliar') return openConciliacion(); // ahora cada clic abre hoja nueva
     }catch(e){
       console.error('Error al abrir hoja', e);
       alert('Ocurrió un error al abrir la hoja.');
@@ -344,7 +353,7 @@ function printSalida(doc){
   const html=['<html><head><meta charset="utf-8"><style>'+css+'</style><title>'+doc.folio+'</title></head><body>'];
   html.push('<h2>Salida <span class="folio">'+doc.folio+'</span></h2>');
   html.push('<div class="row"><div class="col"><b>Fecha:</b> '+doc.fecha+'</div><div class="col"><b>Origen:</b> '+invNameAlm('GEN')+'</div><div class="col"><b>Total:</b> '+f2(doc.total)+' g</div></div>');
-  html.push('<table><thead><tr><th>#</th><th>Material</th><th>Descripción</th><th>Gramos</th></tr></thead><tbody>');
+  html.push('<table><thead><tr><th>#</th><th>Material</th><th>Descripción</th><th>Gr</th></tr></thead><tbody>');
   doc.lineas.forEach((li,i)=>{ if(parseFloat(li.gramos||0)<=0) return; html.push('<tr><td>'+(i+1)+'</td><td>'+invNameMat(li.materialId)+'</td><td>'+escapeHTML(li.detalle||'')+'</td><td>'+f2(li.gramos)+'</td></tr>'); });
   html.push('</tbody></table></body></html>');
   w.document.write(html.join('')); w.document.close(); try{w.focus(); w.print();}catch(e){}
@@ -475,26 +484,32 @@ function pdfTraspaso(t,borrador){
   w.document.write(html.join('')); w.document.close(); try{w.focus(); w.print();}catch(e){}
 }
 
-/* ===================== CONCILIACIÓN (mejorada) ===================== */
-function openConciliacion(){ invOpenTab('CONCINV', 'Conciliación de Inventario', mountConciliacion); }
-function mountConciliacion(host){
+/* ================== CONCILIACIÓN (mejorada + view) ================== */
+function openConciliacion(){
+  const id='CONC'+Date.now(); // pestaña única cada vez
+  invOpenTab(id, 'Conciliación de Inventario', view=>mountConciliacion(view, null));
+}
+function mountConciliacion(host,loadedDoc){
   host.innerHTML='';
-  const sheet=document.createElement('div'); sheet.className='ht-sheet'; sheet.dataset.saved='false';
+  const sheet=document.createElement('div'); sheet.className='ht-sheet';
+  sheet.dataset.saved = loadedDoc ? 'true' : 'false';
+  const readOnly = !!loadedDoc;
+
+  // Modelo
+  const model = loadedDoc || {
+    id:'CI'+Date.now(),
+    folio: nextFolio('CI'),
+    fecha: hoyStr(),
+    almacen: 'GEN',
+    ajusteFinal: 0,
+    filas: INV_MAT.filter(m=>m.id!=='TERM').map(m=>({mat:m.id, conteo:0}))
+  };
 
   let totalDif = 0;
-  let ajuste    = 0;
+  let ajuste    = model.ajusteFinal || 0;
 
-  function renderStatus(){
-    const pill = sheet.querySelector('.status-pill');
-    const sum = totalDif + ajuste;
-    if(Math.abs(sum) < 0.0000001){
-      pill.className='status-pill status-ok';
-      pill.innerHTML='<span class="dot ok"></span> Conciliado';
-    }else{
-      pill.className='status-pill status-warn';
-      pill.innerHTML='<span class="dot warn"></span> Por conciliar';
-    }
-  }
+  function statusClass(){ return Math.abs(totalDif+ajuste)<0.0000001 ? 'ok' : 'warn'; }
+  function statusText(){  return Math.abs(totalDif+ajuste)<0.0000001 ? 'Conciliado' : 'Por conciliar'; }
 
   HT.mountToolbar(sheet,{docName:'conciliación',
     onNew: openConciliacion,
@@ -503,17 +518,20 @@ function mountConciliacion(host){
       rows.forEach(r=>{ const sis=invGet(alm,r.mat); const dif=(parseFloat(r.conteo||0)-sis);
         if(Math.abs(dif)>0){ if(dif>0){ invAdd(alm,r.mat,dif) } else { try{ invSub(alm,r.mat,-dif) }catch(e){ alert(e.message) } } totalAdj+=dif; }
       });
-      // Ajuste final aplica a .925 (supuesto simple)
-      if(Math.abs(ajuste)>0){ if(ajuste>0){ invAdd(alm,'925',ajuste) } else { try{ invSub(alm,'925',-ajuste) }catch(e){ alert(e.message) } } totalAdj+=ajuste; }
-      const folio=nextFolio('CI'); DB.movInv.conciliaciones.push({ id:'CI'+Date.now(), folio, fecha:fecha.value, almacen:alm, filas:JSON.parse(JSON.stringify(rows)), totalAjuste:totalAdj, ajusteFinal:ajuste }); saveDB(DB);
-      return {ok:true, folio};
+      if(Math.abs(ajuste)>0){ if(ajuste>0){ invAdd(alm,'925',ajuste) } else { try{ invSub(alm,'925',-ajuste) }catch(e){ alert(e.message) } totalAdj+=ajuste; }
+      model.fecha = fecha.value; model.almacen = alm; model.ajusteFinal = ajuste; model.filas = JSON.parse(JSON.stringify(rows));
+      // Folio ya lo tiene (creado arriba)
+      DB.movInv.conciliaciones.push(JSON.parse(JSON.stringify({ id:model.id, folio:model.folio, fecha:model.fecha, almacen:model.almacen, filas:model.filas, totalAjuste:totalAdj, ajusteFinal:ajuste })));
+      saveDB(DB);
+      return {ok:true, folio:model.folio};
     },
     onPrint: ()=>{
       const alm=sel.value; const w=window.open('','_blank','width=820,height=900'); if(!w){alert('Permite pop-ups.');return}
-      const css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;} table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left} thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1}';
+      const css='@page{size:5.5in 8.5in;margin:10mm;} body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;} table{width:100%;border-collapse:collapse;table-layout:fixed} th,td{border:1px solid #e5e7eb;padding:4px 6px;text-align:left} thead tr{background:#eef2ff} .row{display:flex;gap:8px;margin:6px 0}.col{flex:1} .status{display:inline-flex;gap:6px;align-items:center;font-weight:700} .dot{width:10px;height:10px;border-radius:999px}';
+      const ok = (Math.abs(totalDif+ajuste)<0.0001);
       const html=['<html><head><meta charset="utf-8"><style>'+css+'</style><title>Conciliación</title></head><body>'];
-      html.push('<h2>Conciliación de Inventario</h2>');
-      html.push('<div class="row"><div class="col"><b>Fecha al:</b> '+fecha.value+'</div><div class="col"><b>Almacén:</b> '+invNameAlm(alm)+'</div><div class="col"><b>Estatus:</b> '+(Math.abs(totalDif+ajuste)<0.0001?'Conciliado':'Por conciliar')+'</div></div>');
+      html.push('<h2>Conciliación de Inventario <span style="color:#b91c1c">('+model.folio+')</span></h2>');
+      html.push('<div class="row"><div class="col"><b>Fecha al:</b> '+fecha.value+'</div><div class="col"><b>Almacén:</b> '+invNameAlm(alm)+'</div><div class="col status"><span class="dot" style="background:'+(ok?'#16a34a':'#f59e0b')+'"></span> '+(ok?'Conciliado':'Por conciliar')+'</div></div>');
       html.push('<table><thead><tr><th>Material</th><th>Sistema (g)</th><th>Conteo (g)</th><th>Diferencia (g)</th></tr></thead><tbody>');
       rows.forEach(r=>{ const sis=invGet(alm,r.mat); const dif=(parseFloat(r.conteo||0)-sis); html.push('<tr><td>'+invNameMat(r.mat)+'</td><td>'+f2(sis)+'</td><td>'+f2(r.conteo||0)+'</td><td>'+f2(dif)+'</td></tr>'); });
       html.push('</tbody></table>');
@@ -524,24 +542,33 @@ function mountConciliacion(host){
   });
 
   const top=document.createElement('div'); top.className='grid';
-  top.innerHTML='<div><label>Almacén</label>'+selAlm('GEN',true)+'</div><div><label>Fecha al</label><input data-edit type="date" value="'+hoyStr()+'"></div><div style="display:flex;align-items:end;justify-content:flex-end"><span class="status-pill status-warn"><span class="dot warn"></span> Por conciliar</span></div>';
+  top.innerHTML='<div><label>Almacén</label>'+selAlm(model.almacen,!readOnly)+'</div><div><label>Fecha al</label><input '+(readOnly?'disabled':'data-edit')+' type="date" value="'+(model.fecha||hoyStr())+'"></div><div style="display:flex;align-items:end;justify-content:flex-end"><span class="status-pill status-'+(statusClass())+'"><span class="dot '+statusClass()+'"></span> '+statusText()+'</span></div>';
   sheet.appendChild(top);
   function selAlm(val,edit){ let s='<select '+(edit?'data-edit':'disabled')+'>'; INV_ALM.forEach(a=>{ s+=`<option value="${a.id}" ${a.id===val?'selected':''}>${a.nombre}</option>`}); return s+'</select>' }
   const sel=top.querySelector('select'); const fecha=top.querySelector('input[type="date"]');
 
   const box=document.createElement('div'); box.className='card'; box.innerHTML='<h2>Conteos por material</h2>';
-  const tb=document.createElement('table'); tb.className='table'; tb.innerHTML='<thead><tr><th>Material</th><th>Sistema (g)</th><th>Conteo (g)</th><th>Diferencia</th></tr></thead><tbody></tbody><tfoot><tr><th colspan="3" style="text-align:right">Diferencia total:</th><th class="totaldif">0.00</th></tr><tr><th colspan="3" style="text-align:right">Ajuste final (± g):</th><th><input data-edit type="number" step="0.01" value="0" style="width:100%;text-align:right" class="ajuste"></th></tr><tr><th colspan="3" style="text-align:right">Total posterior a ajuste:</th><th class="post">0.00</th></tr></tfoot>'; 
+  const tb=document.createElement('table'); tb.className='table'; tb.innerHTML='<thead><tr><th>Material</th><th>Sistema (g)</th><th>Conteo (g)</th><th>Diferencia</th></tr></thead><tbody></tbody><tfoot><tr><th colspan="3" style="text-align:right">Diferencia total:</th><th class="totaldif">0.00</th></tr><tr><th colspan="3" style="text-align:right">Ajuste final (± g):</th><th>'+(readOnly?('<span class="ajusteRO">'+f2(ajuste)+'</span>'):'<input data-edit type="number" step="0.01" value="'+f2(ajuste)+'" style="width:100%;text-align:right" class="ajuste">')+'</th></tr><tr><th colspan="3" style="text-align:right">Total posterior a ajuste:</th><th class="post">0.00</th></tr></tfoot>'; 
   const body=tb.querySelector('tbody'); const cellTotal=tb.querySelector('.totaldif'); const cellPost=tb.querySelector('.post'); const inAjuste=tb.querySelector('.ajuste');
   box.appendChild(tb); sheet.appendChild(box);
 
-  const rows = INV_MAT.filter(m=>m.id!=='TERM').map(m=>({mat:m.id, conteo:0, sis:0, dif:0}));
+  const rows = INV_MAT.filter(m=>m.id!=='TERM').map(m=>{
+    const exist= (model.filas||[]).find(x=>x.mat===m.id);
+    return {mat:m.id, conteo: exist? (parseFloat(exist.conteo||0)) : 0, sis:0, dif:0};
+  });
+
   function recompute(){
     const alm=sel.value;
     totalDif = 0;
-    rows.forEach(r=>{ r.sis=invGet(alm,r.mat); r.dif=(parseFloat(r.conteo||0)-r.sis); totalDif+=r.dif; });
+    rows.forEach(r=>{ r.sis=invGet(alm,r.mat); r.dif=(parseFloat(r.conteo||0)-r.sis); });
+    totalDif = rows.reduce((a,b)=>a+(b.dif||0),0);
     cellTotal.textContent=f2(totalDif);
     cellPost.textContent=f2(totalDif + ajuste);
-    renderStatus();
+    // Estatus
+    const pill = sheet.querySelector('.status-pill');
+    const ok = Math.abs(totalDif+ajuste)<0.0000001;
+    pill.className='status-pill '+(ok?'status-ok':'status-warn');
+    pill.innerHTML='<span class="dot '+(ok?'ok':'warn')+'"></span> '+(ok?'Conciliado':'Por conciliar');
   }
   function paint(){
     const alm=sel.value;
@@ -549,28 +576,35 @@ function mountConciliacion(host){
     rows.forEach(r=>{
       r.sis=invGet(alm,r.mat);
       const tr=document.createElement('tr');
-      tr.innerHTML='<td>'+invNameMat(r.mat)+'</td><td class="sis">'+f2(r.sis)+'</td><td><input data-edit type="number" step="0.01" value="'+(r.conteo||0)+'" style="width:100%;text-align:right"></td><td class="dif">0.00</td>';
-      const inC=tr.querySelector('input'); const tdSis=tr.querySelector('.sis'); const tdDif=tr.querySelector('.dif');
+      tr.innerHTML='<td>'+invNameMat(r.mat)+'</td><td class="sis">'+f2(r.sis)+'</td><td>'+(readOnly?('<span>'+f2(r.conteo||0)+'</span>'):'<input data-edit type="number" step="0.01" value="'+(r.conteo||0)+'" style="width:100%;text-align:right">')+'</td><td class="dif">0.00</td>';
+      const tdSis=tr.querySelector('.sis'); const tdDif=tr.querySelector('.dif');
+      const inC = readOnly? null : tr.querySelector('input');
       function upd(){
         r.sis=invGet(alm,r.mat); tdSis.textContent=f2(r.sis);
-        r.conteo=parseFloat(inC.value||0);
-        r.dif=r.conteo - r.sis; tdDif.textContent=f2(r.dif);
+        r.dif=(parseFloat(r.conteo||0)-r.sis); tdDif.textContent=f2(r.dif);
         recompute();
       }
-      inC.oninput=upd; upd(); // inicial
+      if(inC){
+        inC.oninput=()=>{ r.conteo=parseFloat(inC.value||0); upd(); };
+      }
+      upd();
       body.appendChild(tr);
     });
   }
   paint();
 
-  inAjuste.oninput=()=>{ ajuste=parseFloat(inAjuste.value||0); recompute(); };
-  sel.onchange=()=>{ paint(); };
-
-  HT.setEditable(sheet,true); host.appendChild(sheet);
+  if(!readOnly){
+    if(inAjuste){ inAjuste.oninput=()=>{ ajuste=parseFloat(inAjuste.value||0); recompute(); }; }
+    sel.onchange=()=>{ paint(); };
+    HT.setEditable(sheet,true);
+  }else{
+    HT.setEditable(sheet,false);
+  }
+  host.appendChild(sheet);
 }
 
-/* ======================= CONSULTAR (nuevo) ======================= */
-function openConsulta(){ invOpenTab('INVCONS', 'Consultar documentos', mountConsulta); }
+/* ======================= CONSULTAR (iguala view) ======================= */
+function openConsulta(){ invOpenTab('INVCONS'+Date.now(), 'Consultar documentos', mountConsulta); }
 function mountConsulta(host){
   host.innerHTML='';
   const card=document.createElement('div'); card.className='card';
@@ -590,15 +624,15 @@ function mountConsulta(host){
   host.appendChild(card);
 
   function between(d,a,b){ return d>=a && d<=b; }
+  function addRow(tipo, folio, fecha, info, total, openFn){
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>'+tipo+'</td><td>'+folio+'</td><td>'+fecha+'</td><td>'+escapeHTML(info||'')+'</td><td style="text-align:right">'+f2(total||0)+'</td>';
+    tr.ondblclick=openFn; body.appendChild(tr);
+  }
   function run(){
     body.innerHTML='';
     const a=fIni.value, b=fFin.value,qq=(q.value||'').toLowerCase();
-    function addRow(tipo, folio, fecha, info, total, openFn){
-      const tr=document.createElement('tr');
-      tr.innerHTML='<td>'+tipo+'</td><td>'+folio+'</td><td>'+fecha+'</td><td>'+escapeHTML(info||'')+'</td><td style="text-align:right">'+f2(total||0)+'</td>';
-      tr.ondblclick=openFn; body.appendChild(tr);
-    }
-    if(selTipo.value==='ENTRADAS' || selTipo.value==='ENTRADAS'.toUpperCase()){
+    if(selTipo.value==='ENTRADAS'){
       DB.movInv.entradas.filter(d=>between(d.fecha,a,b) && (d.folio.toLowerCase().includes(qq)|| (d.comentario||'').toLowerCase().includes(qq))).forEach(d=>{
         addRow('Entrada', d.folio, d.fecha, d.comentario, (d.total||0), ()=>viewEntrada(d));
       });
@@ -642,27 +676,32 @@ function viewSalida(d){
   });
 }
 function viewConciliacion(d){
+  // Reutilizamos el mismo layout de la hoja de conciliación en modo lectura
   invOpenTab('VIEWCI'+d.folio, 'Conciliación '+d.folio, v=>{
-    v.innerHTML='';
-    const c=document.createElement('div'); c.className='card';
-    c.innerHTML='<h2>Conciliación '+d.folio+'</h2><p><b>Fecha:</b> '+d.fecha+' · <b>Almacén:</b> '+invNameAlm(d.almacen)+'</p>';
-    const tb=document.createElement('table'); tb.className='table'; tb.innerHTML='<thead><tr><th>Material</th><th>Conteo</th></tr></thead><tbody></tbody>'; const body=tb.querySelector('tbody');
-    (d.filas||[]).forEach(r=>{ const tr=document.createElement('tr'); tr.innerHTML='<td>'+invNameMat(r.mat)+'</td><td>'+f2(r.conteo||0)+'</td>'; body.appendChild(tr); });
-    c.appendChild(tb); c.innerHTML+='<p><b>Ajuste final:</b> '+f2(d.ajusteFinal||0)+' g · <b>Total Ajuste:</b> '+f2(d.totalAjuste||0)+' g</p>'; v.appendChild(c);
+    const loaded={ id:d.id, folio:d.folio, fecha:d.fecha, almacen:d.almacen, ajusteFinal:(d.ajusteFinal||0),
+      filas:(d.filas||[]).map(r=>({mat:r.mat, conteo:r.conteo})) };
+    mountConciliacion(v, loaded);
   });
 }
 
 /* ======================= EXISTENCIAS (nuevo) ======================= */
-function openExistencias(){ invOpenTab('INVSTK', 'Existencias', mountExistencias); }
+function openExistencias(){ invOpenTab('INVSTK'+Date.now(), 'Existencias', mountExistencias); }
 function mountExistencias(host){
   host.innerHTML='';
   const card=document.createElement('div'); card.className='card'; card.innerHTML='<h2>Existencias por almacén</h2>';
+
   INV_ALM.forEach(a=>{
-    const tb=document.createElement('table'); tb.className='table'; tb.style.marginBottom='10px';
-    tb.innerHTML='<thead><tr><th colspan="3">'+invNameAlm(a.id)+'</th></tr><tr><th>Material</th><th>Gramos</th><th>Últ. movimiento</th></tr></thead><tbody></tbody>';
+    // Total por almacén
+    const total = INV_MAT.filter(m=>m.id!=='TERM')
+      .reduce((acc,m)=>acc+invGet(a.id,m.id),0);
+    const chip=document.createElement('div'); chip.className='chip-total'; chip.textContent=invNameAlm(a.id)+' · Total: '+f2(total)+' g';
+    card.appendChild(chip);
+
+    const tb=document.createElement('table'); tb.className='table'; tb.style.margin='10px 0 18px 0';
+    tb.innerHTML='<thead><tr><th>Material</th><th>Gramos</th></tr></thead><tbody></tbody>';
     const body=tb.querySelector('tbody');
     INV_MAT.filter(m=>m.id!=='TERM').forEach(m=>{
-      const tr=document.createElement('tr'); tr.innerHTML='<td>'+invNameMat(m.id)+'</td><td style="text-align:right">'+f2(invGet(a.id,m.id))+'</td><td class="muted">—</td>'; body.appendChild(tr);
+      const tr=document.createElement('tr'); tr.innerHTML='<td>'+invNameMat(m.id)+'</td><td style="text-align:right">'+f2(invGet(a.id,m.id))+'</td>'; body.appendChild(tr);
     });
     card.appendChild(tb);
   });
@@ -670,5 +709,5 @@ function mountExistencias(host){
 }
 
 // =====================================================================
-// ==============  FIN MÓDULO INVENTARIO · v1.5 (estable)  =============
+// ==============  FIN MÓDULO INVENTARIO · v1.6 (compact/UI)  ===========
 // =====================================================================
