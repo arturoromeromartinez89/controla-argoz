@@ -3,95 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ERP Taller · Control</title>
+<title>ERP · Taller</title>
 <style>
 :root{
-  --menu-bg:#0b1c2e;
-  --menu-fg:#e6eef7;
-  --menu-active-start:#6A11CB;
-  --menu-active-end:#2575FC;
-  --btn-blue:#3b82f6;
-  --edit-bg:#fff3e6;
-  --edit-bd:#f59e0b;
-  --lock-bg:#f3f4f6;
-  --lock-fg:#475569;
-  --card:#ffffff;
-  --muted:#64748b;
-  --line:#e5e7eb;
+  --menu-bg:#0b1c2e; --menu-fg:#e6eef7;
+  --grad-a:#6A11CB; --grad-b:#2575FC;
+  --card:#fff; --line:#e5e7eb; --muted:#64748b; --btn:#3b82f6;
+  --edit:#fff3e6; --edit-bd:#f59e0b; --lock:#f3f4f6; --lock-fg:#475569;
 }
-*{box-sizing:border-box}
-body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
-.app{display:grid;grid-template-columns:260px 1fr;min-height:100vh;background:#f8fafc}
+*{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;background:#f8fafc}
+.app{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
 aside{background:var(--menu-bg);color:var(--menu-fg);padding:14px 12px}
-.logo{font-weight:800;letter-spacing:.3px;margin-bottom:10px}
-.menu{display:flex;flex-direction:column;gap:6px;margin-top:8px}
-.menu button{
-  width:100%;text-align:left;border:0;background:transparent;color:var(--menu-fg);
-  padding:10px 12px;border-radius:10px;opacity:.9;cursor:pointer;font-weight:600
-}
+.logo{font-weight:800;margin-bottom:10px}
+.menu{display:flex;flex-direction:column;gap:6px}
+.menu button{border:0;background:transparent;color:var(--menu-fg);padding:10px 12px;border-radius:10px;text-align:left;font-weight:600;cursor:pointer;opacity:.9}
 .menu button:hover{opacity:1;background:#0f2942}
-.menu button.active{
-  color:#fff;opacity:1;border:0;
-  background:linear-gradient(90deg,var(--menu-active-start),var(--menu-active-end));
-}
+.menu button.active{opacity:1;background:linear-gradient(90deg,var(--grad-a),var(--grad-b));color:#fff}
 main{padding:16px}
+.workspace{max-width:1200px;margin:0 auto}
+.topbar{display:flex;gap:10px;margin-bottom:12px}
+.kpi{background:#fff;border:1px solid #e6ebf3;border-radius:14px;padding:10px 12px;font-weight:800}
+.card{background:var(--card);border:1px solid #e6ebf3;border-radius:14px;padding:12px}
+h1,h2{margin:0 0 10px;color:#0a2c4c} .muted{color:var(--muted);font-size:12px}
 
-/* contenedor general */
-.workspace{max-width:980px;margin:0 auto}
-
-/* KPIs */
-.topbar{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-.kpi{background:#fff;border:1px solid #e6ebf3;border-radius:14px;padding:10px 12px;font-weight:700}
-
-/* cards */
-.card{background:var(--card);border:1px solid #e6ebf3;border-radius:14px;padding:12px;margin-bottom:12px}
-h1,h2{margin:0 0 10px;color:#0a2c4c}
-.muted{color:var(--muted);font-size:12px}
-
-/* SUBMENÚ INVENTARIOS — angosto y vertical */
-#subpanel .inv-submenu{max-width:720px;margin:0 auto}
-.inv-list{display:flex;flex-direction:column;gap:10px}
-.subbtn{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e6ebf3;border-radius:12px;background:#fff;cursor:pointer;font-weight:700}
+/* === Layout interno del módulo === */
+.module{display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start}
+.subcol{position:sticky;top:12px}
+.subbox{display:flex;flex-direction:column;gap:10px}
+.subbtn{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e6ebf3;border-radius:12px;background:#fff;font-weight:800;cursor:pointer}
 .subbtn:hover{border-color:#cdd6e4}
-.subbtn:focus{outline:2px solid #cbd5e1}
+.workcol{min-height:420px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.tab{border:1px solid #e6ebf3;background:#fff;padding:6px 10px;border-radius:999px;cursor:pointer}
+.tab.active{background:#e2e8f0;font-weight:800}
+.view{display:none}
 
-/* hoja de trabajo */
-.ht-sheet{max-width:980px;margin:0 auto}
-.ht-sheet [data-edit]{ background:var(--edit-bg); border:1px solid var(--edit-bd) }
-.ht-sheet [data-edit].locked{ background:var(--lock-bg)!important; color:var(--lock-fg); border:1px solid #cbd5e1 }
-.ht-toolbar{ display:flex; align-items:center; gap:8px; padding:8px 0 }
-.ht-left{ margin-right:auto }
-.ht-btn{ border:1px solid #cbd5e1; background:#fff; border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700 }
-.ht-btn-blue{ background:var(--btn-blue); color:#fff; border:none }
-
-/* tablas */
-.table{ width:100%; border-collapse:collapse; table-layout:fixed }
-.table th,.table td{ border:1px solid var(--line); padding:6px; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
-.table thead tr{ background:#eef2ff }
-.right{ display:flex; justify-content:flex-end; margin-top:8px }
-.money{ font-weight:800 }
-
-/* pestañas: ahora dentro del subpanel */
-#subpanel .tabs{ display:flex; gap:6px; flex-wrap:wrap; margin:8px auto 12px; max-width:980px }
-.tab{ border:1px solid #e6ebf3; background:#fff; padding:6px 10px; border-radius:999px; cursor:pointer }
-.tab.active{ background:#e2e8f0; font-weight:800 }
-
-/* apilar correctamente (evita superposiciones) */
-#subpanel{position:relative; z-index:2}
-#views{position:relative; z-index:1}
-
-/* impresión */
-@media print{
-  aside,.tabs,.topbar{display:none}
-  main{padding:0}
-}
+/* Hoja de trabajo */
+.ht-sheet [data-edit]{background:var(--edit);border:1px solid var(--edit-bd)}
+.ht-sheet [data-edit].locked{background:var(--lock)!important;color:var(--lock-fg);border:1px solid #cbd5e1}
+.ht-toolbar{display:flex;gap:8px;margin-bottom:8px}
+.ht-left{margin-right:auto}
+.ht-btn{border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:8px 12px;font-weight:800;cursor:pointer}
+.ht-btn-blue{background:var(--btn);color:#fff;border:none}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.grid label{display:block;font-size:12px;color:#334155;margin-bottom:4px}
+.grid input,.grid select,.grid textarea{width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px}
+.table{width:100%;border-collapse:collapse;table-layout:fixed}
+.table th,.table td{border:1px solid var(--line);padding:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.table thead tr{background:#eef2ff}
+.right{display:flex;justify-content:flex-end;margin-top:8px}
+.money{font-weight:800}
+@media print{aside,.topbar,.subcol,.tabs{display:none} main{padding:0}}
 </style>
 </head>
 <body>
 <div class="app">
   <aside>
     <div class="logo">ERP · Taller</div>
-    <div class="menu" id="menu">
+    <div id="menu" class="menu">
       <button data-root="inicio" class="active">🏠 Inicio</button>
       <button data-root="ventas">🧾 Ventas</button>
       <button data-root="inventarios">📦 Inventarios</button>
@@ -112,119 +81,93 @@ h1,h2{margin:0 0 10px;color:#0a2c4c}
         <div class="kpi">Producción: 0 g</div>
       </div>
 
-      <!-- pestañas dentro del subpanel -->
-      <div id="subpanel">
-        <div class="tabs" id="tabs"></div>
-      </div>
-      <div id="views"></div>
+      <!-- Aquí se monta cada módulo -->
+      <div id="moduleHost"></div>
     </div>
   </main>
 </div>
 
 <script>
-/* ===== utilidades base ===== */
+/* ===== Base mínima ===== */
 const DBSLOT='erp_taller_db';
-function loadDB(){ try{ return JSON.parse(localStorage.getItem(DBSLOT)||'{}'); }catch(e){ return {}; } }
+function loadDB(){ try{return JSON.parse(localStorage.getItem(DBSLOT)||'{}')}catch(e){return{}} }
 function saveDB(db){ localStorage.setItem(DBSLOT, JSON.stringify(db)); }
-function hoyStr(d){ const dd = d? new Date(d): new Date(); return dd.toISOString().slice(0,10); }
-function f2(x){ const v = parseFloat(x||0); return v.toFixed(2); }
-function escapeHTML(s){ return (s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m])); }
+function hoyStr(){ return new Date().toISOString().slice(0,10); }
+function f2(x){ return (parseFloat(x||0)).toFixed(2); }
+function escapeHTML(s){return (s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m]))}
 
 window.DB = loadDB();
 DB.folios = DB.folios || {};
 DB.movInv = DB.movInv || { entradas:[], salidas:[], traspasos:[], conciliaciones:[] };
 DB.stock  = DB.stock  || {};
 
-/* ===== pestañas (dentro del subpanel) ===== */
-function openTab(id, title, mount){
-  const tabs = document.getElementById('tabs');
-  const views = document.getElementById('views');
-
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  document.querySelectorAll('.view').forEach(v=>v.style.display='none');
-
-  let tab = document.querySelector('.tab[data-id="'+id+'"]');
-  let view = document.getElementById('view-'+id);
-
-  if(!tab){
-    tab = document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=id; tab.textContent=title;
-    tabs.appendChild(tab);
-    view = document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
-    if(typeof mount==='function') mount(view);
-    tab.addEventListener('click',()=>{
-      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-      document.querySelectorAll('.view').forEach(v=>v.style.display='none');
-      tab.classList.add('active'); view.style.display='block';
-      view.scrollIntoView({behavior:'smooth', block:'start'});
-    });
-  }else{
-    tab.classList.add('active'); view.style.display='block';
-  }
-}
-
-/* ===== hoja de trabajo helpers ===== */
-window.HT = {
-  mountToolbar(root, opts){
-    const bar = document.createElement('div'); bar.className='ht-toolbar';
-    const left = document.createElement('div'); left.className='ht-left';
-    const bNew = document.createElement('button'); bNew.type='button'; bNew.className='ht-btn ht-btn-blue'; bNew.textContent='+ Nuevo '+(opts.docName||'documento');
-    bNew.onclick=opts.onNew; left.appendChild(bNew);
-
-    const bPrint = document.createElement('button'); bPrint.type='button'; bPrint.className='ht-btn'; bPrint.textContent='🖨️ Imprimir';
-    bPrint.onclick=()=>{ if(root.dataset.saved!=='true'){ alert('Debes guardar primero el documento para poder generar el PDF'); return; } opts.onPrint&&opts.onPrint(); };
-
-    const bSave = document.createElement('button'); bSave.type='button'; bSave.className='ht-btn ht-btn-blue'; bSave.textContent='💾 Guardar'; bSave.dataset.mode='save';
-    bSave.onclick=async ()=>{
-      if(bSave.dataset.mode==='edit'){ HT.setEditable(root,true); HT._toggle(bSave,true); root.dataset.saved='false'; return; }
-      if(!confirm('¿Guardar este documento?')) return;
-      const res = await (opts.onSave? opts.onSave() : true);
-      const ok = (res===true)||(res&&res.ok); const folio = (res&&res.folio)||root.dataset.folio||'';
-      if(!ok) return;
-      HT.markSaved(root, folio); HT.setEditable(root,false); HT._toggle(bSave,false);
-    };
-
-    bar.appendChild(left); bar.appendChild(bPrint); bar.appendChild(bSave);
-    const old=root.querySelector(':scope>.ht-toolbar'); if(old) old.remove();
-    root.prepend(bar);
-  },
-  setEditable(root,on){ root.querySelectorAll('[data-edit]').forEach(el=>{ if(on){ el.classList.remove('locked'); el.removeAttribute('disabled'); } else { el.classList.add('locked'); el.setAttribute('disabled','disabled'); } }); },
-  markSaved(root, folio){ root.dataset.saved='true'; if(folio) root.dataset.folio=folio; alert(folio?('Documento guardado · Folio '+folio):'Documento guardado'); },
-  _toggle(btn,isSave){ if(isSave){ btn.textContent='💾 Guardar'; btn.dataset.mode='save'; } else { btn.textContent='✏️ Editar'; btn.dataset.mode='edit'; } }
-};
-
-/* ===== router del menú ===== */
-const menu = document.getElementById('menu');
-menu.addEventListener('click', (e)=>{
-  const b = e.target.closest('button[data-root]'); if(!b) return;
-  document.querySelectorAll('.menu button').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');
-
-  // limpia panel: título/submenú/pestañas
-  const sub = document.getElementById('subpanel');
-  sub.innerHTML = '<div class="tabs" id="tabs"></div>';
-
-  if(b.dataset.root==='inventarios'){ renderInventarios(); return; }
-
-  // Placeholders para no romper flujo
-  const c = document.createElement('div'); c.className='card';
-  c.innerHTML='<h2>'+b.textContent.split(' ').slice(1).join(' ')+'</h2><p class="muted">Módulo en construcción. Inventarios está activo.</p>';
-  sub.appendChild(c);
-});
-
-/* KPI semana */
-(function(){
-  const hoy = new Date();
-  const lunes = new Date(hoy); const day=(hoy.getDay()+6)%7; lunes.setDate(hoy.getDate()-day);
-  const domingo = new Date(lunes); domingo.setDate(lunes.getDate()+6);
-  const f=(d)=>d.toISOString().slice(0,10).split('-').reverse().join('/');
-  document.getElementById('kpiSemana').textContent=f(lunes)+' – '+f(domingo);
+(function semana(){
+  const hoy=new Date(), lunes=new Date(hoy), d=(hoy.getDay()+6)%7; lunes.setDate(hoy.getDate()-d);
+  const dom=new Date(lunes); dom.setDate(lunes.getDate()+6);
+  const fmt=d=>d.toISOString().slice(0,10).split('-').reverse().join('/');
+  document.getElementById('kpiSemana').textContent=fmt(lunes)+' – '+fmt(dom);
 })();
 
-/* Auto abrir inicio */
+/* ===== Tabs locales por módulo ===== */
+function makeTabHost(workcol){
+  const tabs=document.createElement('div'); tabs.className='tabs';
+  const views=document.createElement('div');
+  workcol.innerHTML=''; workcol.appendChild(tabs); workcol.appendChild(views);
+
+  function open(id,title,mount){
+    // desactivar
+    tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    views.querySelectorAll('.view').forEach(v=>v.style.display='none');
+
+    let tab=tabs.querySelector('.tab[data-id="'+id+'"]');
+    let view=views.querySelector('#view-'+id);
+
+    if(!tab){
+      tab=document.createElement('button'); tab.type='button'; tab.className='tab active'; tab.dataset.id=id; tab.textContent=title;
+      tabs.appendChild(tab);
+      view=document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
+      if(typeof mount==='function') mount(view);
+      tab.onclick=()=>{ tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); views.querySelectorAll('.view').forEach(v=>v.style.display='none'); tab.classList.add('active'); view.style.display='block'; };
+    }else{
+      tab.classList.add('active'); view.style.display='block';
+    }
+  }
+  return { open };
+}
+
+/* ===== Toolbar helpers (reglas de hoja) ===== */
+window.HT={
+  mountToolbar(root,opts){
+    const bar=document.createElement('div'); bar.className='ht-toolbar';
+    const left=document.createElement('div'); left.className='ht-left';
+    const bNew=document.createElement('button'); bNew.type='button'; bNew.className='ht-btn ht-btn-blue'; bNew.textContent='+ Nuevo '+(opts.docName||'documento'); bNew.onclick=opts.onNew; left.appendChild(bNew);
+    const bPrint=document.createElement('button'); bPrint.type='button'; bPrint.className='ht-btn'; bPrint.textContent='🖨️ Imprimir';
+    bPrint.onclick=()=>{ if(root.dataset.saved!=='true'){alert('Debes guardar primero el documento para poder generar el PDF');return;} opts.onPrint&&opts.onPrint(); };
+    const bSave=document.createElement('button'); bSave.type='button'; bSave.className='ht-btn ht-btn-blue'; bSave.textContent='💾 Guardar'; bSave.dataset.mode='save';
+    bSave.onclick=async()=>{ if(bSave.dataset.mode==='edit'){HT.setEditable(root,true);HT._toggle(bSave,true);root.dataset.saved='false';return;} if(!confirm('¿Guardar este documento?')) return; const r=await (opts.onSave?opts.onSave():true); const ok=(r===true)||(r&&r.ok); const folio=(r&&r.folio)||root.dataset.folio||''; if(!ok) return; HT.markSaved(root,folio); HT.setEditable(root,false); HT._toggle(bSave,false); };
+    bar.appendChild(left); bar.appendChild(bPrint); bar.appendChild(bSave);
+    const old=root.querySelector(':scope>.ht-toolbar'); if(old) old.remove(); root.prepend(bar);
+  },
+  setEditable(root,on){ root.querySelectorAll('[data-edit]').forEach(el=>{ if(on){el.classList.remove('locked'); el.removeAttribute('disabled');} else {el.classList.add('locked'); el.setAttribute('disabled','disabled');} }); },
+  markSaved(root,folio){ root.dataset.saved='true'; if(folio) root.dataset.folio=folio; alert(folio?('Documento guardado · Folio '+folio):'Documento guardado'); },
+  _toggle(btn,isSave){ if(isSave){btn.textContent='💾 Guardar';btn.dataset.mode='save';} else {btn.textContent='✏️ Editar';btn.dataset.mode='edit';} }
+};
+
+/* ===== Router de módulos ===== */
+const host=document.getElementById('moduleHost');
+document.getElementById('menu').addEventListener('click',(e)=>{
+  const b=e.target.closest('button[data-root]'); if(!b) return;
+  document.querySelectorAll('.menu button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  host.innerHTML='';
+  if(b.dataset.root==='inventarios'){ renderInventarios(host); return; }
+  const card=document.createElement('div'); card.className='card'; card.innerHTML='<h2>'+b.textContent.split(' ').slice(1).join(' ')+'</h2><p class="muted">Módulo en construcción. Inventarios está activo.</p>'; host.appendChild(card);
+});
+
+/* Auto: Inicio */
 document.querySelector('button[data-root="inicio"]').click();
 </script>
 
-<!-- Módulo de Inventarios -->
+<!-- MÓDULO INVENTARIOS -->
 <script src="./mod_inventarios.js"></script>
 </body>
 </html>
