@@ -1,120 +1,214 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es-MX">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CONTROL-A v2.6 — argozmx · Guadalajara, Jalisco</title>
-  <link rel="icon" href="data:," />
-  <style>
-    /* ====== Base ====== */
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    :root{
-      --azul:#0a2c4c; --azul-2:#0f3a66; --b:#e5e7eb; --card:#fff; --bg:#f4f6f8;
-      --rojo:#b91c1c; --ok:#064e3b; --naranja:#ea580c;
-      --editable:#fff7e6; --readonly:#eef2f7;
-      --fs:13px; --h:34px;
-    }
-    body{margin:0; background:var(--bg); color:#0f172a; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; font-size:var(--fs);}
-    header{background:var(--azul); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:12px}
-    .brand{font-weight:800}
-    .right-act{margin-left:auto; display:flex; gap:8px}
-    .btn{border:1px solid #cbd5e1; padding:6px 10px; border-radius:8px; background:#fff; cursor:pointer}
-    .btn:hover{background:#f8fafc}
-    .btn-primary{background:#0a3a74;color:#fff;border-color:#0a3a74}
-    .btn-outline{background:#fff;border:1px dashed #cbd5e1}
-    .btn-warn{background:#ffedd5;color:#9a3412;border:1px solid #f59e0b}
-    .btn-orange{background:var(--naranja);color:#fff;border:1px solid var(--naranja)}
-    .app{display:grid; grid-template-columns:180px 220px 1fr; gap:8px; padding:10px}
-    .left{background:#08223b;color:#cbd5e1;border-radius:14px;padding:10px}
-    .left h3{margin:8px 10px}
-    .side-item{display:block;width:100%;text-align:left;color:#cbd5e1;background:transparent;border:0;padding:10px 12px;border-radius:10px;cursor:pointer}
-    .side-item:hover,.side-item.active{background:#0d3a66;color:#fff}
-    .mid{}
-    .card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:12px;margin-bottom:10px;overflow-x:auto}
-    .card h2{margin:0 0 10px 0;color:var(--azul)}
-    .content{min-height:60vh;overflow-x:hidden}
-    #tabs{display:flex;gap:6px;flex-wrap:wrap;padding:0 6px}
-    .tab{background:#e2e8f0;padding:6px 10px;border-radius:10px;cursor:pointer}
-    .tab.active{background:#0a3a74;color:#fff}
-    .tab .x{margin-left:6px;opacity:.7}
-    #views .view{display:none}
-    #views .view.active{display:block}
-    label{display:block;font-size:12px;color:#334155;margin-bottom:2px}
-    input,select,textarea{height:var(--h);padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:var(--fs);outline:none}
-    textarea{min-height:var(--h);height:auto}
-    input:not([readonly]):not(.ro), select:not([disabled]):not(.ro), textarea{background:var(--editable)}
-    input[readonly], select[disabled], .ro{background:var(--readonly)!important;color:#475569}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
-    .actions{display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap}
-    .hint{color:#64748b;font-size:12px}
-    .pill{background:#f1f5f9;border-radius:20px;padding:6px 10px;font-weight:700}
-    .pill.orange{background:#fed7aa;color:#9a3412}
-    .pill .num{font-size:16px}
-    table{width:100%;border-collapse:collapse;table-layout:fixed}
-    th,td{border-bottom:1px solid #e5e7eb;padding:4px 6px;text-align:left;vertical-align:middle;word-break:break-word}
-    thead tr{background:#e7effa}
-    .preview img{max-width:92px;border-radius:8px;border:1px solid #e5e7eb;margin:2px}
-    #toast{position:fixed;bottom:14px;right:14px;background:#0a3a74;color:#fff;padding:10px 14px;border-radius:10px;display:none;z-index:9999}
-    #diag{position:fixed;bottom:14px;left:14px;background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:10px;display:none;max-width:70vw;z-index:9999}
-
-    /* ===== Logo animado ===== */
-    .logo-wrap{display:flex;align-items:center;gap:8px}
-    .logo-oscila{width:28px;height:28px;display:inline-block;transform-origin:center center;will-change:transform;image-rendering:-webkit-optimize-contrast;animation:argozOscila 10s ease-in-out infinite}
-    @keyframes argozOscila{0%{transform:rotate(0deg)}70%{transform:rotate(0deg)}85%{transform:rotate(180deg)}100%{transform:rotate(0deg)}}
-
-    @media print{ header,.left,.mid,#tabs{display:none!important} .card{border:none} }
-    @page{size:5.5in 8.5in;margin:10mm}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ERP Taller · Control</title>
+<style>
+:root{
+  --menu-bg:#0b1c2e;             /* azul muy oscuro (menú) */
+  --menu-fg:#e6eef7;
+  --menu-active-start:#6A11CB;   /* morado */
+  --menu-active-end:#2575FC;     /* azul */
+  --btn-blue:#3b82f6;
+  --edit-bg:#fff3e6;             /* naranja claro edición */
+  --edit-bd:#f59e0b;
+  --lock-bg:#f3f4f6;             /* gris bloqueado */
+  --lock-fg:#475569;
+  --card:#ffffff;
+  --muted:#64748b;
+  --line:#e5e7eb;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial}
+.app{display:grid;grid-template-columns:260px 1fr;min-height:100vh;background:#f8fafc}
+aside{background:var(--menu-bg);color:var(--menu-fg);padding:14px 12px}
+.logo{font-weight:800;letter-spacing:.3px;margin-bottom:10px}
+.menu{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.menu button{
+  width:100%;text-align:left;border:0;background:transparent;color:var(--menu-fg);
+  padding:10px 12px;border-radius:10px;opacity:.9;cursor:pointer;font-weight:600
+}
+.menu button:hover{opacity:1;background:#0f2942}
+.menu button.active{
+  color:#fff;opacity:1;border:0;
+  background:linear-gradient(90deg,var(--menu-active-start),var(--menu-active-end));
+}
+main{padding:16px}
+.topbar{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.kpi{background:#fff;border:1px solid #e6ebf3;border-radius:14px;padding:10px 12px;font-weight:700}
+.card{background:var(--card);border:1px solid #e6ebf3;border-radius:14px;padding:12px;margin-bottom:12px}
+h1,h2{margin:0 0 10px;color:#0a2c4c}
+.muted{color:var(--muted);font-size:12px}
+.submods{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+.subbtn{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e6ebf3;border-radius:12px;background:#fff;cursor:pointer;font-weight:700}
+.subbtn:hover{border-color:#cdd6e4}
+.btn,.btn-primary{
+  border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700
+}
+.btn-primary{border:none;background:var(--btn-blue);color:#fff}
+.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#e2e8f0;font-weight:700}
+.pill.orange{background:#ffe5cf}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.grid label{display:block;font-size:12px;color:#334155;margin-bottom:4px}
+.grid input,.grid select,.grid textarea{
+  width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px
+}
+.ht-sheet [data-edit]{ background:var(--edit-bg); border:1px solid var(--edit-bd) }
+.ht-sheet [data-edit].locked{ background:var(--lock-bg)!important; color:var(--lock-fg); border:1px solid #cbd5e1 }
+.ht-toolbar{ display:flex; align-items:center; gap:8px; padding:8px 0 }
+.ht-left{ margin-right:auto }
+.ht-btn{ border:1px solid #cbd5e1; background:#fff; border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700 }
+.ht-btn-blue{ background:var(--btn-blue); color:#fff; border:none }
+.table{ width:100%; border-collapse:collapse; table-layout:fixed }
+.table th,.table td{ border:1px solid var(--line); padding:6px; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.table thead tr{ background:#eef2ff }
+.right{ display:flex; justify-content:flex-end; margin-top:8px }
+.money{ font-weight:800 }
+.tabs{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px }
+.tab{ border:1px solid #e6ebf3; background:#fff; padding:6px 10px; border-radius:999px; cursor:pointer }
+.tab.active{ background:#e2e8f0; font-weight:800 }
+.view{ background:transparent }
+@media print{
+  aside,.tabs,.topbar{display:none}
+  main{padding:0}
+}
+</style>
 </head>
 <body>
-<header>
-  <div class="logo-wrap">
-    <img src="/logo.webp" alt="argozmx" class="logo-oscila" />
-    <div class="brand">CONTROL-A · argozmx — Guadalajara, Jalisco</div>
-  </div>
-  <div class="hint">v2.6 · <span id="jsok">JS cargando...</span></div>
-  <div class="right-act">
-    <button class="btn" id="btn-toggle-mid">Submenú</button>
-    <button class="btn" id="btn-backup">💾 Respaldo</button>
-    <button class="btn" id="btn-restore">🗂️ Restaurar</button>
-  </div>
-</header>
-
 <div class="app">
-  <aside class="left">
-    <h3>Menú</h3>
-    <button class="side-item tree-btn active" data-root="inicio">🏠 Inicio</button>
-    <button class="side-item tree-btn" data-root="ventas">🧾 Ventas</button>
-    <button class="side-item tree-btn" data-root="inventarios">📦 Inventarios</button>
-    <button class="side-item tree-btn" data-root="pedidos">🗂️ Pedidos</button>
-    <button class="side-item tree-btn" data-root="produccion">🏭 Producción</button>
-    <button class="side-item tree-btn" data-root="catalogo">📇 Catálogo</button>
-  </aside>
-
-  <section class="mid" id="subpanel"></section>
-
-  <main class="content">
-    <div class="card">
-      <div id="tabs"></div>
-      <div id="views"></div>
+  <aside>
+    <div class="logo">ERP · Taller</div>
+    <div class="menu" id="menu">
+      <button data-root="inicio" class="active">🏠 Inicio</button>
+      <button data-root="ventas">🧾 Ventas</button>
+      <button data-root="inventarios">📦 Inventarios</button>
+      <button data-root="pedidos">📑 Pedidos</button>
+      <button data-root="produccion">🏭 Producción</button>
+      <button data-root="administracion">🗂️ Administración</button>
+      <button data-root="personal">👥 Personal</button>
+      <button data-root="catalogo">📚 Catálogo</button>
     </div>
+  </aside>
+  <main>
+    <div class="topbar">
+      <div class="kpi">Semana: <span id="kpiSemana"></span></div>
+      <div class="kpi">Ventas: $ 0.00</div>
+      <div class="kpi">Gastos: $ 0.00</div>
+      <div class="kpi">Producción: 0 g</div>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+    <div id="subpanel"></div>
+    <div id="views"></div>
   </main>
 </div>
 
-<div id="toast"></div>
-<div id="diag"></div>
-
 <script>
-  // Botones superiores (visuales; la lógica de backup/restore vive en app.js)
-  document.getElementById('btn-toggle-mid').addEventListener('click', function(){
-    var sp = document.getElementById('subpanel');
-    if(!sp){return}
-    if(sp.classList.contains('collapsed')){ sp.classList.remove('collapsed'); }
-    else{ sp.classList.add('collapsed'); }
-  });
-  document.getElementById('jsok').textContent = 'JS listo';
+// ====== Persistencia mínima ======
+const DBSLOT='erp_taller_db';
+function loadDB(){ try{ return JSON.parse(localStorage.getItem(DBSLOT)||'{}'); }catch(e){ return {}; } }
+function saveDB(db){ localStorage.setItem(DBSLOT, JSON.stringify(db)); }
+function hoyStr(d){ const dd = d? new Date(d): new Date(); return dd.toISOString().slice(0,10); }
+function f2(x){ const v = parseFloat(x||0); return v.toFixed(2); }
+function escapeHTML(s){ return (s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m])); }
+
+window.DB = loadDB();
+DB.folios = DB.folios || {};
+DB.movInv = DB.movInv || { entradas:[], salidas:[], traspasos:[], conciliaciones:[] };
+DB.stock  = DB.stock  || {};
+
+// ====== Tabs simples ======
+function openTab(id, title, mount){
+  const tabs = document.getElementById('tabs');
+  const views = document.getElementById('views');
+
+  let tab = document.querySelector('.tab[data-id="'+id+'"]');
+  let view = document.getElementById('view-'+id);
+
+  // desactivar actuales
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(v=>v.style.display='none');
+
+  if(!tab){
+    tab = document.createElement('button'); tab.className='tab active'; tab.dataset.id=id; tab.textContent=title;
+    tabs.appendChild(tab);
+    view = document.createElement('div'); view.className='view'; view.id='view-'+id; views.appendChild(view);
+    if(typeof mount==='function') mount(view);
+    tab.addEventListener('click',()=>{
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v=>v.style.display='none');
+      tab.classList.add('active'); view.style.display='block';
+    });
+  }else{
+    tab.classList.add('active'); view.style.display='block';
+  }
+}
+
+// ====== Hoja de Trabajo (helpers) ======
+window.HT = {
+  mountToolbar(root, opts){
+    const bar = document.createElement('div'); bar.className='ht-toolbar';
+    const left = document.createElement('div'); left.className='ht-left';
+    const bNew = document.createElement('button'); bNew.className='ht-btn ht-btn-blue'; bNew.textContent='+ Nuevo '+(opts.docName||'documento');
+    bNew.onclick=opts.onNew; left.appendChild(bNew);
+
+    const bPrint = document.createElement('button'); bPrint.className='ht-btn'; bPrint.textContent='🖨️ Imprimir';
+    bPrint.onclick=()=>{ if(root.dataset.saved!=='true'){ alert('Debes guardar primero el documento para poder generar el PDF'); return; } opts.onPrint&&opts.onPrint(); };
+
+    const bSave = document.createElement('button'); bSave.className='ht-btn ht-btn-blue'; bSave.textContent='💾 Guardar'; bSave.dataset.mode='save';
+    bSave.onclick=async ()=>{
+      if(bSave.dataset.mode==='edit'){ HT.setEditable(root,true); HT._toggle(bSave,true); root.dataset.saved='false'; return; }
+      if(!confirm('¿Guardar este documento?')) return;
+      const res = await (opts.onSave? opts.onSave() : true);
+      const ok = (res===true)||(res&&res.ok); const folio = (res&&res.folio)||root.dataset.folio||'';
+      if(!ok) return;
+      HT.markSaved(root, folio); HT.setEditable(root,false); HT._toggle(bSave,false);
+    };
+
+    bar.appendChild(left); bar.appendChild(bPrint); bar.appendChild(bSave);
+    const old=root.querySelector(':scope>.ht-toolbar'); if(old) old.remove();
+    root.prepend(bar);
+  },
+  setEditable(root,on){ root.querySelectorAll('[data-edit]').forEach(el=>{ if(on){ el.classList.remove('locked'); el.removeAttribute('disabled'); } else { el.classList.add('locked'); el.setAttribute('disabled','disabled'); } }); },
+  markSaved(root, folio){ root.dataset.saved='true'; if(folio) root.dataset.folio=folio; alert(folio?('Documento guardado · Folio '+folio):'Documento guardado'); },
+  _toggle(btn,isSave){ if(isSave){ btn.textContent='💾 Guardar'; btn.dataset.mode='save'; } else { btn.textContent='✏️ Editar'; btn.dataset.mode='edit'; } }
+};
+
+// ====== Subpanel router (módulos) ======
+const menu = document.getElementById('menu');
+menu.addEventListener('click', (e)=>{
+  const b = e.target.closest('button[data-root]'); if(!b) return;
+  document.querySelectorAll('.menu button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  const root=b.dataset.root;
+  // Limpia subpanel
+  document.getElementById('subpanel').innerHTML='';
+
+  if(root==='inventarios'){ renderInventarios(); return; }
+
+  // Placeholders para no romper flujo
+  const sp = document.getElementById('subpanel');
+  const c = document.createElement('div'); c.className='card';
+  c.innerHTML='<h2>'+b.textContent.split(' ').slice(1).join(' ')+'</h2><p class="muted">Módulo en construcción. Inventarios está activo.</p>';
+  sp.appendChild(c);
+});
+
+// KPI semana
+(function(){
+  const hoy = new Date();
+  const lunes = new Date(hoy); const day=(hoy.getDay()+6)%7; lunes.setDate(hoy.getDate()-day);
+  const domingo = new Date(lunes); domingo.setDate(lunes.getDate()+6);
+  const f=(d)=>d.toISOString().slice(0,10).split('-').reverse().join('/');
+  document.getElementById('kpiSemana').textContent=f(lunes)+' – '+f(domingo);
+})();
+
+// Auto abrir inicio
+document.querySelector('button[data-root="inicio"]').click();
 </script>
-<script src="/app.js"></script>
+
+<!-- MÓDULO INVENTARIOS -->
+<script src="./mod_inventarios.js"></script>
 </body>
 </html>
