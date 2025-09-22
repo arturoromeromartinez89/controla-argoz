@@ -1,320 +1,243 @@
-// ================================================================
-// ============  INICIO MÓDULO ADMINISTRACIÓN v1.3  ===============
-// ================================================================
+/* =========================================================
+   MOD · ADMINISTRACIÓN v1.0 (compact/UI)
+   - Usa la misma UI base que Inventarios (grids, cards, tabs)
+   - Define: window.renderAdministracion(host)
+   ========================================================= */
 
-(function bootstrapAdminState(){
-  window.DB = window.DB || {};
-  const A = (DB.admin && typeof DB.admin === 'object') ? DB.admin : (DB.admin = {});
-  A.consecutivoGasto = typeof A.consecutivoGasto === 'number' ? A.consecutivoGasto : 0;
-  A.consecutivoConc  = typeof A.consecutivoConc  === 'number' ? A.consecutivoConc  : 0;
-  A.gastos           = Array.isArray(A.gastos) ? A.gastos : (A.gastos = []);
-  A.ingresos         = Array.isArray(A.ingresos) ? A.ingresos : (A.ingresos = []);
-  A.conciliaciones   = Array.isArray(A.conciliaciones) ? A.conciliaciones : (A.conciliaciones = []);
-  A.cuentas          = Array.isArray(A.cuentas) && A.cuentas.length ? A.cuentas : (A.cuentas = [
-    { id:'caja_plata',   nombre:'Caja de Plata' },
-    { id:'caja_general', nombre:'Caja General'  },
-    { id:'banco_mxn',    nombre:'Banco MXN'     }
-  ]);
-  A.cuentasContables  = Array.isArray(A.cuentasContables) && A.cuentasContables.length ? A.cuentasContables : (A.cuentasContables = [
-    { id:'renta', nombre:'Renta' }, { id:'servicios', nombre:'Servicios (luz/agua/internet)' },
-    { id:'intereses', nombre:'Intereses' }, { id:'papeleria', nombre:'Papelería' },
-    { id:'mantenimiento', nombre:'Mantenimiento' }, { id:'honorarios', nombre:'Honorarios' },
-    { id:'transporte', nombre:'Transporte / Envíos' }, { id:'viaticos', nombre:'Viáticos' },
-    { id:'publicidad', nombre:'Publicidad / Marketing' }, { id:'otros', nombre:'Otros gastos' }
-  ]);
-  if(typeof saveDB==='function') saveDB(DB);
-})();
+(function(){
+  "use strict";
 
-/* ===== Helpers mínimos ===== */
-function moneyFmt(n){ return '$ ' + (Number(n||0)).toFixed(2); }
-function moneyParse(s){ if(typeof s==='number') return s; const n=parseFloat(String(s||'').replace(/^\s*\$\s*/,'').replace(/,/g,'')); return isNaN(n)?0:n; }
-function nextGastoId(){ return 'G'+Date.now()+Math.floor(Math.random()*1000); }
-function nextGastoFolio(){ DB.admin.consecutivoGasto += 1; if(typeof saveDB==='function') saveDB(DB); return DB.admin.consecutivoGasto; }
-function nextConcFolio(){ DB.admin.consecutivoConc  += 1; if(typeof saveDB==='function') saveDB(DB); return DB.admin.consecutivoConc; }
-function ctaNombre(id){ const c=DB.admin.cuentas.find(x=>x.id===id); return c?c.nombre:'—'; }
-function ctaContNombre(id){ const c=DB.admin.cuentasContables.find(x=>x.id===id); return c?c.nombre:'—'; }
+  // Utilidades pequeñas (reusa las globales si existen)
+  var f2 = window.f2 || function(n){ return (parseFloat(n||0)).toFixed(2); };
+  var hoyStr = window.hoyStr || function(){ return new Date().toISOString().slice(0,10); };
 
-/* ===== Motor de tabs local (reutilizable) ===== */
-function createTabs(container){
-  const tabs = document.createElement('div'); tabs.className='tabs';
-  const views= document.createElement('div');
-  container.appendChild(tabs); container.appendChild(views);
-  function openTab(id, title, painter){
-    let chip = tabs.querySelector(`.tab[data-tab="${id}"]`);
-    if(!chip){
-      chip = document.createElement('button'); chip.className='tab'; chip.dataset.tab=id; chip.type='button';
-      chip.textContent=title; chip.addEventListener('click', ()=>activate(id)); tabs.appendChild(chip);
-    } else { chip.textContent=title; }
-    let view = views.querySelector('#view-'+id);
-    if(!view){ view=document.createElement('div'); view.id='view-'+id; view.className='view'; views.appendChild(view); }
-    view.innerHTML=''; painter(view); activate(id);
+  // Bootstrap de estado admin en DB
+  if(!window.DB) window.DB = {};
+  if(!DB.admin){
+    DB.admin = {
+      consecutivoGasto: 0,
+      consecutivoConc: 0,
+      gastos: [],
+      ingresos: [],
+      conciliaciones: [],
+      cuentas: [
+        { id:'caja_plata',   nombre:'Caja de Plata' },
+        { id:'caja_general', nombre:'Caja General' },
+        { id:'banco_mxn',    nombre:'Banco MXN' }
+      ],
+      cuentasContables: [
+        { id:'renta', nombre:'Renta' },
+        { id:'servicios', nombre:'Servicios (luz/agua/internet)' },
+        { id:'mantenimiento', nombre:'Mantenimiento' },
+        { id:'honorarios', nombre:'Honorarios' },
+        { id:'otros', nombre:'Otros gastos' }
+      ]
+    };
+    window.saveDB && saveDB(DB);
   }
-  function activate(id){
-    tabs.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===id));
-    views.querySelectorAll('.view').forEach(v=>v.style.display = (v.id==='view-'+id)?'block':'none');
+
+  function ctaNombre(id){
+    var c = (DB.admin.cuentas||[]).find(function(x){return x.id===id;});
+    return c ? c.nombre : '—';
   }
-  return { openTab };
-}
-
-/* ================================================================
-   RENDER PRINCIPAL
-================================================================ */
-window.renderAdministracion = function(host){
-  host.innerHTML = '';
-
-  const mod = document.createElement('div'); mod.className='module';
-
-  // --------- SUBMENÚ ---------
-  const sub = document.createElement('div'); sub.className='subcol';
-  const box = document.createElement('div'); box.className='subbox';
-
-  function subBtn(txt, icon, fn){
-    const b=document.createElement('button'); b.className='subbtn'; b.type='button'; b.innerHTML=icon+' '+txt; b.onclick=fn; return b;
+  function ctaContNombre(id){
+    var c = (DB.admin.cuentasContables||[]).find(function(x){return x.id===id;});
+    return c ? c.nombre : '—';
   }
-  const btnG  = subBtn('Gastos','💸', ()=>openGastos());
-  const btnC  = subBtn('Conciliación de Cajas','🧾', ()=>openConc());
-  const btnER = subBtn('Estado de Resultados','📑', ()=>openER());
-  const btnD  = subBtn('Dashboard','📊', ()=>openDash());
 
-  box.appendChild(btnG); box.appendChild(btnC); box.appendChild(btnER); box.appendChild(btnD);
-  sub.appendChild(box);
+  function openTab(scopedHost, id, titulo, renderFn){
+    // pequeño manejador de tabs dentro del módulo
+    var tabs = scopedHost.querySelector('.tabs');
+    var views = scopedHost.querySelector('.views');
+    var btn = tabs.querySelector('[data-tab="'+id+'"]');
+    if(btn){
+      tabs.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');});
+      btn.classList.add('active');
+      views.querySelectorAll('.view').forEach(function(v){v.style.display='none';});
+      views.querySelector('#view-'+id).style.display='block';
+      return;
+    }
+    var t = document.createElement('button');
+    t.className='tab active';
+    t.setAttribute('data-tab',id);
+    t.textContent=titulo;
+    tabs.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');});
+    tabs.appendChild(t);
 
-  // --------- HOJA DE TRABAJO ---------
-  const work = document.createElement('div'); work.className='workcol';
-  const { openTab } = createTabs(work);
+    views.querySelectorAll('.view').forEach(function(v){v.style.display='none';});
+    var v=document.createElement('div');
+    v.className='view';
+    v.id='view-'+id;
+    v.style.display='block';
+    views.appendChild(v);
 
-  mod.appendChild(sub); mod.appendChild(work);
-  host.appendChild(mod);
+    t.addEventListener('click', function(){
+      tabs.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');});
+      t.classList.add('active');
+      views.querySelectorAll('.view').forEach(function(vw){vw.style.display='none';});
+      v.style.display='block';
+    });
 
-  /* ===================== GASTOS ===================== */
-  function openGastos(){
-    openTab('admin-gastos','Admin · Gastos', (view)=>{
-      const card=document.createElement('div'); card.className='card';
+    renderFn(v);
+  }
 
-      // Toolbar
-      const bar=document.createElement('div'); bar.className='ht-toolbar';
-      const left=document.createElement('div'); left.className='ht-left';
-      const bNew=document.createElement('button'); bNew.className='ht-btn ht-btn-blue'; bNew.textContent='+ Registrar gasto';
-      bNew.onclick = ()=>nuevoGasto();
-      const bImp=document.createElement('button'); bImp.className='ht-btn'; bImp.textContent='🖨️ Imprimir';
-      bImp.onclick = ()=>alert('Abre un gasto guardado para imprimir PDF.');
-      const bWA =document.createElement('button'); bWA.className='ht-btn'; bWA.textContent='WhatsApp';
-      bWA.onclick = ()=>alert('Exporta el PDF del gasto guardado y compártelo por WhatsApp.');
-      left.appendChild(bNew); left.appendChild(bImp); left.appendChild(bWA);
-      bar.appendChild(left);
-      card.appendChild(bar);
+  /* ====== SUBVISTAS ====== */
 
-      // Filtros
-      const g=document.createElement('div'); g.className='grid';
-      const d1=document.createElement('div'); d1.innerHTML='<label>Fecha inicio</label><input type="date">';
-      const d2=document.createElement('div'); d2.innerHTML='<label>Fecha fin</label><input type="date">';
-      const d3=document.createElement('div'); d3.innerHTML='<label>Tipo</label>';
-      const selTipo=document.createElement('select');
-      [['','TODOS'],['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']]
-        .forEach(p=>{ const op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; selTipo.appendChild(op); });
-      d3.appendChild(selTipo);
-      const d4=document.createElement('div'); d4.innerHTML='<label>Cuenta</label>';
-      const selCta=document.createElement('select'); const opAll=document.createElement('option'); opAll.value=''; opAll.textContent='Todas'; selCta.appendChild(opAll);
-      DB.admin.cuentas.forEach(c=>{ const op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; selCta.appendChild(op); });
-      const bBuscar=document.createElement('button'); bBuscar.className='ht-btn'; bBuscar.textContent='Buscar';
-      const wrapC4=document.createElement('div'); wrapC4.style.display='flex'; wrapC4.style.alignItems='end'; wrapC4.style.gap='8px';
-      wrapC4.appendChild(selCta); wrapC4.appendChild(bBuscar);
-      d4.appendChild(wrapC4);
-      g.appendChild(d1); g.appendChild(d2); g.appendChild(d3); g.appendChild(d4);
-      card.appendChild(g);
+  function uiGastos(v){
+    v.innerHTML='';
+    var card=document.createElement('div'); card.className='card';
+    var h=document.createElement('h2'); h.textContent='Gastos'; card.appendChild(h);
 
-      // Tabla
-      const tbl=document.createElement('table'); tbl.className='table';
-      const thead=document.createElement('thead'); const trh=document.createElement('tr');
-      ['Folio','Fecha','Tipo','Cuenta pago','Cuenta contable','Monto',''].forEach(h=>{ const th=document.createElement('th'); th.textContent=h; trh.appendChild(th); });
-      thead.appendChild(trh); tbl.appendChild(thead);
-      const tbody=document.createElement('tbody'); tbl.appendChild(tbody);
-      card.appendChild(tbl);
+    // filtros rápidos
+    var g=document.createElement('div'); g.className='grid';
+    var d1=document.createElement('div'); d1.innerHTML='<label>Desde</label><input type="date" id="ga-desde">';
+    var d2=document.createElement('div'); d2.innerHTML='<label>Hasta</label><input type="date" id="ga-hasta">';
+    var d3=document.createElement('div');
+    var sCta=document.createElement('select');
+    (DB.admin.cuentas||[]).forEach(function(c){
+      var op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; sCta.appendChild(op);
+    });
+    var l3=document.createElement('label'); l3.textContent='Cuenta de pago';
+    d3.appendChild(l3); d3.appendChild(sCta);
+    var d4=document.createElement('div');
+    var bBuscar=document.createElement('button'); bBuscar.className='ht-btn'; bBuscar.textContent='Buscar';
+    d4.appendChild(document.createElement('label')); d4.appendChild(bBuscar);
+    g.appendChild(d1); g.appendChild(d2); g.appendChild(d3); g.appendChild(d4);
+    card.appendChild(g);
 
-      view.appendChild(card);
+    // tabla
+    var tbl=document.createElement('table'); tbl.className='table';
+    var thead=document.createElement('thead'); var trh=document.createElement('tr');
+    ['Folio','Fecha','Cuenta pago','Cuenta contable','Monto'].forEach(function(t){
+      var th=document.createElement('th'); th.textContent=t; trh.appendChild(th);
+    });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tbody=document.createElement('tbody'); tbl.appendChild(tbody);
+    card.appendChild(tbl);
 
-      function pinta(){
-        tbody.innerHTML='';
-        const fi=d1.querySelector('input').value||''; const ff=d2.querySelector('input').value||'';
-        const t=selTipo.value; const c=selCta.value;
-        DB.admin.gastos.slice().sort((a,b)=>(b.ts||0)-(a.ts||0)).forEach(g=>{
-          let ok=true;
-          if(fi) ok=ok && g.fecha>=fi;
-          if(ff) ok=ok && g.fecha<=ff;
-          if(t)  ok=ok && g.tipo===t;
-          if(c)  ok=ok && g.cuentaId===c;
-          if(!ok) return;
-          const tr=document.createElement('tr'); tr.style.cursor='pointer';
-          tr.onclick=()=>abrirGasto(g.id);
-          function td(t){ const d=document.createElement('td'); d.textContent=t; return d; }
-          tr.appendChild(td(String(g.folio||0).padStart(3,'0')));
-          tr.appendChild(td(g.fecha||'')); tr.appendChild(td(g.tipo||'')); tr.appendChild(td(ctaNombre(g.cuentaId))); tr.appendChild(td(ctaContNombre(g.cuentaContableId)));
-          const dMonto=document.createElement('td'); dMonto.innerHTML='<b style="color:#0a3a74">'+moneyFmt(g.monto||0)+'</b>'; tr.appendChild(dMonto);
-          const dIcon=document.createElement('td'); dIcon.style.textAlign='right'; dIcon.textContent=g.bloqueado?'✏️':'💾'; tr.appendChild(dIcon);
-          tbody.appendChild(tr);
-        });
-      }
-      bBuscar.onclick=pinta; pinta();
+    // alta rápida
+    var right=document.createElement('div'); right.className='right';
+    var bNuevo=document.createElement('button'); bNuevo.className='ht-btn ht-btn-blue'; bNuevo.textContent='+ Registrar gasto';
+    right.appendChild(bNuevo); card.appendChild(right);
 
-      function nuevoGasto(){
-        const g={
-          id: nextGastoId(),
-          folio: nextGastoFolio(),
-          ts: Date.now(),
-          tipo:'pagado',
-          fecha: (window.hoyStr? hoyStr(): new Date().toISOString().slice(0,10)),
-          cuentaId:'', cuentaContableId:'', monto:0, bloqueado:false
-        };
-        DB.admin.gastos.push(g); if(typeof saveDB==='function') saveDB(DB);
-        abrirGasto(g.id);
-      }
-      function abrirGasto(id){
-        const g=DB.admin.gastos.find(x=>x.id===id); if(!g) return;
-        openTab('gasto-'+g.id, 'Gasto '+String(g.folio).padStart(3,'0'), (v)=>{
-          const card=document.createElement('div'); card.className='card ht-sheet';
-
-          const bar=document.createElement('div'); bar.className='ht-toolbar';
-          const left=document.createElement('div'); left.className='ht-left';
-          const bNuevo=document.createElement('button'); bNuevo.className='ht-btn'; bNuevo.textContent='Nuevo gasto'; bNuevo.onclick=()=>nuevoGasto();
-          const bImp=document.createElement('button'); bImp.className='ht-btn'; bImp.textContent='🖨️ Imprimir';
-          bImp.onclick=()=>{ if(!g.bloqueado){ alert('Debes guardar primero el documento para poder generar el PDF.'); return; } imprimirGastoPDF(g); };
-          const bWA=document.createElement('button'); bWA.className='ht-btn'; bWA.textContent='WhatsApp';
-          bWA.onclick=()=>{ if(!g.bloqueado){ alert('Debes guardar primero el documento para poder generar el PDF.'); return; } imprimirGastoPDF(g); alert('Exporta el PDF y compártelo por WhatsApp.'); };
-          left.appendChild(bNuevo); left.appendChild(bImp); left.appendChild(bWA);
-          bar.appendChild(left);
-
-          const right=document.createElement('div');
-          const bGuardar=document.createElement('button'); bGuardar.className='ht-btn ht-btn-blue'; bGuardar.textContent='GUARDAR';
-          const bEditar=document.createElement('button'); bEditar.className='ht-btn'; bEditar.textContent='✏️ Editar';
-          function paintRight(){ right.innerHTML=''; if(g.bloqueado) right.appendChild(bEditar); else right.appendChild(bGuardar); }
-          bGuardar.onclick=()=>{ if(!confirm('¿Guardar gasto?')) return;
-            if(!g.cuentaContableId){ alert('Selecciona la cuenta contable.'); return; }
-            if(g.tipo==='pagado' && !g.cuentaId){ alert('Selecciona la cuenta de pago.'); return; }
-            g.bloqueado=true; if(typeof saveDB==='function') saveDB(DB); paintRight(); setLock(true);
-            alert('Gasto guardado con éxito. Folio '+String(g.folio).padStart(3,'0')); };
-          bEditar.onclick =()=>{ g.bloqueado=false; if(typeof saveDB==='function') saveDB(DB); paintRight(); setLock(false); };
-          paintRight();
-          bar.appendChild(right);
-          card.appendChild(bar);
-
-          const grid=document.createElement('div'); grid.className='grid';
-          const dT=document.createElement('div'); dT.innerHTML='<label>Tipo de gasto</label>';
-          const sT=document.createElement('select'); sT.setAttribute('data-edit','');
-          [['pagado','Pagado'],['por_pagar','Por pagar'],['recurrente','Recurrente']].forEach(p=>{ const op=document.createElement('option'); op.value=p[0]; op.textContent=p[1]; if(g.tipo===p[0]) op.selected=true; sT.appendChild(op); });
-          sT.onchange=()=>{ g.tipo=sT.value; if(typeof saveDB==='function') saveDB(DB); };
-
-          const dF=document.createElement('div'); dF.innerHTML='<label>Fecha</label>';
-          const iF=document.createElement('input'); iF.type='date'; iF.value=g.fecha||''; iF.setAttribute('data-edit','');
-          iF.onchange=()=>{ g.fecha=iF.value; if(typeof saveDB==='function') saveDB(DB); };
-
-          const dC=document.createElement('div'); dC.innerHTML='<label>Cuenta de pago</label>';
-          const sC=document.createElement('select'); sC.setAttribute('data-edit','');
-          const opV=document.createElement('option'); opV.value=''; opV.textContent='(Selecciona)'; sC.appendChild(opV);
-          DB.admin.cuentas.forEach(c=>{ const op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; if(g.cuentaId===c.id) op.selected=true; sC.appendChild(op); });
-          sC.onchange=()=>{ g.cuentaId=sC.value; if(typeof saveDB==='function') saveDB(DB); };
-
-          const dCC=document.createElement('div'); dCC.innerHTML='<label>Cuenta contable</label>';
-          const sCC=document.createElement('select'); sCC.setAttribute('data-edit','');
-          const op0=document.createElement('option'); op0.value=''; op0.textContent='(Selecciona)'; sCC.appendChild(op0);
-          DB.admin.cuentasContables.forEach(cc=>{ const op=document.createElement('option'); op.value=cc.id; op.textContent=cc.nombre; if(g.cuentaContableId===cc.id) op.selected=true; sCC.appendChild(op); });
-          sCC.onchange=()=>{ g.cuentaContableId=sCC.value; if(typeof saveDB==='function') saveDB(DB); };
-
-          const dM=document.createElement('div'); dM.innerHTML='<label>Monto</label>';
-          const iM=document.createElement('input'); iM.type='text'; iM.value=moneyFmt(g.monto||0); iM.style.fontWeight='800'; iM.setAttribute('data-edit','');
-          iM.oninput=()=>{ g.monto=moneyParse(iM.value); if(typeof saveDB==='function') saveDB(DB); };
-          iM.onblur =()=>{ iM.value=moneyFmt(moneyParse(iM.value)); };
-
-          dT.appendChild(sT); dF.appendChild(iF); dC.appendChild(sC); dCC.appendChild(sCC); dM.appendChild(iM);
-          grid.appendChild(dT); grid.appendChild(dF); grid.appendChild(dC); grid.appendChild(dCC); grid.appendChild(dM);
-          card.appendChild(grid);
-
-          v.appendChild(card);
-
-          function setLock(ro){
-            [sT,iF,sC,sCC,iM].forEach(el=>{ el.disabled=ro; if(ro){el.classList.add('locked')}else{el.classList.remove('locked')} });
-          }
-          setLock(!!g.bloqueado);
-        });
-      }
-      function imprimirGastoPDF(g){
-        const css='@page{size:5.5in 8.5in;margin:10mm;}body{font-family:system-ui,Segoe UI,Roboto,Arial;font-size:12px;}h1{color:#0a2c4c}table{width:100%;border-collapse:collapse}th,td{border:1px solid #e5e7eb;padding:4px 6px}thead tr{background:#eef2ff}.row{display:flex;gap:8px;margin:6px 0}.col{flex:1}';
-        const H=['<!DOCTYPE html><html><head><meta charset="utf-8"><title>Gasto '+String(g.folio).padStart(3,'0')+'</title><style>'+css+'</style></head><body>',
-          '<h1>Gasto '+String(g.folio).padStart(3,'0')+'</h1>',
-          '<div class="row"><div class="col"><b>Fecha:</b> '+(g.fecha||'')+'</div><div class="col"><b>Tipo:</b> '+(g.tipo||'')+'</div></div>',
-          '<div class="row"><div class="col"><b>Cuenta pago:</b> '+ctaNombre(g.cuentaId)+'</div><div class="col"><b>Cuenta contable:</b> '+ctaContNombre(g.cuentaContableId)+'</div></div>',
-          '<div class="row"><div class="col"><b>Monto:</b> '+moneyFmt(g.monto||0)+'</div></div></body></html>'];
-        const w=window.open('', '_blank', 'width=840,height=900'); if(!w){ alert('Permite pop-ups para imprimir.'); return; }
-        w.document.write(H.join('')); w.document.close(); try{ w.focus(); w.print(); }catch(e){}
-      }
+    function pinta(){
+      tbody.innerHTML='';
+      var rows=DB.admin.gastos||[];
+      rows.forEach(function(gst){
+        var ok=true, des=v.querySelector('#ga-desde').value, has=v.querySelector('#ga-hasta').value;
+        if(des){ ok=ok && gst.fecha>=des; }
+        if(has){ ok=ok && gst.fecha<=has; }
+        if(sCta.value){ ok=ok && gst.cuentaId===sCta.value; }
+        if(!ok) return;
+        var tr=document.createElement('tr');
+        function td(t){ var d=document.createElement('td'); d.textContent=t; return d; }
+        tr.appendChild(td(String(gst.folio||0).toString().padStart(3,'0')));
+        tr.appendChild(td(gst.fecha||''));
+        tr.appendChild(td(ctaNombre(gst.cuentaId)));
+        tr.appendChild(td(ctaContNombre(gst.cuentaContableId)));
+        tr.appendChild(td('$ '+f2(gst.monto||0)));
+        tbody.appendChild(tr);
+      });
     }
 
-  /* ===================== CONCILIACIÓN ===================== */
-  function openConc(){
-    openTab('admin-conc','Conciliación de caja / cuenta', (view)=>{
-      const card=document.createElement('div'); card.className='card';
-
-      const g=document.createElement('div'); g.className='grid';
-      const dCta=document.createElement('div'); dCta.innerHTML='<label>Cuenta</label>';
-      const sCta=document.createElement('select'); DB.admin.cuentas.forEach(c=>{ const op=document.createElement('option'); op.value=c.id; op.textContent=c.nombre; sCta.appendChild(op); }); dCta.appendChild(sCta);
-      const d1=document.createElement('div'); d1.innerHTML='<label>Desde</label><input type="date">';
-      const d2=document.createElement('div'); d2.innerHTML='<label>Hasta</label><input type="date">';
-      const dB=document.createElement('div'); dB.innerHTML='<label>&nbsp;</label>'; const bBuscar=document.createElement('button'); bBuscar.className='ht-btn'; bBuscar.textContent='Buscar'; dB.appendChild(bBuscar);
-
-      g.appendChild(dCta); g.appendChild(d1); g.appendChild(d2); g.appendChild(dB);
-      card.appendChild(g);
-
-      const chips=document.createElement('div'); chips.className='ht-toolbar'; card.appendChild(chips);
-
-      const tIn=document.createElement('div'); tIn.className='card'; tIn.innerHTML='<h2>Ingresos del periodo</h2>';
-      const tblIn=document.createElement('table'); tblIn.className='table'; tblIn.innerHTML='<thead><tr><th>Fecha</th><th>Concepto</th><th>Monto</th></tr></thead><tbody></tbody>'; tIn.appendChild(tblIn);
-
-      const tEg=document.createElement('div'); tEg.className='card'; tEg.innerHTML='<h2>Egresos (pagados) del periodo</h2>';
-      const tblEg=document.createElement('table'); tblEg.className='table'; tblEg.innerHTML='<thead><tr><th>Fecha</th><th>Cuenta contable</th><th>Monto</th></tr></thead><tbody></tbody>'; tEg.appendChild(tblEg);
-
-      card.appendChild(tIn); card.appendChild(tEg);
-      view.appendChild(card);
-
-      bBuscar.onclick=()=>{
-        const tbodyIn=tblIn.querySelector('tbody'); const tbodyEg=tblEg.querySelector('tbody');
-        tbodyIn.innerHTML=''; tbodyEg.innerHTML=''; chips.innerHTML='';
-        const fi=d1.querySelector('input').value||'0000-01-01'; const ff=d2.querySelector('input').value||'9999-12-31'; const cta=sCta.value;
-
-        const ingresos=(DB.admin.ingresos||[]).filter(m=>m.cuentaId===cta && m.fecha>=fi && m.fecha<=ff);
-        const gastos  =(DB.admin.gastos||[]).filter(g=>g.tipo==='pagado' && g.cuentaId===cta && g.fecha>=fi && g.fecha<=ff);
-
-        let sumIn=0, sumEg=0;
-        ingresos.forEach(m=>{ sumIn+=Number(m.monto||0); const tr=document.createElement('tr'); tr.innerHTML=`<td>${m.fecha||''}</td><td>${m.concepto||'Ingreso'}</td><td>${moneyFmt(m.monto||0)}</td>`; tbodyIn.appendChild(tr); });
-        gastos.forEach(g=>{ sumEg+=Number(g.monto||0); const tr=document.createElement('tr'); tr.innerHTML=`<td>${g.fecha||''}</td><td>${ctaContNombre(g.cuentaContableId)}</td><td>${moneyFmt(g.monto||0)}</td>`; tbodyEg.appendChild(tr); });
-
-        function chip(t){ const s=document.createElement('span'); s.className='tab'; s.textContent=t; return s; }
-        chips.appendChild(chip('Ingresos: '+moneyFmt(sumIn)));
-        chips.appendChild(chip('Egresos: '+moneyFmt(sumEg)));
-        chips.appendChild(chip('Saldo esperado: '+moneyFmt(sumIn-sumEg)));
-
-        const bGuardar=document.createElement('button'); bGuardar.className='ht-btn ht-btn-blue'; bGuardar.textContent='GUARDAR conciliación';
-        bGuardar.onclick=()=>{ if(!confirm('¿Guardar conciliación?')) return;
-          const folio=nextConcFolio();
-          DB.admin.conciliaciones.push({ id:'C'+Date.now(), folio, cuentaId:cta, desde:fi, hasta:ff, ingresos:sumIn, egresos:sumEg, saldoEsperado:(sumIn-sumEg), bloqueado:true, ts:Date.now() });
-          if(typeof saveDB==='function') saveDB(DB);
-          alert('Conciliación guardada. Folio '+String(folio).padStart(3,'0'));
-        };
-        chips.appendChild(bGuardar);
+    bBuscar.addEventListener('click', pinta);
+    bNuevo.addEventListener('click', function(){
+      DB.admin.consecutivoGasto+=1;
+      var g={
+        id:'G'+Date.now(), folio:DB.admin.consecutivoGasto,
+        fecha:hoyStr(), cuentaId:(DB.admin.cuentas[0]||{}).id||'',
+        cuentaContableId:(DB.admin.cuentasContables[0]||{}).id||'',
+        monto:0
       };
+      DB.admin.gastos.push(g); window.saveDB && saveDB(DB);
+      pinta();
+      alert('Gasto creado: folio '+String(g.folio).padStart(3,'0')+'. Edición detallada la integramos después.');
     });
+
+    pinta();
+    v.appendChild(card);
   }
 
-  /* ===================== ER & Dashboard ===================== */
-  function openER(){
-    openTab('admin-er','Estado de Resultados', (v)=>{ const c=document.createElement('div'); c.className='card'; c.innerHTML='<h2>Estado de Resultados</h2><p class="muted">(Próximamente)</p>'; v.appendChild(c); });
-  }
-  function openDash(){
-    openTab('admin-dash','Dashboard Administrativo', (v)=>{ const c=document.createElement('div'); c.className='card'; c.innerHTML='<h2>Dashboard Administrativo</h2><p class="muted">(Próximamente)</p>'; v.appendChild(c); });
+  function uiConciliacion(v){
+    v.innerHTML='';
+    var c=document.createElement('div'); c.className='card';
+    var h=document.createElement('h2'); h.textContent='Conciliación de Cajas'; c.appendChild(h);
+
+    var g=document.createElement('div'); g.className='grid';
+    var d1=document.createElement('div'); var l1=document.createElement('label'); l1.textContent='Cuenta';
+    var s=document.createElement('select'); (DB.admin.cuentas||[]).forEach(function(ct){
+      var op=document.createElement('option'); op.value=ct.id; op.textContent=ct.nombre; s.appendChild(op);
+    });
+    d1.appendChild(l1); d1.appendChild(s); g.appendChild(d1);
+
+    var d2=document.createElement('div'); d2.innerHTML='<label>Desde</label><input type="date" id="co-desde">';
+    var d3=document.createElement('div'); d3.innerHTML='<label>Hasta</label><input type="date" id="co-hasta">';
+    var d4=document.createElement('div'); var b=document.createElement('button'); b.className='ht-btn'; b.textContent='Calcular'; d4.appendChild(document.createElement('label')); d4.appendChild(b);
+    g.appendChild(d2); g.appendChild(d3); g.appendChild(d4);
+    c.appendChild(g);
+
+    var res=document.createElement('div'); res.className='tabs'; c.appendChild(res);
+    var chips=document.createElement('div'); chips.className='card'; chips.style.marginTop='8px'; c.appendChild(chips);
+
+    b.addEventListener('click', function(){
+      var desde=v.querySelector('#co-desde').value||'0000-01-01';
+      var hasta=v.querySelector('#co-hasta').value||'9999-12-31';
+      var cuenta=s.value;
+      var ins=(DB.admin.ingresos||[]).filter(function(m){return m.cuentaId===cuenta && m.fecha>=desde && m.fecha<=hasta;});
+      var egs=(DB.admin.gastos||[]).filter(function(g){return g.cuentaId===cuenta && g.tipo!=='por_pagar' && g.fecha>=desde && g.fecha<=hasta;});
+      var sumIn=ins.reduce(function(a,x){return a+(+x.monto||0);},0);
+      var sumEg=egs.reduce(function(a,x){return a+(+x.monto||0);},0);
+      chips.innerHTML='<b>Ingresos:</b> $ '+f2(sumIn)+' &nbsp; <b>Egresos:</b> $ '+f2(sumEg)+' &nbsp; <b>Saldo esperado:</b> $ '+f2(sumIn-sumEg);
+    });
+
+    v.appendChild(c);
   }
 
-  // Abrir por defecto
-  btnG.click();
-};
+  function uiER(v){
+    v.innerHTML='';
+    var c=document.createElement('div'); c.className='card';
+    c.innerHTML='<h2>Estado de Resultados</h2><p class="muted">Próxima iteración.</p>';
+    v.appendChild(c);
+  }
 
-// ================================================================
-// ==============  FIN MÓDULO ADMINISTRACIÓN v1.3  ================
-// ================================================================
+  function uiDashboard(v){
+    v.innerHTML='';
+    var c=document.createElement('div'); c.className='card';
+    c.innerHTML='<h2>Dashboard</h2><p class="muted">Próxima iteración.</p>';
+    v.appendChild(c);
+  }
+
+  /* ====== RENDER PRINCIPAL ====== */
+  function renderUI(host){
+    host.innerHTML='';
+    var mod=document.createElement('div'); mod.className='module';
+
+    // Submenú
+    var sub=document.createElement('div'); sub.className='subcol';
+    var subbox=document.createElement('div'); subbox.className='subbox';
+    function sb(txt,fn){
+      var b=document.createElement('button'); b.className='subbtn'; b.textContent=txt; b.addEventListener('click',fn); return b;
+    }
+    subbox.appendChild(sb('Gastos', function(){ openTab(mod,'gastos','Gastos', uiGastos); }));
+    subbox.appendChild(sb('Conciliación de Cajas', function(){ openTab(mod,'conc','Conciliación', uiConciliacion); }));
+    subbox.appendChild(sb('Estado de Resultados', function(){ openTab(mod,'er','Estado de Resultados', uiER); }));
+    subbox.appendChild(sb('Dashboard', function(){ openTab(mod,'dash','Dashboard', uiDashboard); }));
+    sub.appendChild(subbox);
+
+    // Hoja de trabajo
+    var work=document.createElement('div'); work.className='workcol';
+    var tabs=document.createElement('div'); tabs.className='tabs';
+    var views=document.createElement('div'); views.className='views';
+    work.appendChild(tabs); work.appendChild(views);
+
+    mod.appendChild(sub); mod.appendChild(work);
+    host.appendChild(mod);
+
+    // abre por defecto "Gastos"
+    openTab(mod,'gastos','Gastos', uiGastos);
+  }
+
+  // Export para el router del index
+  window.renderAdministracion = function(host){ renderUI(host); };
+
+})();
