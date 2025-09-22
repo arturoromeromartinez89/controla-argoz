@@ -143,3 +143,50 @@ window.escapeHTML = escapeHTML;
 <script src="./Mod_administracion.js"></script> <!-- 👈 coincide EXACTO con tu archivo -->
 </body>
 </html>
+
+// router_unificado.js
+// Enrutador mínimo para el ERP modular (Inventarios / Administración)
+// Usa botones del menú lateral con data-route="inventarios" | "administracion"
+// y un contenedor principal con id="moduleHost".
+
+import { renderInventarios } from './Mod_inventarios.js';
+import { renderAdministracion } from './Mod_administracion.js';
+
+const routes = {
+  inventarios: renderInventarios,
+  administracion: renderAdministracion,
+};
+
+export function initRouter() {
+  const moduleHost = document.getElementById('moduleHost');
+
+  function setActive(route) {
+    document.querySelectorAll('aside.mainmenu [data-route]').forEach(b => {
+      b.classList.toggle('active', b.dataset.route === route);
+    });
+  }
+
+  function go(route) {
+    const render = routes[route] || routes.inventarios;
+    render(moduleHost);
+    setActive(route);
+  }
+
+  function current() {
+    return (location.hash.replace('#','') || 'inventarios');
+  }
+
+  window.addEventListener('hashchange', () => go(current()));
+
+  document.querySelectorAll('aside.mainmenu [data-route]').forEach(b => {
+    b.addEventListener('click', () => {
+      if (b.dataset.route) location.hash = b.dataset.route;
+    });
+  });
+
+  go(current());
+}
+
+// Auto-inicializa cuando el script se carga después del DOM.
+if (document.readyState !== 'loading') { initRouter(); }
+else { document.addEventListener('DOMContentLoaded', initRouter); }
