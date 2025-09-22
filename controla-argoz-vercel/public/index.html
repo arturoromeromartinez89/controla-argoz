@@ -120,9 +120,9 @@ document.getElementById('menu').addEventListener('click',(e)=>{
   const b=e.target.closest('button[data-root]'); if(!b) return;
   document.querySelectorAll('.menu button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
   host.innerHTML='';
-  if(b.dataset.root==='inventarios'){ renderInventarios(host); return; }
-  if(b.dataset.root==='administracion'){ renderAdministracion(host); return; }
-  // placeholder para los demás módulos
+  if(b.dataset.root==='inventarios'){ if(typeof renderInventarios==='function'){ renderInventarios(host); return; } }
+  if(b.dataset.root==='administracion'){ if(typeof renderAdministracion==='function'){ renderAdministracion(host); return; } }
+  // placeholder para los demás
   const card=document.createElement('div');
   card.className='card';
   card.innerHTML='<h2>'+b.textContent.split(' ').slice(1).join(' ')+'</h2><p class="muted">Módulo en construcción.</p>';
@@ -139,7 +139,7 @@ window.hoyStr = hoyStr;
 window.escapeHTML = escapeHTML;
 </script>
 
-<!-- MÓDULOS -->
+<!-- MÓDULOS (deben existir en el MISMO directorio que este index) -->
 <script src="./mod_inventarios.js"></script>
 <script src="./mod_administracion.js"></script>
 </body>
